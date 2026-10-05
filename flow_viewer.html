@@ -572,6 +572,71 @@ function gxBtn(s){
       esc(liveTk)}${GX_IDX ? '+' + idx : ''}${GX_IDX && !B ? ' —' : ''}</button>`;
 }
 
+/* IMPLIED MOVE band, in PINK (button in the live bar, or `i`; on by default).
+   anchor ± q × the at-the-money straddle -- implied_move.py, validated out of
+   sample by check_implied_move (each side held ~65% / ~90% of days, 2025-08 ..
+   2026-09). The 09:35 band once the bot has quoted it; before that, the
+   pre-open band from the prior session's 15:55 straddle. SPY/QQQ/IWM only --
+   nothing else was tested.                                                  */
+const IM_COL = '#f778ba', IM_COL90 = 'rgba(247,120,186,0.6)';
+const IM_TICKERS = ['SPY', 'QQQ', 'IWM'];
+let IM_ON = uiGet('fv_im') !== '0';
+function imToggle(){
+  IM_ON = !IM_ON; uiSet('fv_im', IM_ON ? null : '0');
+  if(LIVE && liveTk) liveDraw(LIVE, LIVE.tickers[liveTk]);
+}
+function imPick(s){
+  const m = s && s.imove;
+  return !m ? null : m.am ? ['am', m.am] : m.pm ? ['pm', m.pm] : null;
+}
+function imDesc(fam, r){
+  return fam === 'am'
+    ? `09:35 straddle ${r.straddle} (${r.pct}%) on the 09:35 close ${r.anchor}`
+    : `pre-open: the ${r.quoted} 15:55 straddle ${r.straddle} (${r.pct}%) on that close ${r.anchor} — replaced at 09:36`;
+}
+function imBtn(s){
+  if(!IM_TICKERS.includes(liveTk)) return '';
+  const P = imPick(s);
+  const why = P ? imDesc(...P) : 'no band yet: quoted at 15:56 for the next session, and again at 09:36';
+  return `<button id="imBtn" class="tag" title="${esc(why)} — i toggles"
+    style="width:auto;flex:none;margin:0;font:inherit;font-size:11px;cursor:pointer;background:${IM_ON && P ? '#3a1530' : 'transparent'};color:${
+      IM_ON && P ? IM_COL : 'var(--fg)'};border-color:${IM_ON ? IM_COL : 'var(--line)'}">IM${
+      IM_ON && P && P[0] === 'pm' ? ' pre' : ''}${IM_ON && !P ? ' —' : ''}</button>`;
+}
+
+/* VOL GAUGE (live_state VOL GAUGE / check_vol_gauge.py): P(the underlying
+   moves >= half the 09:35 straddle, either way, within 60 minutes) against
+   the typical rate for this ticker and time. DISPLAY ONLY. Its test FAILED
+   calibration at the top end, so from the model's `high` (65%) up it shows
+   no number -- the pill turns from black to red, the depth tracking how far
+   the estimate keeps climbing (full red at 90%). Orange: no chart line uses it. */
+const VG_COL = '#f0883e';
+function vgPill(s){
+  const g = s && s.vgauge;
+  if(!g) return '';
+  const st = 'width:auto;flex:none;margin:0;font-size:11px;display:inline-flex;align-items:center;gap:5px';
+  if(g.state !== 'ok' && g.state !== 'high')
+    return `<span class="tag" style="${st};color:var(--dim)" title="${esc(g.why || '')}">VOL —</span>`;
+  const tip = `Volatility gauge (display only): chance ${liveTk} moves ±${g.move} ` +
+    `(half the 09:35 straddle) either way within the next 60 min, as of ${g.at}. ` +
+    `Typical for this time: ${Math.round(g.clim*100)}%. Inputs: price path over 30 min ` +
+    `${g.inputs.PATH30 ?? '—'} straddles, RVOL15 ${g.inputs.RVOL15 ?? '—'}, RVOL ${g.inputs.RVOL ?? '—'}. ` +
+    `Above ${Math.round(g.high*100)}% it shows HIGH, deepening red as the estimate climbs: ` +
+    `the model is not calibrated well enough up there to quote a number.`;
+  if(g.state === 'high'){
+    const a = (0.12 + 0.88 * g.heat).toFixed(3);
+    return `<span class="tag" title="${esc(tip)}" style="${st};font-weight:700;color:#fff;` +
+      `border-color:#f85149;background:rgba(218,54,51,${a})">VOL HIGH</span>`;
+  }
+  const w = 70, fill = Math.round(g.p * w), mark = Math.round(g.clim * w);
+  return `<span class="tag" title="${esc(tip)}" style="${st};border-color:${VG_COL}">` +
+    `<span style="color:${VG_COL}">VOL</span>` +
+    `<span style="position:relative;display:inline-block;width:${w}px;height:7px;background:#21262d;border-radius:2px">` +
+    `<span style="position:absolute;left:0;top:0;bottom:0;width:${fill}px;background:${VG_COL};border-radius:2px"></span>` +
+    `<span style="position:absolute;left:${mark}px;top:-2px;bottom:-2px;width:2px;background:var(--fg)"></span></span>` +
+    `<b>${Math.round(g.p*100)}%</b><span class="k">typ ${Math.round(g.clim*100)}%</span></span>`;
+}
+
 function liveStop(){
   clearInterval(liveTimer); liveTimer = null; LIVE = null; liveSeries = null;
   uiSet('fv_live', null);
@@ -631,6 +696,11 @@ function liveDraw(d, s){
       lastValueVisible:false, priceLineVisible:false,
     }, 0);
     vol.priceScale().applyOptions({scaleMargins:{top:0.78, bottom:0}});
+    /* ...and keep the PRICE out of that strip. The default price margin is
+       bottom 0.1, so a falling price ran down into the volume bars. 0.26
+       leaves a gap above the 22% strip. Drag the price axis to rescale (then
+       drag the chart up/down to pan); double-click the axis to snap back. */
+    px.priceScale().applyOptions({scaleMargins:{top:0.08, bottom:0.26}});
     const cum = chart.addSeries(LWC.LineSeries, {color:'#58a6ff', lineWidth:2,
       priceFormat:{type:'volume'}, title:'cum net premium'}, 1);
     const ema = chart.addSeries(LWC.LineSeries, {color:'#a371f7', lineWidth:1,
@@ -750,6 +820,24 @@ function liveDraw(d, s){
       }));
     }
   }
+  /* IMPLIED MOVE (pink): solid 65%, faint dotted 90%. Into gexLines so they
+     are cleared with the rest of the levels on every redraw. */
+  const IMP = IM_ON ? imPick(s) : null;
+  if(IMP){
+    const [fam, r] = IMP, L = r.levels || {};
+    const tag = fam === 'am' ? 'IM' : 'IM pre-open';
+    for(const [k, col, w, sty, lab] of [
+        ['hi65', IM_COL, 2, LWC.LineStyle.Solid, `${tag} high 65%`],
+        ['lo65', IM_COL, 2, LWC.LineStyle.Solid, `${tag} low 65%`],
+        ['hi90', IM_COL90, 1, LWC.LineStyle.Dotted, `${tag} 90%`],
+        ['lo90', IM_COL90, 1, LWC.LineStyle.Dotted, `${tag} 90%`]]){
+      if(L[k] == null) continue;
+      liveSeries.gexLines.push(liveSeries.px.createPriceLine({
+        price:L[k], color:col, lineWidth:w, lineStyle:sty,
+        axisLabelVisible:true, title:lab,
+      }));
+    }
+  }
 
   drawUl();
   for(const l of liveSeries.lines) liveSeries.cum.removePriceLine(l);
@@ -786,6 +874,8 @@ function liveDraw(d, s){
     <span class="tag">${r.vol||'—'}</span><span class="tag">${r.trend||'—'}</span>
     <span class="tag">${r.gex||'—'} GEX</span><span class="tag">amp ${r.amp??'—'}</span>
     ${gxBtn(s)}
+    ${imBtn(s)}
+    ${vgPill(s)}
     <span id="volRead"></span>
     <span class="k">cum</span><b title="${d.flow_src !== null ? '' : 'no flow: this engine is manual-only (no UW_API_KEY)'}">${
       d.flow_src !== null ? fmtM(s.cum||0) : '—'}</b>
@@ -805,6 +895,7 @@ function liveDraw(d, s){
       ${p.roe>0?'+':''}${p.roe ?? '?'}%</b>`
       : `<span class="k">${s.state}</span>`}`;
   const gb = $('#gxBtn'); if(gb) gb.onclick = gxToggle;
+  const ib = $('#imBtn'); if(ib) ib.onclick = imToggle;
   $('#legend').innerHTML = `
     <div class="hd"><span>chart key — live</span>
       <span>k or click to dismiss</span></div>
@@ -829,6 +920,12 @@ function liveDraw(d, s){
       session's ${GX_INDEX[liveTk]}/${liveTk} ratio; dotted = ${GX_INDEX[liveTk]}'s biggest
       strikes, labelled natively${
       gxBlend(s.gex) ? ` · now ${Math.round((s.gex.blend.share||0)*100)}% of the band's gamma` : ''}</span>` : ''}
+    ${IM_TICKERS.includes(liveTk) ? (IMP
+      ? `<span><i style="background:${IM_COL}"></i>implied move (i) — ${esc(imDesc(...IMP))}.
+        Solid = 65%: each side held the session's high / low on ~65% of days out of
+        sample; dotted = 90%. A calibrated range, not a reversal signal.</span>`
+      : IM_ON ? `<span style="color:var(--dim)">implied move: no band yet — quoted at 15:56
+        for the next session and at 09:36 for this one</span>` : '') : ''}
     ${d.data_src === 'webull' ? `
     <span><i style="background:#58a6ff"></i>0-1DTE call wall · <i style="background:#f85149"></i>put wall
       — from the heat itself; "a ≈ b (zone)" when a strike more than one step away
@@ -1666,6 +1763,7 @@ addEventListener('keydown', e => {
   if(e.key === 't' || e.key === 's'){ UL_KEYS.add(e.key); return; }
   if(e.key === 'k'){ e.preventDefault(); toggleKey(); return; }
   if(e.key === 'g' && LIVE){ e.preventDefault(); gxToggle(); return; }
+  if(e.key === 'i' && LIVE){ e.preventDefault(); imToggle(); return; }
   if(e.key === 'n'){ e.preventDefault(); openNote(); return; }
   if(e.key === 'l'){ e.preventDefault(); $('#liveBtn').click(); return; }
   if(LIVE) return;

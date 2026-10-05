@@ -41,8 +41,10 @@ Usage (bot_runner, once inside the main loop):
 """
 from __future__ import annotations
 
+import bisect
 import datetime as _dt
 import json
+import math
 import os
 import tempfile
 import threading
@@ -1342,6 +1344,287 @@ def _start_sweep(eng):
         _SW_THREAD = None
 
 
+# ---------------------------------------------------------------- IMPLIED MOVE
+# anchor +/- q x ATM straddle (implied_move.py; validated by check_implied_move).
+# Two quotes per ticker per session, each taken ONCE and persisted, so a
+# restart keeps the day's band:
+#   pm  15:56-15:59, next-expiry straddle, anchor = the 15:55 close -> the
+#       NEXT session's pre-open band
+#   am  09:36-09:50, same-day straddle, anchor = the 09:35 close
+# Quotes come from a Webull REST snapshot in BOTH data modes (UW's chain would
+# cost a page walk for four contracts). The straddle is interpolated at the
+# price when it is quoted, i.e. at the money; the band hangs off the 09:35 /
+# 15:55 close, as in the study.
+IM_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live", "implied_move.json")
+IM_AM = (9 * 60 + 36, 9 * 60 + 50)
+IM_PM = (15 * 60 + 56, 15 * 60 + 59)
+IM_A_MOD = {"am": 9 * 60 + 35, "pm": 15 * 60 + 55}
+IM_BAND = 0.008             # strikes within +-0.8% of spot -- several each side
+IM_EVERY = 20.0
+IM_TRIES = 3
+_IM = {}                    # {ticker: {"am": rec, "pm": rec}}
+_IM_TRIED = {}              # {(ticker, family, quote_day): attempts}
+_IM_THREAD = None
+
+
+def _im_load():
+    try:
+        with open(IM_FILE, encoding="utf-8") as f:
+            doc = json.load(f) or {}
+    except (OSError, ValueError):
+        return
+    today = _dt.datetime.now(_NY).date().isoformat()
+    for tk, fams in doc.items():
+        for fam, rec in (fams or {}).items():
+            if isinstance(rec, dict) and str(rec.get("session", "")) >= today:
+                _IM.setdefault(tk, {})[fam] = rec
+
+
+def _im_anchor(tk, day, mod):
+    """Close of `day`'s minute `mod`: the bot's own sampled price, else the
+    Webull 1-minute bar (a restart after that minute)."""
+    em = int(_mod_epoch(day.isoformat(), mod) // 60)
+    px = (_PX.get(tk) or {}).get(em)
+    if px:
+        return float(px), "live"
+    try:
+        import webull_viewer_data as WV
+        for b in WV.bars_1m(tk, sessions=1):
+            if b["minute_et"] == f"{day.isoformat()}T{mod // 60:02d}:{mod % 60:02d}":
+                return float(b["close"]), "bar"
+    except Exception:
+        pass
+    return None, None
+
+
+def _im_take(tk, fam, day):
+    """Quote one family's straddle for `tk` and persist the band. Returns
+    quietly when already done or out of tries."""
+    import implied_move as IM
+    import webull_viewer_data as WV
+    from market_calendar import next_trading_day
+    session = day if fam == "am" else next_trading_day(day)
+    have = (_IM.get(tk) or {}).get(fam) or {}
+    key = (tk, fam, day.isoformat())
+    if have.get("session") == session.isoformat() or _IM_TRIED.get(key, 0) >= IM_TRIES:
+        return
+    _IM_TRIED[key] = _IM_TRIED.get(key, 0) + 1
+    listed = WV.expiries_for(WV._directory(tk), day, 7)
+    exp = (day.isoformat() if fam == "am"
+           else min((e for e in listed if e > day.isoformat()), default=None))
+    if exp is None or exp not in listed or (fam == "pm" and exp != session.isoformat()):
+        # the pm straddle must expire at the END of the session it prices
+        print(f"  〽️ [IMPLIED MOVE] {tk} {fam}: no {'same-day' if fam == 'am' else 'next-session'} "
+              f"expiry listed ({exp}) -- no band")
+        _IM_TRIED[key] = IM_TRIES
+        return
+    anchor, a_src = _im_anchor(tk, day, IM_A_MOD[fam])
+    spot = (_PX.get(tk) or {})
+    spot = spot[max(spot)] if spot else anchor
+    if not anchor or not spot:
+        return
+    _, quotes, _, _, _ = WV.snapshot_rows(tk, spot, IM_BAND, [exp])
+    strad, info = IM.straddle_from_quotes(quotes, spot)
+    if strad is None or not info.get("bracketed"):
+        print(f"  〽️ [IMPLIED MOVE] {tk} {fam}: {info if strad is None else 'spot not bracketed'}"
+              f" (try {_IM_TRIED[key]}/{IM_TRIES})")
+        return
+    rec = dict(session=session.isoformat(), quoted=day.isoformat(),
+               at=_dt.datetime.now(_NY).strftime("%H:%M"), expiry=exp,
+               anchor=round(anchor, 4), anchor_src=a_src, straddle=round(strad, 4),
+               pct=round(strad / anchor * 100, 3), k_near=info["k_near"],
+               levels=IM.band(tk, fam, anchor, strad))
+    _IM.setdefault(tk, {})[fam] = rec
+    try:
+        _atomic_write(IM_FILE, _IM)
+    except Exception:
+        pass
+    lv = rec["levels"]
+    print(f"  〽️ [IMPLIED MOVE] {tk} {fam} for {rec['session']}: straddle {strad:.2f} "
+          f"({rec['pct']:.2f}%) @ {anchor:.2f} -> 65% {lv['lo65']}-{lv['hi65']}, "
+          f"90% {lv['lo90']}-{lv['hi90']}")
+
+
+def _im_loop(eng):
+    """Daemon; swallows everything, like the other viewer threads."""
+    _im_load()
+    while True:
+        try:
+            from market_calendar import is_trading_day
+            import implied_move as IM
+            now = _dt.datetime.now(_NY)
+            mod = now.hour * 60 + now.minute
+            if is_trading_day(now.date()):
+                for fam, (lo, hi) in (("am", IM_AM), ("pm", IM_PM)):
+                    if lo <= mod <= hi:
+                        for tk in IM.TICKERS:
+                            try:
+                                _im_take(tk, fam, now.date())
+                            except Exception as e:      # noqa: BLE001
+                                print(f"  〽️ [IMPLIED MOVE] {tk} {fam}: {type(e).__name__}")
+        except Exception:
+            pass
+        time.sleep(IM_EVERY)
+
+
+def _start_imove(eng):
+    global _IM_THREAD
+    if _IM_THREAD is None:
+        _IM_THREAD = threading.Thread(target=_im_loop, args=(eng,),
+                                      name="implied-move", daemon=True)
+        _IM_THREAD.start()
+
+
+def _imove_for(tk):
+    """Today's band for the chart: the 09:35 one once taken, else the pre-open
+    one -- each only for the session it was quoted for."""
+    today = _dt.datetime.now(_NY).date().isoformat()
+    fams = _IM.get(tk) or {}
+    out = {f: r for f, r in fams.items() if isinstance(r, dict) and r.get("session") == today}
+    return out or None
+
+
+# ---------------------------------------------------------------- VOL GAUGE
+# P(the underlying moves >= 1/2 x the 09:35 ATM straddle, EITHER way, within
+# the next 60 minutes), against the typical rate for this ticker and time of
+# day. Model: check_vol_gauge.py --export -> vol_gauge.json (inputs: price path
+# over 30m in straddle units, RVOL15, RVOL, the time-of-day climatology).
+# 🚨 DISPLAY ONLY. The pre-registered test FAILED its calibration criterion (the
+# top decile under-predicted, 73 vs 79%); the user chose to deploy it as an
+# indicator with the top end shown as HIGH + a heat, never as a number, and to
+# forward-test it: one row per ticker per 10-minute grid slot goes to
+# VG_LOG, scored later against the bars. Nothing here reaches the engine.
+VG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vol_gauge.json")
+VG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live", "vol_gauge_log.jsonl")
+VG_HEAT_TOP = 0.90          # full red; 0.65 (the model's `high`) is black
+_VG = {}                    # {"model": dict | None}
+_VG_LOGGED = set()          # {(ticker, day_iso, mod)}
+
+
+def _vg_model():
+    if "model" not in _VG:
+        try:
+            with open(VG_FILE, encoding="utf-8") as f:
+                _VG["model"] = json.load(f)
+        except (OSError, ValueError):
+            _VG["model"] = None
+    return _VG["model"]
+
+
+def _vg_p(G, tk, m, F):
+    """Same formula as check_vol_gauge.gauge_p (the export is checked against
+    the fit there): ranked inputs by the exported quantiles, CLIM by slot, the
+    logistic, then the Platt map. -> (p, clim) or (None, None)."""
+    slots = [s for s in G["grid"] if s <= m]
+    if not slots or tk not in G["clim"]:
+        return None, None
+    pc = min(max(G["clim"][tk][str(slots[-1])], 0.02), 0.98)
+    z = G["intercept"]
+    for f, w in G["coef"].items():
+        if f == "CLIM":
+            x = math.log(pc / (1 - pc))
+        elif f in G["ranked"]:
+            v, q = F.get(f), G["ref"][tk][f]
+            if v is None:
+                x = 0.0
+            else:
+                i = bisect.bisect_left(q, v)
+                if i <= 0:
+                    r = 0.0
+                elif i >= len(q):
+                    r = 1.0
+                else:
+                    lo, hi = q[i - 1], q[i]
+                    r = (i - 1 + ((v - lo) / (hi - lo) if hi > lo else 0.0)) / (len(q) - 1)
+                x = r - 0.5
+        else:
+            x = F.get(f) or 0.0
+        z += w * x
+    p = 1 / (1 + math.exp(-z))
+    a, b = G["platt"]["a"], G["platt"]["b"]
+    p = 1 / (1 + math.exp(-(a + b * math.log(p / (1 - p)))))
+    return p, pc
+
+
+def _vg_inputs(eng, tk, today, m, S):
+    """Raw inputs at the CLOSED minute m, defined as in check_vol_gauge."""
+    F = {}
+    day_px = {}
+    for em, px in (_PX.get(tk) or {}).items():
+        t = _dt.datetime.fromtimestamp(int(em) * 60, _NY)
+        if t.date().isoformat() == today:
+            day_px[t.hour * 60 + t.minute] = px
+    seg = [day_px[k] for k in sorted(day_px) if max(570, m - 30) <= k <= m]
+    if len(seg) >= 6:
+        d = [abs(b - a) for a, b in zip(seg, seg[1:])]
+        F["PATH30"] = sum(d) / len(d) * 30 / S
+    base = _VOLBASE.get(tk) or {}
+    vol = {}
+    for stamp, v, r in _merged_volume(eng, tk):
+        vol[(int(stamp) // 60) % 1440] = (v, r)
+    if m in vol and vol[m][1] is not None:
+        F["RVOL"] = float(vol[m][1])
+    num = den = 0.0
+    n = 0
+    for k in range(m - 14, m + 1):
+        if k in vol and base.get(k):
+            num += vol[k][0]
+            den += base[k]
+            n += 1
+    if n >= 10 and den > 0:
+        F["RVOL15"] = num / den
+    return F
+
+
+def _vg_safe(eng, tk):
+    """The gauge must never be able to break the snapshot."""
+    try:
+        return _vgauge_for(eng, tk)
+    except Exception as e:                      # noqa: BLE001 -- deliberate
+        return dict(state="error", why=f"{type(e).__name__}: {e}")
+
+
+def _vgauge_for(eng, tk):
+    """-> dict for the viewer, or None for a ticker the model does not cover."""
+    G = _vg_model()
+    if not G or tk not in G.get("clim", {}):
+        return None
+    now = _dt.datetime.now(_NY)
+    today = now.date().isoformat()
+    m = now.hour * 60 + now.minute - 1                 # the last CLOSED minute
+    first, last = G["grid"][0], G["grid"][-1] + 9      # 09:40 .. 14:59
+    am = (_IM.get(tk) or {}).get("am") or {}
+    if am.get("session") != today or not am.get("straddle"):
+        return dict(state="wait", why="needs today's 09:35 straddle (the IM band, taken 09:36)")
+    if m < first:
+        return dict(state="wait", why=f"starts {first // 60:02d}:{first % 60:02d}")
+    if m > last:
+        return dict(state="closed", why=f"the model covers {first // 60:02d}:{first % 60:02d}-"
+                                        f"{last // 60:02d}:{last % 60:02d} (a 60m window must end by 16:00)")
+    S = float(am["straddle"])
+    F = _vg_inputs(eng, tk, today, m, S)
+    p, pc = _vg_p(G, tk, m, F)
+    if p is None:
+        return None
+    hi = float(G.get("high", 0.65))
+    out = dict(state="high" if p >= hi else "ok", at=f"{m // 60:02d}:{m % 60:02d}",
+               p=round(p, 3), clim=round(pc, 3), high=hi,
+               heat=round(min(1.0, max(0.0, (p - hi) / (VG_HEAT_TOP - hi))), 3),
+               move=round(G.get("big_s", 0.5) * S, 2),
+               inputs={k: round(v, 3) for k, v in F.items()})
+    if m in G["grid"] and (tk, today, m) not in _VG_LOGGED:
+        _VG_LOGGED.add((tk, today, m))
+        try:
+            close = (_PX.get(tk) or {}).get(int(_mod_epoch(today, m) // 60))
+            with open(VG_LOG, "a", encoding="utf-8") as f:
+                f.write(json.dumps(dict(day=today, mod=m, tk=tk, p=out["p"], clim=out["clim"],
+                                        S=S, close=close, inputs=out["inputs"],
+                                        model=G.get("version"))) + "\n")
+        except Exception:
+            pass
+    return out
+
+
 def _closed_px(tk):
     """Closed minutes only -- the in-progress minute is still forming, exactly
     as the flow tracker treats it."""
@@ -1506,6 +1789,7 @@ def snapshot(eng):
     _start_vwap(eng)          # no-op after the first call
     _start_gex(eng)           # ditto
     _start_sweep(eng)
+    _start_imove(eng)
     tk_state = {}
     tracker = getattr(eng, "flow_tracker", None)
     rules_by_tk = {}
@@ -1587,6 +1871,10 @@ def snapshot(eng):
             # construction -- /flow-alerts is an alert feed, not the tape --
             # so the viewer gives it its own scale. See _sweep_loop.
             sweep=_sweep_series(tk),
+            # {am?, pm?} implied-move bands for TODAY -- see _im_loop
+            imove=_imove_for(tk),
+            # display-only 60-minute volatility gauge -- see VOL GAUGE
+            vgauge=_vg_safe(eng, tk),
             spot=_num((_PX.get(tk) or {}).get(
                 max((_PX.get(tk) or {0: 0}), default=0)), 4),
             # see the module docstring: the scanner skips busy tickers, so a
