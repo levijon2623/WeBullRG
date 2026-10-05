@@ -424,8 +424,10 @@ def research_rules(include_paper: bool = False):
 #: the same shape, so the floor belongs in the ONE builder they all route
 #: through, not in each of them.
 #:
-#: Pass `since=None` to include the pre-sample window. `check_presample.py` is
-#: the only caller that should, and only after PRESAMPLE_PLAN.md is signed.
+#: Pass `since=None` to include the pre-sample window. It was the holdout until
+#: `check_presample.py` spent it on 2026-09-12 (PRESAMPLE_PLAN.md 6a); it is now
+#: usable only as LABELLED additional in-sample context (METHODOLOGY 8). The
+#: default floor stays, so no study picks it up by accident.
 DEPLOYED_START = _dt.date(2024, 8, 20)
 
 

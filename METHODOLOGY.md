@@ -830,7 +830,16 @@ feature *of* a thing, confirm the thing has the property its name claims.
 - `SLICE_EDGES`: 2024-08-20, 2024-12-20, 2025-04-21, 2025-08-21, 2025-12-21,
   2026-04-22, 2026-08-23 (6 slices)
 - A slice counts as populated at >= 3 observations
-- Lake coverage: 2024-08-20 → 2026-08-21; netprem/OHLC → 2026-09-04
+- Deployed research window: 2024-08-20 onward (`sim_core.DEPLOYED_START`)
+- **Pre-sample 2023-10-12 → 2024-08-19 is SPENT.** It was the pre-registered
+  holdout (`PRESAMPLE_PLAN.md`), run once on 2026-09-12: the book lost
+  **−17.2%/trade** there (core5, n=55, 95% CI [−30.1, −0.1]); SPY+QQQ −39.7%.
+  Per the plan it is now usable only as **additional in-sample context, always
+  labelled** — e.g. extra walk-forward training slices — never as a holdout,
+  and it never merges into IS or moves the 2025-08-21 split. Pass
+  `build_candidates(..., since=None)` to reach it.
+- Lake coverage (2026-10-03): silver option bars 2023-10-12 → 2026-09-18,
+  trades-core → 2026-09-25, HEDGE{T} → 2026-08-21
 
 ---
 
