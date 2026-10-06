@@ -647,7 +647,38 @@ def _fetch_gex_webull(tk, spot):
     return dict(heat=heat, walls={}, src="webull", ts=int(time.time()),
                 nearby_flips=[], uw_time=None, uw_date=today.isoformat(),
                 walls01=IX.walls_with_ties({k: tuple(v) for k, v in agg.items()}),
-                coverage=round(cov, 3), contracts=n)
+                coverage=round(cov, 3), contracts=n,
+                flip_calc=_flip_calc(tk, spot))
+
+
+# 🚨 A COMPUTED flip, kept OUT of `walls` on purpose: _log_levels writes
+# walls.gamma_flip to gex_levels_log.jsonl, the UW reference every flip study
+# (check_webull_flip) compares against -- ours must never land there.
+# SPY and IWM only: QQQ missed check_webull_flip's 0.25% limit (0.262%),
+# see gamma_flip.WEBULL_OK. Refreshed every 15 min, the validated cadence.
+FLIP_CALC_EVERY = 900.0
+_FLIP_CALC = {}             # {ticker: (epoch, dict | None)}
+
+
+def _flip_calc(tk, spot):
+    import gamma_flip as GF
+    if tk not in GF.WEBULL_OK or not spot:
+        return None
+    t0, have = _FLIP_CALC.get(tk, (0.0, None))
+    if time.time() - t0 < FLIP_CALC_EVERY:
+        return have
+    try:
+        f = GF.webull_flip(tk, spot)
+        have = None if not f or f.get("flip") is None else dict(
+            flip=round(f["flip"], 2), crossings=f["crossings"],
+            net_at_spot=round(f["net_at_spot"]), contracts=f["contracts"],
+            quoted=f["quoted"], at=_dt.datetime.now(_NY).strftime("%H:%M"),
+            window=f"0-{GF.WEBULL_DAYS}d, strikes +-{GF.WEBULL_BAND:.0%}")
+    except Exception as e:                      # noqa: BLE001 -- never break GEX
+        print(f"  ⚠️ [FLIP calc] {tk}: {type(e).__name__}")
+        have = None
+    _FLIP_CALC[tk] = (time.time(), have)
+    return have
 
 
 def _fetch_index_blend_webull(tk, spot, g):

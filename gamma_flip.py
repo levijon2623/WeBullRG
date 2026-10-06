@@ -90,3 +90,52 @@ def flip_of(rows, spot):
                 crossings=[round(x, 2) for x in xs], net_at_spot=net_now,
                 call_wall=call_wall, put_wall=put_wall, n=int(K.size),
                 curve=list(zip(np.round(spots, 2).tolist(), np.round(curve).tolist())))
+
+
+# ---------------------------------------------------------------- live use
+# check_webull_flip (2026-10-05/06, 50 pairs per ticker vs UW's flip), PRIMARY
+# window 0..7 calendar days, strikes +-5% of spot: SPY median gap 0.058% of
+# spot, 100% same side; IWM 0.183%, 88%; QQQ 0.262% -- over the pre-registered
+# 0.25%, so the test FAILED overall. The user chose to draw it for the two
+# tickers that passed on their own (a post-hoc split, said so on the chart);
+# QQQ stays UW-only.
+WEBULL_OK = ("SPY", "IWM")
+WEBULL_DAYS, WEBULL_BAND = 7, 0.05
+
+
+def webull_flip(tk, spot, now=None):
+    """The validated configuration, from Webull option snapshots -- the same
+    pull and rows as check_webull_flip.sample(). -> flip_of() dict without
+    the curve, plus contracts / quoted counts; None when nothing is usable."""
+    import datetime as dt
+    import time
+    from zoneinfo import ZoneInfo
+    import webull_viewer_data as WV
+    ny = ZoneInfo("America/New_York")
+    now = now or dt.datetime.now(ny)
+
+    def _exp(s):
+        return dt.date(2000 + int(s[-15:-13]), int(s[-13:-11]), int(s[-11:-9]))
+
+    want = [s for s in WV._directory(tk)
+            if 0 <= (_exp(s) - now.date()).days <= WEBULL_DAYS
+            and abs(int(s[-8:]) / 1000 / spot - 1) <= WEBULL_BAND]
+    data, got = WV._client(), {}
+    for i in range(0, len(want), WV.BATCH):
+        for x in WV._call(data.option_market_data.get_option_snapshot,
+                          symbols=",".join(want[i:i + WV.BATCH]), category="US_OPTION") or []:
+            if isinstance(x, dict) and x.get("symbol"):
+                got[x["symbol"]] = x
+        time.sleep(WV.PAUSE)
+    rows = []
+    for s in want:
+        x = got.get(s) or {}
+        T = (dt.datetime.combine(_exp(s), dt.time(16, 0), ny) - now).total_seconds() / (365 * 86400)
+        rows.append((int(s[-8:]) / 1000, T, WV._num(x.get("imp_vol")), WV._num(x.get("open_interest")),
+                     s[-9] == "C"))
+    f = flip_of(rows, spot)
+    if not f:
+        return None
+    f.pop("curve", None)
+    f.update(contracts=len(want), quoted=len(got))
+    return f

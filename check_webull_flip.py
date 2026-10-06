@@ -34,6 +34,15 @@ PRE-REGISTERED CRITERIA (per ticker, both sessions pooled; fixed 2026-10-03)
     fixed for the day), so two sessions are ~2 independent looks per ticker:
     a pass means "agrees with UW", not "is right".
 
+RUN LOG
+  2026-10-06 report (sessions 10-05 + 10-06, 50 pairs per ticker, 13,227
+    Webull calls, 0 failures). PRIMARY 7d5: SPY median |diff| 0.058% of spot,
+    same side 100% PASS; IWM 0.183%, 88% PASS; QQQ 0.262% (> 0.25%), same
+    side 100% -> FAIL on F1. VERDICT: FAIL (all three required). Other
+    windows (reported): 14d8 / 14d5 bring QQQ under 0.25% but blow IWM out
+    to 2.4-3.0% (44% same side) -- the long-dated IWM put OI again; 7d8 is
+    ~7d5. No window passes all three, so no window is swapped in.
+
 REPORTED: the same for the other windows; |ours - nearest of UW's
 nearby_flips|; net GEX at spot sign agreement with UW's flip side; calls and
 failures per pass.

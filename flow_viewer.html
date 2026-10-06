@@ -819,6 +819,17 @@ function liveDraw(d, s){
         lineStyle:LWC.LineStyle.Dotted, axisLabelVisible:false, title:'',
       }));
     }
+    /* COMPUTED gamma flip, Webull data, SPY and IWM only (gamma_flip.py,
+       check_webull_flip 2026-10-06: median gap to UW's flip 0.058% / 0.183%
+       of spot; QQQ missed the 0.25% limit and is not drawn). Same colour as
+       UW's flip, DOTTED and labelled "computed" so it is never taken for it. */
+    const FC = !W.gamma_flip ? G.flip_calc : null;
+    if(FC && FC.flip != null)
+      liveSeries.gexLines.push(liveSeries.px.createPriceLine({
+        price:FC.flip, color:'#d29922', lineWidth:2,
+        lineStyle:LWC.LineStyle.Dotted, axisLabelVisible:true,
+        title:`gamma flip ${FC.flip} (computed)`,
+      }));
   }
   /* IMPLIED MOVE (pink): solid 65%, faint dotted 90%. Into gexLines so they
      are cleared with the rest of the levels on every redraw. */
@@ -930,8 +941,14 @@ function liveDraw(d, s){
     <span><i style="background:#58a6ff"></i>0-1DTE call wall · <i style="background:#f85149"></i>put wall
       — from the heat itself; "a ≈ b (zone)" when a strike more than one step away
       carries ≥ 85% of the wall's gamma</span>
-    <span style="color:var(--dim)">all-expiry walls and gamma flip: Unusual Whales only
-      (they need the whole chain)</span>
+    ${(G0 => G0 && G0.flip_calc && G0.flip_calc.flip != null
+      ? `<span><i style="background:#d29922"></i>gamma flip (computed, dotted) — from Webull's
+        0-7 day chain, ${G0.flip_calc.at}; tracked Unusual Whales' flip within a median
+        ${liveTk === 'SPY' ? '0.06%' : '0.18%'} of price over 2 sessions (2026-10-05/06)</span>`
+      : '')(s.gex)}
+    <span style="color:var(--dim)">all-expiry walls: Unusual Whales only (they need the whole chain).
+      Gamma flip: computed for SPY and IWM only — QQQ's missed the agreement limit
+      (0.26% vs 0.25% of price), so it is not drawn</span>
     ${liveTk === 'SPY' ? `<span style="color:var(--put)">SPY+SPX on Webull data: shape and peak
       match Unusual Whales, but the single wall agreed only 50% of the time
       (2026-10-01) — several SPX strikes carry near-equal gamma. Read walls as zones.</span>` : ''}` : `
