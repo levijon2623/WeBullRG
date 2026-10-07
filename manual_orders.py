@@ -86,7 +86,16 @@ MANUAL_MAX_PREMIUM_PCT = float(
     (os.getenv("MANUAL_MAX_PREMIUM_PCT") or "0.20").strip() or 0.20)
 
 _CASH = {"v": None, "at": 0.0, "dt": None}
-CASH_TTL_S = 300.0
+# Was 300s; the operator wanted the balance fresher (2026-10-07). One Webull
+# account call per TTL, made from the viewer's snapshot tick. A fill also
+# expires it at once (_cash_stale), so the cap and the readout move with the
+# trade instead of up to a TTL later.
+CASH_TTL_S = float((os.getenv("MANUAL_CASH_TTL_S") or "30").strip() or 30)
+
+
+def _cash_stale():
+    """A fill changed the balance: the next account_cash() reads fresh."""
+    _CASH["at"] = 0.0
 
 
 def account_cash(eng, force=False):
@@ -1259,6 +1268,7 @@ def _check_entries(eng):
             pos.update(pending=False, qty=got, entry=round(fill, 2),
                        entry_coid=None, filled_at=int(time.time()))
             save_positions(eng)
+            _cash_stale()
             slip = (fill - float(pos.get("limit") or fill))
             # context captured AT THE FILL, not at the click and not at the
             # exit -- it is the state the position was actually opened into
@@ -1349,6 +1359,7 @@ def _check_exits(eng):
             continue
         pos.pop("blind", None)
         if st == "FILLED" or (st == "PARTIAL_FILLED" and fq > 0):
+            _cash_stale()
             fill = fpx or float(pos.get("exit_px") or 0)
             entry = float(pos.get("entry") or 0)
             roe = ((fill - entry) / entry * 100) if entry > 0 else None
