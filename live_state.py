@@ -1656,13 +1656,26 @@ def _vgauge_for(eng, tk):
     return out
 
 
+def _session_start_min():
+    """Epoch minute of today's ET midnight."""
+    d = _dt.datetime.now(_NY).date()
+    return int(_dt.datetime(d.year, d.month, d.day, tzinfo=_NY).timestamp() // 60)
+
+
 def _closed_px(tk):
     """Closed minutes only -- the in-progress minute is still forming, exactly
-    as the flow tracker treats it."""
+    as the flow tracker treats it.
+
+    🚨 TODAY ONLY. _PX keeps up to _PX_CAP minutes (~7 RTH sessions), and
+    _px_minute_ok only checks RTH + trading day, so a bot left running across
+    sessions drew every session since its restart in front of today's (seen
+    2026-10-07: Tuesday on Wednesday's chart after Monday's 16:51 restart).
+    Flow, VWAP, volume and sweeps were already per-session; now price is too."""
     b = _PX.get(tk) or {}
     now_min = int(time.time() // 60)
+    lo = _session_start_min()
     return [[_et_stamp(int(m) * 60), round(b[m], 4)]
-            for m in sorted(b) if m < now_min and _px_minute_ok(m)]
+            for m in sorted(b) if lo <= m < now_min and _px_minute_ok(m)]
 
 
 def _forming_px(tk):

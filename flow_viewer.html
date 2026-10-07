@@ -720,7 +720,14 @@ function liveDraw(d, s){
      trailed the market by up to a minute while the `underlying` readout
      beside it was current -- the chart and the number disagreed. Flow and
      EMA deliberately stay closed-only: the trigger is defined there. */
-  const pxData = (s.px || []).map(([t,v]) => ({time:t, value:v}));
+  /* ONE SESSION. Stamps are ET wall-clock as UTC (_et_stamp), so a day is
+     floor(t / 86400). live_state now sends today only (_closed_px); this
+     guard keeps an engine that predates that fix from drawing yesterday in
+     front of today (2026-10-07). */
+  const pxLast = (s.px_live || (s.px || []).slice(-1)[0] || [0])[0];
+  const pxDay = Math.floor(pxLast / 86400);
+  const pxData = (s.px || []).filter(([t]) => Math.floor(t / 86400) === pxDay)
+    .map(([t,v]) => ({time:t, value:v}));
   if(s.px_live){
     const [lt, lv] = s.px_live;
     if(!pxData.length || lt > pxData[pxData.length-1].time)
