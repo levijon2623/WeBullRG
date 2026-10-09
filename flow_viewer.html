@@ -637,6 +637,53 @@ function vgPill(s){
     `<b>${Math.round(g.p*100)}%</b><span class="k">typ ${Math.round(g.clim*100)}%</span></span>`;
 }
 
+/* WAIT LIGHTS, one per ETF (check_burst_entry.py). Marks the WORST time to
+   enter, never a good one. A 5-minute move of >= BURST_S straddles (the 95th
+   percentile of 5-minute moves, 0.28-0.30 S, stable 2024-26) is a burst; the
+   ~5 minutes after one give back a little on average (-0.008 S, CI below 0),
+   and entering 3-5 minutes later avoided it. RED 0-2 closed minutes after a
+   burst bar, AMBER 3-4, GREEN otherwise; grey before today's 09:35 straddle
+   or outside the tested 09:45-14:30 window. Closed minutes only, as tested.
+   No clock-based state: no half hour favours fading the morning
+   (check_morning_reversion.py, 10-09). Browser-side, no bot fields. */
+const BURST_S = {SPY: 0.284, QQQ: 0.293, IWM: 0.297};
+const WL_COL = {red: '#f85149', amber: '#d29922', green: '#3fb950', off: '#484f58'};
+function waitState(s, tk){
+  const am = s && s.imove && s.imove.am, px = (s && s.px) || [];
+  if(!am || !am.straddle) return {st: 'off', why: "needs today's 09:35 straddle (taken 09:36)"};
+  const S = +am.straddle, thr = BURST_S[tk], mod = t => Math.floor((t % 86400) / 60);
+  if(px.length < 6) return {st: 'off', why: 'filling'};
+  const last = mod(px[px.length - 1][0]);
+  if(last < 585 || last > 875) return {st: 'off', why: 'outside 09:45-14:30, the window the burst test covered'};
+  const usd = (thr * S).toFixed(2);
+  for(let i = px.length - 1; i >= 5; i--){
+    const m = mod(px[i][0]), age = last - m;
+    if(age > 4) break;
+    if(m - mod(px[i - 5][0]) !== 5) continue;
+    const mv = px[i][1] - px[i - 5][1];
+    if(Math.abs(mv) / S < thr) continue;
+    const at = `${Math.floor((m + 1) / 60)}:${String((m + 1) % 60).padStart(2, '0')}`;
+    const head = `${tk} ${mv > 0 ? 'ripped' : 'dropped'} ${mv > 0 ? '+' : ''}${mv.toFixed(2)} ` +
+      `(${(mv / S).toFixed(2)} straddles) in 5 min, ending ${at}, ${age} min ago. `;
+    return age <= 2
+      ? {st: 'red', why: head + 'Worst time to enter: the next few minutes give back a little on ' +
+          'average; entering 3-5 minutes later avoided it. Neither chasing nor fading pays after that.'}
+      : {st: 'amber', why: head + 'The usual pullback window is nearly over.'};
+  }
+  return {st: 'green', why: `No 5-minute burst (>= ${thr} straddles, $${usd}) in the last 5 minutes. ` +
+    `Not a GOOD time -- only not one of the measured bad ones. No time of day favours fading the morning's move.`};
+}
+function waitLights(d){
+  const cells = IM_TICKERS.filter(tk => d.tickers && d.tickers[tk]).map(tk => {
+    const w = waitState(d.tickers[tk], tk), c = WL_COL[w.st];
+    return `<span title="${esc(w.why)}" style="display:inline-flex;align-items:center;gap:3px;` +
+      `${tk === liveTk ? 'font-weight:700' : ''}"><span style="width:9px;height:9px;border-radius:50%;` +
+      `background:${c};box-shadow:${w.st === 'red' ? '0 0 6px ' + c : 'none'}"></span>${tk}</span>`;
+  });
+  return !cells.length ? '' : `<span class="tag" style="width:auto;flex:none;margin:0;font-size:11px;` +
+    `display:inline-flex;align-items:center;gap:8px">${cells.join('')}</span>`;
+}
+
 function liveStop(){
   clearInterval(liveTimer); liveTimer = null; LIVE = null; liveSeries = null;
   uiSet('fv_live', null);
@@ -894,6 +941,7 @@ function liveDraw(d, s){
     ${gxBtn(s)}
     ${imBtn(s)}
     ${vgPill(s)}
+    ${waitLights(d)}
     <span id="volRead"></span>
     <span class="k">cum</span><b title="${d.flow_src !== null ? '' : 'no flow: this engine is manual-only (no UW_API_KEY)'}">${
       d.flow_src !== null ? fmtM(s.cum||0) : '—'}</b>
