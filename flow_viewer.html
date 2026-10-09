@@ -1317,7 +1317,10 @@ function renderStage(){
      from ORDER.max_premium (a static $5,000 from /order-config) and not from
      `equity`, which under DRY_RUN is the $30k paper bankroll. On a small
      account the static number was larger than the account itself. */
-  const capDollars = (LIVE && LIVE.manual_cap) || ORDER.max_premium;
+  /* `!= null`, not `||`: a cap of $0 (the exposure limit fully used) is a
+     real answer and must not fall back to the static ceiling. */
+  const capDollars = (LIVE && LIVE.manual_cap != null) ? LIVE.manual_cap
+                                                       : ORDER.max_premium;
   /* Expiry AND dte, spelled out. A 0DTE and a 1DTE at the same strike differ
      only in the date string, and that is the mistake worth a few pixels. */
   $('#stageHdr').innerHTML =

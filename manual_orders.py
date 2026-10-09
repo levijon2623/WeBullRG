@@ -84,6 +84,16 @@ MAX_PREMIUM = 5_000.0          # dollars per order, absolute ceiling
 # tightens automatically as the account shrinks.
 MANUAL_MAX_PREMIUM_PCT = float(
     (os.getenv("MANUAL_MAX_PREMIUM_PCT") or "0.20").strip() or 0.20)
+# 🚨 THE BINDING LIMIT SINCE 2026-10-08: TOTAL exposure, not per order. The
+# operator day-trades every morning and wanted "25% at any given time, rather
+# than per trade". A per-order fraction of BUYING POWER never caps the total:
+# each fill shrinks buying power, so 25% + 25% of the rest + ... approaches
+# 100%. So: everything manually in play -- open holds at cost, pending entries
+# at their limit -- may not exceed this fraction of the ACCOUNT (net
+# liquidation value, which does not shrink when you buy). A new order gets
+# whatever room is left, and never more than real buying power.
+MANUAL_MAX_EXPOSURE_PCT = float(
+    (os.getenv("MANUAL_MAX_EXPOSURE_PCT") or "0.25").strip() or 0.25)
 
 _CASH = {"v": None, "at": 0.0, "dt": None}
 # Was 300s; the operator wanted the balance fresher (2026-10-07). One Webull
@@ -133,7 +143,14 @@ def account_cash(eng, force=False):
             for k in keys:
                 v = src.get(k)
                 if v not in (None, ""):
-                    _CASH.update(v=float(v), at=time.time(),
+                    nlv = node.get("net_liquidation_value")
+                    if nlv in (None, ""):
+                        nlv = h.get("total_net_liquidation_value")
+                    try:
+                        nlv = float(nlv) if nlv not in (None, "") else None
+                    except (TypeError, ValueError):
+                        nlv = None
+                    _CASH.update(v=float(v), at=time.time(), nlv=nlv,
                                  dt=h.get("day_trades_left"))
                     return _CASH["v"]
         print(f"  ⚠️ account_cash: no known balance field in {sorted(h)}")
@@ -145,8 +162,26 @@ def account_cash(eng, force=False):
     return _CASH["v"]
 
 
+def in_play(eng):
+    """Dollars manually committed right now: open holds at cost (qty x entry),
+    pending entries at their limit. Exits in flight still count until the
+    fill pops the hold -- the money is not back until then."""
+    tot = 0.0
+    for pos in (load_positions(eng) or {}).values():
+        try:
+            px = pos.get("limit") if pos.get("pending") else pos.get("entry")
+            tot += float(px or 0) * float(pos.get("qty") or 0) * 100
+        except (TypeError, ValueError):
+            continue
+    return tot
+
+
 def max_premium(eng):
-    """(cap_dollars, basis) for one discretionary order.
+    """(cap_dollars, basis) for the NEXT discretionary order.
+
+    The tightest of: MAX_PREMIUM; MANUAL_MAX_PREMIUM_PCT of buying power (per
+    order); and the room left under MANUAL_MAX_EXPOSURE_PCT of the account
+    once everything already in play is counted (in_play).
 
     🚨 UNREADABLE MEANS ZERO, NOT A DEFAULT. A cap we cannot compute is not a
     cap. Returning a constant here is how a $68 account got a $250 allowance
@@ -158,12 +193,17 @@ def max_premium(eng):
         return 0.0, "buying power unreadable — orders refused until it reads"
     if bp <= 0:
         return 0.0, "no option buying power"
-    cap = min(MAX_PREMIUM, bp * MANUAL_MAX_PREMIUM_PCT)
-    if MANUAL_MAX_PREMIUM_PCT < 1.0:
-        return cap, (f"{MANUAL_MAX_PREMIUM_PCT:.0%} of ${bp:,.2f} "
-                     f"option buying power")
-    return cap, (f"${bp:,.2f} option buying power"
-                 if cap < MAX_PREMIUM else f"${MAX_PREMIUM:,.0f} ceiling")
+    used = in_play(eng)
+    nlv = _CASH.get("nlv")
+    acct = nlv if nlv and nlv > 0 else bp + used
+    room = max(0.0, acct * MANUAL_MAX_EXPOSURE_PCT - used)
+    cap = max(0.0, min(MAX_PREMIUM, bp * MANUAL_MAX_PREMIUM_PCT, room))
+    basis = (f"{MANUAL_MAX_EXPOSURE_PCT:.0%} of ${acct:,.2f} account at any time"
+             f" — ${used:,.0f} in play, ${room:,.0f} left")
+    if cap < room:
+        basis += (f"; per order: ${MAX_PREMIUM:,.0f} ceiling" if cap == MAX_PREMIUM
+                  else f"; per order: ${cap:,.0f} of ${bp:,.2f} buying power")
+    return cap, basis
 # 🚨 THE COLLAR GATES ON SPREAD WIDTH, NOT ON LIMIT-vs-MID.
 # The first version compared the limit to the mid -- but the limit IS derived
 # from the mid (min(mid+0.01, ask)), so it can never be more than ~1c away and
