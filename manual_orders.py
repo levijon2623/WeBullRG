@@ -204,6 +204,79 @@ def max_premium(eng):
         basis += (f"; per order: ${MAX_PREMIUM:,.0f} ceiling" if cap == MAX_PREMIUM
                   else f"; per order: ${cap:,.0f} of ${bp:,.2f} buying power")
     return cap, basis
+
+
+# ---- the day goal (operator, 2026-10-12) ----------------------------------
+# A FLAG, never a gate. Once the account's net gain for the day reaches
+# MANUAL_DAY_GOAL_PCT (+5%) the staging panel says so, and it STAYS said for
+# the rest of the day, with the peak, after the gain slips back. 10-12: the
+# first trade made +5.3% by 11:50 and five stop-outs gave it all back by
+# 12:21 -- the flag is for the moment it is easiest to forget.
+#
+# Gain = NLV now vs the day's START, kept in a file so a restart cannot reset
+# it. The start is the first NLV read of the ET day less any P&L already
+# booked today in LEDGER, so a mid-day restart still measures from the open.
+# NLV carries open positions at Webull's marks, and a deposit or withdrawal
+# during the day reads as gain or loss.
+DAY_GOAL_PCT = float(os.getenv("MANUAL_DAY_GOAL_PCT") or 0.05)
+DAY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live",
+                        "day_nlv.json")
+
+
+def _realized_on(day):
+    """P&L of manual round trips closed on ET date `day`, from LEDGER."""
+    from zoneinfo import ZoneInfo
+    ny, tot = ZoneInfo("America/New_York"), 0.0
+    try:
+        with open(LEDGER, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                    if r.get("kind") == "close" and r.get("pnl") is not None and \
+                            _dt.datetime.fromtimestamp(r["ts"], ny).date().isoformat() == day:
+                        tot += float(r["pnl"])
+                except (ValueError, KeyError, TypeError):
+                    continue
+    except OSError:
+        pass
+    return tot
+
+
+def day_gain(eng):
+    """Today's net account gain vs the start of the day, with the goal flag
+    and the peak. None until NLV has been read at least once."""
+    account_cash(eng)
+    nlv = _CASH.get("nlv")
+    if not nlv or nlv <= 0:
+        return None
+    today, now = _et_today(), int(time.time())
+    st = _read(DAY_FILE) or {}
+    dirty = False
+    if st.get("date") != today or not st.get("start"):
+        booked = _realized_on(today)
+        st = dict(date=today, start=round(nlv - booked, 2), start_at=now,
+                  booked_at_start=round(booked, 2), peak_pct=0.0,
+                  peak_at=now, hit_at=None)
+        dirty = True
+    start = float(st["start"])
+    pct = (nlv - start) / start
+    if round(pct, 4) > (st.get("peak_pct") or 0.0):
+        st.update(peak_pct=round(pct, 4), peak_at=now)
+        dirty = True
+    if pct >= DAY_GOAL_PCT and not st.get("hit_at"):
+        st["hit_at"] = now
+        dirty = True
+        _event(True, f"DAY GOAL reached: {pct:+.1%} (+${nlv - start:,.2f}) "
+                     f"— consider the sideline")
+    if dirty:
+        try:
+            _write_atomic(DAY_FILE, st)
+        except OSError as e:
+            print(f"  ⚠️ day goal file write failed: {type(e).__name__}: {e}")
+    return dict(goal=DAY_GOAL_PCT, start=round(start, 2), nlv=round(nlv, 2),
+                pnl=round(nlv - start, 2), pct=round(pct, 4),
+                peak_pct=st.get("peak_pct"), peak_at=st.get("peak_at"),
+                hit_at=st.get("hit_at"))
 # 🚨 THE COLLAR GATES ON SPREAD WIDTH, NOT ON LIMIT-vs-MID.
 # The first version compared the limit to the mid -- but the limit IS derived
 # from the mid (min(mid+0.01, ask)), so it can never be more than ~1c away and

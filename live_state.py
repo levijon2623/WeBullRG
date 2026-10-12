@@ -2013,6 +2013,12 @@ def snapshot(eng):
         real_cash = manual_orders.account_cash(eng)
     except Exception:
         pass
+    day = None
+    try:
+        import manual_orders
+        day = manual_orders.day_gain(eng)    # the +5% day-goal flag (staging)
+    except Exception:
+        pass
 
     return dict(
         ts=int(time.time()),
@@ -2028,6 +2034,7 @@ def snapshot(eng):
         manual_cap=_num(manual_cap, 2),
         manual_cap_basis=cap_basis,
         real_cash=_num(real_cash, 2),
+        day=day,
         chains=chains,
         session=str(getattr(eng, "session_date", "") or ""),
         dry_run=bool(globals().get("_DRY", True)),

@@ -106,6 +106,13 @@
     font-size:12px;color:var(--dim)}
   #stageBody .kv b{color:var(--fg)}
   #prem{font-size:22px;text-align:center;padding:10px 0;font-weight:700}
+  /* the day goal (manual_orders.day_gain): a flag, never a gate */
+  #dayGoal{font-size:12px;padding:6px 8px;margin-bottom:10px;border:1px solid var(--line);
+    border-radius:4px;color:var(--dim)}
+  #dayGoal b{color:var(--fg)}
+  #dayGoal.met{background:#12361f;color:#7ee2a8;border-color:#3fb950;font-weight:700;text-align:center}
+  #dayGoal.gave{background:#3a3212;color:#f0d264;border-color:#f0d264;font-weight:700;text-align:center}
+  #dayGoal .sub{font-weight:400;font-size:10px;opacity:.85;margin-top:3px}
   #prem.over{color:var(--dn)}
   .bigbtn{width:100%;padding:14px;font-size:14px;font-weight:700;
     letter-spacing:.06em;margin-top:8px}
@@ -279,6 +286,7 @@
   <div id="stage">
     <div id="stageBan" class="off">DISARMED</div>
     <div id="stageBody">
+      <div id="dayGoal"></div>
       <div style="font-size:15px;font-weight:700;margin-bottom:8px"
            id="stageHdr">—</div>
       <div class="kv"><span>bid / ask</span><b id="sBa">—</b></div>
@@ -1321,10 +1329,37 @@ async function ulClick(p){
   ulToast(`no manual position or staged order on ${tk} — open the strike strip and stage one first`, true);
 }
 
+/* DAY GOAL (manual_orders.day_gain, operator 2026-10-12). Net account gain
+   today -- NLV vs the start of the day -- against MANUAL_DAY_GOAL_PCT (+5%).
+   A FLAG, never a gate. Once reached it stays up for the rest of the day:
+   green while the gain holds, amber with the peak once it slips back (10-12:
+   +5.3% at 11:50, all of it given back by 12:21). */
+function renderDayGoal(){
+  const el = $('#dayGoal'), g = LIVE && LIVE.day;
+  if(!el) return;
+  if(!g){ el.className = ''; el.textContent = 'day P&L — account value not read yet'; el.title = ''; return; }
+  const pc = v => `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toFixed(1)}%`;
+  const usd = v => `${v >= 0 ? '+' : '−'}$${Math.abs(v).toFixed(2)}`;
+  const tm = t => new Date(t * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  el.title = `Net account gain today: account value $${g.nlv} vs $${g.start} at the start of the day. ` +
+    `Open positions count at Webull's marks; a deposit or withdrawal today would show here too. ` +
+    `Flags at ${pc(g.goal)} and stays up for the rest of the day. A flag, not a block.`;
+  if(!g.hit_at){
+    el.className = '';
+    el.innerHTML = `day <b>${pc(g.pct)}</b> ${usd(g.pnl)} <span style="float:right">goal ${pc(g.goal)}</span>`;
+    return;
+  }
+  el.className = g.pct >= g.goal ? 'met' : 'gave';
+  el.innerHTML = g.pct >= g.goal
+    ? `DAY GOAL MET ${pc(g.pct)} ${usd(g.pnl)}<div class="sub">reached ${tm(g.hit_at)} · consider the SIDELINE</div>`
+    : `GOAL WAS MET at ${tm(g.hit_at)} · peak ${pc(g.peak_pct)}<div class="sub">now ${pc(g.pct)} ${usd(g.pnl)} · giving it back</div>`;
+}
+
 function renderStage(){
   const c = selContract();
   if(!SEL){ $('#stage').style.display = 'none'; placeUlPop(); return; }
   $('#stage').style.display = 'flex'; placeUlPop();
+  renderDayGoal();
   renderUlStage();
 
   /* 🚨 ARMED MEANS REAL. There is no "armed but pretend" state any more:
