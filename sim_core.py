@@ -554,6 +554,87 @@ def build_candidates(D, rule, trigs=None, min_mid=0.50, meta_out=None,
     return out
 
 
+#: Rule fields that are ENTRY GATES the live bot applies but `build_candidates`
+#: does not. `deployed_candidates` applies them; `dex_pct_max` and
+#: `time_stop_mins` are unused by every enabled rule and stay out.
+LIVE_ONLY_GATES = ("flow_zscore", "skip_macro_am", "dmi_confirm", "ema_confirm")
+
+
+def deployed_trigs(D, rule):
+    """The rule's triggers after its FULL live gate stack -- `build_candidates`'
+    gates PLUS flow_zscore (replaces the percentile gate), skip_macro_am,
+    dmi_confirm (close-only bars, fails OPEN when not warm, as bot_runner) and
+    ema_confirm. Same gate code as check_config_walkforward eval_cfg(deployed).
+
+    🚨 WHY THIS EXISTS (2026-10-13). `build_candidates` applies hours/regime/
+    amp/percentile/amt_open only, and `check_book_now` called it bare -- so
+    "the book as configured" scored SPY CHOP CALL on p90 instead of its z-score
+    gate, took QQQ/IWM HIVOL CALL on CPI/NFP/PCE mornings, and dropped MSFT's
+    DMI and GLD's EMA confirms. Found mapping the code for check_trigger_paths.
+    """
+    from check_config_walkforward import _flow_for
+    from check_flow_zscore import annotate_flow_z, _z_matched
+    from amt_profile import amt_open_map, amt_ok
+    from macro_calendar import is_macro_am_day
+
+    tk = rule["ticker"]
+    flow = _flow_for(D, [tk])
+    if flow.empty:
+        return []
+    trigs = D.triggers_for(flow, tk)
+    gex, vol, trd = D.load_gex(HIST, tk), D.load_volume_regime(HIST, tk), D.load_trend_regime(HIST, tk)
+    _d = set(gex) & set(vol) & set(trd)
+    amp = {d: int(gex[d] == "NEGATIVE") + int(vol[d] == "LOWVOL") + int(trd[d] == "CHOP") for d in _d}
+    reg_src = {"LOWVOL": vol, "NORMVOL": vol, "HIVOL": vol, "UPTREND": trd, "DOWNTREND": trd, "CHOP": trd}
+    zs = rule.get("flow_zscore")
+    if zs:
+        annotate_flow_z(trigs, int(zs.get("window_days") or 60))
+        matched = _z_matched(D, rule, trigs, gex, vol, trd, amp, reg_src, float(zs["k"]))
+    else:
+        D.annotate_flow_pct(trigs, int(rule.get("flow_window_days") or 60))
+        matched = [t for t, _ in D._rule_matched_trigs(rule, trigs, gex, vol, trd, amp, reg_src)]
+    want_bull = rule["direction"].upper() == "CALL"
+    amt = amt_open_map(tk) if rule.get("amt_open") else {}
+    dmi = rule.get("dmi_confirm")
+    if dmi:
+        from check_adx_dmi import _intraday_adx, _intra_asof
+        iadx = _intraday_adx(tk, int(dmi.get("tf", 15)), close_only=True)
+    ema = D.load_ema_stack(HIST, tk, int(rule["ema_confirm"])) if rule.get("ema_confirm") else None
+    out = []
+    for t in matched:
+        d, ts = t["date"], t["ts"]
+        if rule.get("skip_macro_am") and is_macro_am_day(d):
+            continue
+        if rule.get("amt_open") and not amt_ok(rule["amt_open"], amt.get(d)):
+            continue
+        if dmi:
+            ia = _intra_asof(iadx.get(d, []), ts)
+            if ia is not None:
+                agree = (ia[0] > ia[1]) == want_bull
+                if agree != (dmi.get("mode") == "agree"):
+                    continue
+        if ema is not None:
+            st = D.ema_state_at(ema, ts)
+            if st is not None and st != ("BULL" if want_bull else "BEAR"):
+                continue
+        out.append(t)
+    return out
+
+
+def deployed_candidates(D, rule, trigs=None, **kw):
+    """`build_candidates` on the FULL live gate stack (`deployed_trigs`). Use
+    this, not the bare builder, for anything that claims to be "the rule as
+    deployed". The flow gate is already applied, so the builder gets a copy of
+    the rule with flow_abs 0; the gates it re-applies are idempotent."""
+    if trigs is None:                      # pass deployed_trigs' output to skip a rebuild
+        trigs = deployed_trigs(D, rule)
+    if not trigs:
+        return []
+    rb = {k: v for k, v in rule.items() if k not in ("min_flow_pct", "flow_zscore")}
+    rb["flow_abs"] = 0.0
+    return build_candidates(D, rb, trigs=trigs, **kw)
+
+
 # ----------------------------------------------------------------- stats
 def stat(rows):
     """Standard IS/OOS/slice summary. `rows` = [(date, pnl)] or [(date, pnl, tag)]."""

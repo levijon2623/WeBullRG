@@ -18,7 +18,21 @@ on the fill model the bot actually runs:
   * MID and REALISTIC fills -- realistic = enter at ASK, exit at BID, which is
     close to what bot_runner actually does (marketable limit at bid - cushion).
 
+  * FULL LIVE GATE STACK -- sim_core.deployed_candidates (since 2026-10-13):
+    flow_zscore, skip_macro_am, dmi_confirm and ema_confirm on top of the
+    builder's own gates. Before that this script scored the bare builder.
+
 Everything here already nets config COMMISSION_PCT (1.5% of premium round-trip).
+
+RUN LOG
+  2026-10-13 full gates vs the bare builder (realistic "bot" fills):
+    BARE  n=392  +3.2%/trade  IS +1.7  OOS +4.6  win 0.36  maxLL 20
+    FULL  n=328  +8.6%/trade  IS +5.2  OOS +11.9  win 0.39  maxLL 10
+    Changed rules: SPY CHOP CALL 11 -> 8 (z-score), QQQ 32 -> 29 / IWM 105 -> 92
+    (macro-morning skip; IWM +5.0 -> +10.2), MSFT 50 -> 30 (DMI), GLD 47 -> 22
+    (EMA; -26.9 -> -8.1). The rest are identical. Matches check_trigger_paths'
+    TAKEN set exactly (328, +8.6%). The gates were each chosen on this same
+    data, so this corrects what the book CLAIMS -- it is not new evidence.
 
 Usage:  python check_book_now.py
 """
@@ -78,7 +92,11 @@ def run(a):
         # the live exit cushion (bid - 1.5x spread on losses, 0.5x on gains),
         # which this script did NOT model before 2026-09-10 and which is worth
         # ~10pp/trade book-wide. `m_` stays mid-fill for the historical contrast.
-        cand = sim_core.build_candidates(D, r)
+        # FULL LIVE GATES (2026-10-13): the bare builder skipped flow_zscore,
+        # skip_macro_am, dmi_confirm and ema_confirm, so "as configured" was
+        # not. --bare reproduces the old numbers for comparison.
+        cand = (sim_core.build_candidates(D, r) if getattr(a, "bare", False)
+                else sim_core.deployed_candidates(D, r))
         if not cand:
             continue
         em = sim_core.eod_mod(r)
@@ -135,5 +153,8 @@ if __name__ == "__main__":
                          "tested well is SELECTION ON THE OUTCOME and the resulting book "
                          "number is optimistically biased. See the caveat printed below.")
     ap.add_argument("--drop", nargs="*", default=None, help="exclude these rules")
+    ap.add_argument("--bare", action="store_true",
+                    help="the pre-2026-10-13 builder: skips flow_zscore / skip_macro_am / "
+                         "dmi_confirm / ema_confirm (for comparison only)")
     a = ap.parse_args()
     run(a)

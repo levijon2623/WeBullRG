@@ -16,9 +16,9 @@ DESCRIPTIVE -- no hypothesis is scored, nothing here changes a rule.
 TRIGGERS  every enabled config.RULES entry with its FULL live gate stack:
           regime / amp / hours / dte, min_flow_pct over flow_window_days OR
           flow_zscore, amt_open, skip_macro_am, dmi_confirm (close-only, fail
-          open when not warm), ema_confirm -- the same gate code as
-          check_config_walkforward's DEPLOYED arm -- then sim_core's ONE
-          builder for the contract the bot would buy and the $0.50 floor.
+          open when not warm), ema_confirm -- sim_core.deployed_candidates
+          (since 2026-10-13; run 2 used an identical local copy) -- then
+          the ONE builder for the contract the bot would buy and the $0.50 floor.
           Deployed window 2024-08-20 .. end of lake; split 2025-08-21.
           PAPER_ONLY rules (sim_core) are included -- they trade live -- and
           marked *.
@@ -75,62 +75,11 @@ sys.path.insert(0, ROOT)
 
 import directional_flow_backtester as D                   # noqa: E402
 import sim_core                                            # noqa: E402
-from check_config_walkforward import _flow_for             # noqa: E402
-from check_flow_zscore import annotate_flow_z, _z_matched  # noqa: E402
-from check_adx_dmi import _intraday_adx, _intra_asof       # noqa: E402
-from amt_profile import amt_open_map, amt_ok               # noqa: E402
-from macro_calendar import is_macro_am_day                 # noqa: E402
 from config import RULES, TRAIL_PCT                        # noqa: E402
 
 SPLIT = sim_core.SPLIT
 LEVELS = (0.0, 0.10, 0.25, 0.50, 1.00)
 MARKS = (5, 15, 30, 60, 120)
-
-
-def gated_trigs(r):
-    """The rule's triggers after its FULL deployed gate stack (mirrors
-    check_config_walkforward eval_cfg(deployed=True); dex_pct_max unused live)."""
-    tk = r["ticker"]
-    flow = _flow_for(D, [tk])
-    if flow.empty:
-        return []
-    trigs = D.triggers_for(flow, tk)
-    gex, vol, trd = D.load_gex("historical", tk), D.load_volume_regime("historical", tk), \
-        D.load_trend_regime("historical", tk)
-    _d = set(gex) & set(vol) & set(trd)
-    amp = {d: int(gex[d] == "NEGATIVE") + int(vol[d] == "LOWVOL") + int(trd[d] == "CHOP") for d in _d}
-    reg_src = {"LOWVOL": vol, "NORMVOL": vol, "HIVOL": vol, "UPTREND": trd, "DOWNTREND": trd, "CHOP": trd}
-    zs = r.get("flow_zscore")
-    if zs:
-        annotate_flow_z(trigs, int(zs.get("window_days") or 60))
-        matched = _z_matched(D, r, trigs, gex, vol, trd, amp, reg_src, float(zs["k"]))
-    else:
-        D.annotate_flow_pct(trigs, int(r.get("flow_window_days") or 60))
-        matched = [t for t, _ in D._rule_matched_trigs(r, trigs, gex, vol, trd, amp, reg_src)]
-    want_bull = r["direction"].upper() == "CALL"
-    amt = amt_open_map(tk) if r.get("amt_open") else {}
-    dmi = r.get("dmi_confirm")
-    iadx = _intraday_adx(tk, int(dmi.get("tf", 15)), close_only=True) if dmi else {}
-    ema = D.load_ema_stack("historical", tk, int(r["ema_confirm"])) if r.get("ema_confirm") else None
-    out = []
-    for t in matched:
-        d, ts = t["date"], t["ts"]
-        if r.get("skip_macro_am") and is_macro_am_day(d):
-            continue
-        if r.get("amt_open") and not amt_ok(r["amt_open"], amt.get(d)):
-            continue
-        if dmi:
-            ia = _intra_asof(iadx.get(d, []), ts)
-            if ia is not None:
-                agree = (ia[0] > ia[1]) == want_bull
-                if agree != (dmi.get("mode") == "agree"):
-                    continue
-        if ema is not None:
-            st = D.ema_state_at(ema, ts)
-            if st is not None and st != ("BULL" if want_bull else "BEAR"):
-                continue
-        out.append(t)
-    return out
 
 
 def ul_closes(tk):
@@ -198,15 +147,11 @@ def main():
     ulc = {}
     for r in eligible:
         tk = r["ticker"]
-        trigs = gated_trigs(r)
+        trigs = sim_core.deployed_trigs(D, r)
         if not trigs:
             print(f"  {r['name']}: no triggers"); continue
-        # the builder re-applies hour/regime/amp/amt (idempotent); the flow gate
-        # was already applied above (z-score or percentile), so pass it as flow_abs 0
-        rb = {k: v for k, v in r.items() if k not in ("min_flow_pct", "flow_zscore")}
-        rb["flow_abs"] = 0.0
         meta = []
-        cand = sim_core.build_candidates(D, rb, trigs=trigs, meta_out=meta)
+        cand = sim_core.deployed_candidates(D, r, trigs=trigs, meta_out=meta)
         if not cand:
             print(f"  {r['name']}: no candidates"); continue
         if tk not in ulc:
