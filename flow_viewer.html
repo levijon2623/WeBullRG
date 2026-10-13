@@ -517,7 +517,7 @@ function draw(d){
     <b>${d.ticker}</b> <span class="k">${d.date}</span>
     <span class="tag">${half(d.date)}</span>
     <span class="k">rule</span> <b>${d.rule}</b>
-    <span class="k">regime</span>
+    <span class="k" title="${esc(REGIME_TIP)}">regime · prior close</span>
     <span class="tag">${r.vol||'—'}</span><span class="tag">${r.trend||'—'}</span>
     <span class="tag">${r.gex||'—'} GEX</span><span class="tag">amp ${r.amp??'—'}</span>
     <span class="k">gate</span>
@@ -651,6 +651,32 @@ function vgPill(s){
     `<span style="position:absolute;left:0;top:0;bottom:0;width:${fill}px;background:${VG_COL};border-radius:2px"></span>` +
     `<span style="position:absolute;left:${mark}px;top:-2px;bottom:-2px;width:2px;background:var(--fg)"></span></span>` +
     `<b>${Math.round(g.p*100)}%</b><span class="k">typ ${Math.round(g.clim*100)}%</span></span>`;
+}
+
+/* REGIME LABEL + LIVE FLIP TAG (operator, 2026-10-13: "Regime says POSITIVE
+   despite price now below the gamma flip"). The regime pills are the session
+   regime from the PRIOR close, polled once and held (bot_runner
+   _poll_daily_gex / _poll_session_regimes) -- the rules were validated on that
+   label, so it must not drift intraday. The flip tag is the separate, LIVE
+   fact: the last price against today's gamma flip (UW's, or the computed
+   Webull one where that is the line drawn). DISPLAY ONLY -- spot vs flip has
+   never been tested as an input. Orange below the flip, dim above. */
+const REGIME_TIP = "Session regime, set ONCE at the session start from the PRIOR close and held all day: net GEX sign at yesterday's close, daily trend and volume state, and amp (how many of neg-GEX / LOWVOL / CHOP hold). The rules gate on exactly this, because it is all a 09:30 entry can know -- it does not move when price crosses today's gamma flip.";
+function flipTag(s){
+  const G = s && s.gex, W = (G && G.walls) || {};
+  const fc = !W.gamma_flip && G && G.flip_calc ? G.flip_calc.flip : null;
+  const flip = W.gamma_flip != null ? +W.gamma_flip : (fc != null ? +fc : null);
+  const last = (s && (s.px_live || (s.px || []).slice(-1)[0])) || null;
+  const spot = last ? +last[1] : null;
+  if(flip == null || spot == null || !isFinite(flip) || !isFinite(spot)) return '';
+  const below = spot < flip, dist = spot - flip;
+  const tip = `Live: last price ${spot.toFixed(2)} vs today's gamma flip ${flip.toFixed(2)}` +
+    `${W.gamma_flip != null ? '' : ' (computed from the Webull chain)'}. Below the flip, dealer ` +
+    `hedging tends to add to moves rather than damp them. DISPLAY ONLY: never tested as an input; ` +
+    `the rules gate on the prior-close regime.`;
+  return `<span class="tag" title="${esc(tip)}" style="width:auto;flex:none;margin:0;font-size:11px;` +
+    `${below ? 'color:#f0883e;border-color:#f0883e;font-weight:700' : 'color:var(--dim)'}">` +
+    `spot ${below ? '&lt;' : '&gt;'} flip ${dist >= 0 ? '+' : '−'}${Math.abs(dist).toFixed(2)}</span>`;
 }
 
 /* WAIT LIGHTS, one per ETF (check_burst_entry.py). Marks the WORST time to
@@ -951,9 +977,10 @@ function liveDraw(d, s){
   $('#bar').innerHTML = `
     <b style="color:var(--dn)">● LIVE</b> <b>${liveTk}</b>
     <span class="tag">${s.rule||'no rule'}</span>
-    <span class="k">regime</span>
-    <span class="tag">${r.vol||'—'}</span><span class="tag">${r.trend||'—'}</span>
-    <span class="tag">${r.gex||'—'} GEX</span><span class="tag">amp ${r.amp??'—'}</span>
+    <span class="k" title="${esc(REGIME_TIP)}">regime · prior close</span>
+    <span class="tag" title="${esc(REGIME_TIP)}">${r.vol||'—'}</span><span class="tag" title="${esc(REGIME_TIP)}">${r.trend||'—'}</span>
+    <span class="tag" title="${esc(REGIME_TIP)}">${r.gex||'—'} GEX</span><span class="tag" title="${esc(REGIME_TIP)}">amp ${r.amp??'—'}</span>
+    ${flipTag(s)}
     ${gxBtn(s)}
     ${imBtn(s)}
     ${vgPill(s)}
