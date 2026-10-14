@@ -1,0 +1,7 @@
+# secrets, sessions, state -- never commit
+.env
+config.toml
+state/
+*.pickle
+*.sqlite
+__pycache__/

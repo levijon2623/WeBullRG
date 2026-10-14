@@ -1,0 +1,58 @@
+# trade_broadcaster -- copy to config.toml and edit.
+# Secrets (passwords, bot tokens, webhook URLs) go in .env, NEVER here:
+# each entry below names the env var that holds its secret (`..._env`).
+
+[broadcaster]
+poll_seconds = 4            # while active
+idle_poll_seconds = 60      # outside active_hours / weekends
+active_hours = "09:20-16:20"   # US/Eastern
+weekdays_only = true
+state_file = "state/broadcaster.sqlite"
+env_file = ".env"
+max_attempts = 8            # per post per sink, with backoff
+
+[privacy]
+show_quantity = true        # false: followers see the trade, not the size
+show_price = true
+show_pnl = true             # % on closing fills (when the open was seen)
+delay_seconds = 0           # post this long after the event
+post = ["placed", "filled", "partial", "cancelled"]   # also: "rejected"
+footer = "Not financial advice. Trades shown as placed in my own account."
+
+# ---------------- sources: where trades come from (one or more)
+
+[[sources]]
+type = "robinhood"
+name = "rh"
+label = "@yourhandle"       # optional, shown on every post
+username_env = "RH_USERNAME"
+password_env = "RH_PASSWORD"
+totp_env = "RH_TOTP_SECRET" # optional; see README "Robinhood login"
+options = true
+stocks = true
+lookback_hours = 48
+
+# A JSON-lines ledger (e.g. Cleanbot's manual desk). Uncomment to use.
+# [[sources]]
+# type = "jsonl_ledger"
+# name = "webull-desk"
+# path = "/root/bot_engine/Cleanbot/manual_executions.jsonl"
+# label = "@yourhandle"
+
+# ---------------- sinks: where posts go (one or more)
+
+[[sinks]]
+type = "console"            # prints to the terminal; keep it while testing
+name = "screen"
+
+# [[sinks]]
+# type = "telegram"
+# name = "tg"
+# token_env = "TELEGRAM_BOT_TOKEN"
+# chat_id_env = "TELEGRAM_CHAT_ID"
+
+# [[sinks]]
+# type = "discord"
+# name = "dc"
+# webhook_env = "DISCORD_WEBHOOK_URL"
+# username = "Trade Alerts"

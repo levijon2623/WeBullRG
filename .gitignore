@@ -137,3 +137,8 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# trade_broadcaster run files when run from the repo root (README quick start):
+# config.toml can hold chat ids, state/ holds the Robinhood session pickle.
+/config.toml
+/state/

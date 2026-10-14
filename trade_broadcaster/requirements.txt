@@ -1,0 +1,3 @@
+requests>=2.31
+robin_stocks>=3.0     # only for the robinhood source
+pyotp>=2.9            # only if totp_env is used
