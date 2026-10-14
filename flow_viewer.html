@@ -113,6 +113,12 @@
   #dayGoal.met{background:#12361f;color:#7ee2a8;border-color:#3fb950;font-weight:700;text-align:center}
   #dayGoal.gave{background:#3a3212;color:#f0d264;border-color:#f0d264;font-weight:700;text-align:center}
   #dayGoal .sub{font-weight:400;font-size:10px;opacity:.85;margin-top:3px}
+  /* against-the-tape flag (renderTape): a flag, never a gate */
+  #tapeFlag{display:none;font-size:11.5px;padding:7px 9px;margin-bottom:10px;border-radius:4px;
+    background:#3a2a10;color:#f0b35a;border:1px solid #f0883e}
+  #tapeFlag b{color:#ffd29a}
+  #xSwap{border-color:var(--accent);color:var(--accent)}
+  #xSwap.hot{background:var(--accent);color:#0d1117}
   #prem.over{color:var(--dn)}
   .bigbtn{width:100%;padding:14px;font-size:14px;font-weight:700;
     letter-spacing:.06em;margin-top:8px}
@@ -274,6 +280,7 @@
       <div id="hold"></div>
       <div id="exitbar">
         <button id="xMkt" disabled>SELECT A MANUAL POSITION</button>
+        <button id="xSwap" disabled title="select a manual position">SWAP</button>
         <button id="x911">911</button>
       </div>
       <div id="panicMsg"></div>
@@ -287,6 +294,7 @@
     <div id="stageBan" class="off">DISARMED</div>
     <div id="stageBody">
       <div id="dayGoal"></div>
+      <div id="tapeFlag"></div>
       <div style="font-size:15px;font-weight:700;margin-bottom:8px"
            id="stageHdr">—</div>
       <div class="kv"><span>bid / ask</span><b id="sBa">—</b></div>
@@ -339,7 +347,7 @@
     </div>
   </div></div>
   <div id="sideWrap"><div id="sideBox">
-    <h2>You sidelined yourself</h2>
+    <h2 id="sideH">You sidelined yourself</h2>
     <div class="ctx" id="sideCtx"></div>
     <div class="q">Are you trying to give back profits or increase losses?</div>
     <textarea id="sideWhy" placeholder="what has changed since you sidelined? (optional — logged with your answer)"></textarea>
@@ -1171,14 +1179,20 @@ function strikeStrip(tk, rows){
     /* GROUPED BY EXPIRY. QQQ and IWM carry 0DTE and 1DTE at the same time, so
        an ungrouped strip repeats every strike with nothing on the row to say
        which expiry it is -- and the two are not remotely the same trade. */
-    const exps = [...new Set(mine.map(x => x.expiry))].sort();
+    /* 0DTE ONLY (operator, 2026-10-14: 1DTE crowded the panel and nothing is
+       held overnight). If no 0DTE is listed, the NEAREST expiry stands in so
+       the strip is never empty. Strikes run HIGH -> LOW, top to bottom, the
+       way price reads on the chart beside it. */
+    const allExps = [...new Set(mine.map(x => x.expiry))].sort();
+    const zero = allExps.filter(e => mine.some(x => x.expiry === e && x.dte === 0));
+    const exps = zero.length ? zero : allExps.slice(0, 1);
     /* `bot:false` = tracked for the hand only (SPY/QQQ/IWM puts). Worth
        saying: it means the bot will never enter this side by itself, so a
        position here is entirely yours to manage until the 15:55 flatten. */
     const manual = mine[0].bot === false
       ? ` <span style="color:var(--accent)">· manual only</span>` : '';
     return exps.map((e, i) => {
-      const g = mine.filter(x => x.expiry === e);
+      const g = mine.filter(x => x.expiry === e).sort((a, b) => b.strike - a.strike);
       return `<tr><th colspan="4" style="text-align:left;color:${col}">${lbl}
         <span style="color:var(--dim)">${dteLbl(g[0])}</span>${
         i ? '' : manual}</th></tr>` + g.map(row).join('');
@@ -1390,11 +1404,50 @@ function renderDayGoal(){
     : `GOAL WAS MET at ${tm(g.hit_at)} · peak ${pc(g.peak_pct)}<div class="sub">now ${pc(g.pct)} ${usd(g.pnl)} · giving it back</div>`;
 }
 
+/* AGAINST THE TAPE (operator, 2026-10-14: "the main issue today was trying
+   to fight the trend" -- three SPY call stop-outs in 17 minutes, each lower).
+   Amber when the contract you are staging bets AGAINST today's tape: a CALL
+   with the ticker below VWAP AND below its 09:30 price, or a PUT above both.
+   A second line counts losing closes in a row on this ticker in the SAME
+   direction today. A FLAG, never a gate. Evidence it leans on, and no more:
+   the morning's direction persists slightly through the day and fading by
+   the clock has no edge (check_morning_reversion, 2026-10-09). */
+function renderTape(c){
+  const el = $('#tapeFlag');
+  if(!el) return;
+  const s = c && LIVE && (LIVE.tickers || {})[SEL.tk];
+  const px = s && (s.px || []), vw = s && (s.vwap || []);
+  const lines = [];
+  if(c && px && px.length && vw && vw.length){
+    const last = +(s.px_live || px[px.length - 1])[1], open = +px[0][1], v = +vw[vw.length - 1][1];
+    const call = c.right === 'C';
+    const vs = (last - v) / v * 100, day = (last - open) / open * 100;
+    if(call ? (last < v && last < open) : (last > v && last > open))
+      lines.push(`<b>AGAINST TODAY'S TAPE</b> — ${SEL.tk} is ${call ? 'below' : 'above'} VWAP ` +
+        `(${vs >= 0 ? '+' : ''}${vs.toFixed(2)}%) and ${day >= 0 ? 'up' : 'down'} ` +
+        `${Math.abs(day).toFixed(2)}% on the day; you are staging a ${call ? 'CALL' : 'PUT'}.`);
+  }
+  const cl = ((LIVE && LIVE.manual_day && LIVE.manual_day.closes) || []).filter(x => SEL && x.tk === SEL.tk);
+  let run = 0;
+  for(let i = cl.length - 1; i >= 0; i--){
+    if(c && cl[i].right === c.right && cl[i].pnl != null && cl[i].pnl < 0) run++;
+    else break;
+  }
+  if(run >= 2)
+    lines.push(`<b>${run} ${c.right === 'C' ? 'call' : 'put'} losses in a row</b> on ${SEL.tk} today — the tape keeps saying no.`);
+  el.style.display = lines.length ? 'block' : 'none';
+  el.innerHTML = lines.join('<div style="height:4px"></div>');
+  el.title = 'A flag, not a block. Today’s 09:30 price and session VWAP vs the last price; ' +
+    'losing closes from your own ledger. The morning direction tends to persist slightly ' +
+    '(check_morning_reversion) -- fighting it is the trade that needs a reason.';
+}
+
 function renderStage(){
   const c = selContract();
   if(!SEL){ $('#stage').style.display = 'none'; placeUlPop(); return; }
   $('#stage').style.display = 'flex'; placeUlPop();
   renderDayGoal();
+  renderTape(c);
   renderUlStage();
 
   /* 🚨 ARMED MEANS REAL. There is no "armed but pretend" state any more:
@@ -1681,6 +1734,7 @@ function renderHold(){
     : sel && sel.pending ? `CANCEL ${HOLDSEL} ENTRY`
     : `CLOSE ${HOLDSEL} MARKETABLE`;
   $('#x911').disabled = !panicScope().length;
+  renderSwap(sel);
   renderUlHold();
 }
 
@@ -1711,6 +1765,8 @@ function renderSide(){
 }
 
 function openSide(){
+  SIDE_MODE = 'sideline';
+  $('#sideH').textContent = 'You sidelined yourself';
   const t = LIVE && LIVE.sideline_at;
   $('#sideCtx').textContent = t ? `sidelined at ${etClock(t)} — ${Math.round((Date.now()/1000 -
     LIVE.sideline_at)/60)} min ago` : '';
@@ -1737,6 +1793,7 @@ $('#sideBtn').onclick = async () => {
 };
 
 async function answerSide(answer){
+  if(SIDE_MODE === 'swap') return answerSwap(answer);
   $('#sideMsg').textContent = 'sending…';
   const j = await postOrder({action:'unsideline', answer,
     note: $('#sideWhy').value.trim().slice(0, 500)});
@@ -1755,6 +1812,77 @@ async function postOrder(body){
       body: JSON.stringify(body)});
     return await r.json();
   } catch(e){ return {ok:false, err:e.message}; }
+}
+
+/* ---- DIRECTION SWAP (operator, 2026-10-14) ----
+   Close the hold, then -- on the close's CONFIRMED fill -- buy the ATM
+   contract of the other right, same expiry (manual_orders.swap). Guardrails:
+   needs the arming window and no sideline; click once to arm, again within
+   4s to send; from the SECOND swap of the day the sideline question has to be
+   answered YES (the engine enforces it too). Every entry guard re-runs at the
+   moment of the re-entry; TP/SL do not carry over. */
+let SIDE_MODE = 'sideline', swapArm = false, swapTimer = null;
+function swapLbl(p){ const r = (p && p.right) || ''; return r === 'C' ? 'C→P' : r === 'P' ? 'P→C' : ''; }
+function disarmSwap(){
+  swapArm = false;
+  if(swapTimer){ clearTimeout(swapTimer); swapTimer = null; }
+  const b = $('#xSwap'); if(b) b.classList.remove('hot');
+}
+function renderSwap(sel){
+  const b = $('#xSwap'); if(!b) return;
+  const armed = !!(LIVE && LIVE.armed), side = !!(LIVE && LIVE.sidelined);
+  const why = !HOLDSEL ? 'select a manual position'
+    : !sel ? 'no manual hold'
+    : sel.swap ? 'swap in progress'
+    : sel.pending || sel.exit_coid || sel.cancel_sent ? 'position is pending or exiting'
+    : sel.dry ? 'DRY hold — swap needs a real position'
+    : side ? 'SIDELINED — swap opens a position; use CLOSE'
+    : !armed ? 'arming window closed — ARM first (a swap opens a position)' : '';
+  b.disabled = !!why;
+  b.title = why || `close ${HOLDSEL} marketable, then buy the ATM ${sel.right === 'C' ? 'put' : 'call'} once it fills`;
+  b.textContent = sel && sel.swap ? 'SWAPPING…' : swapArm ? `CONFIRM ${swapLbl(sel)}` : `SWAP ${swapLbl(sel)}`.trim();
+  if(why && swapArm) disarmSwap();
+}
+async function sendSwap(answer, note){
+  const t = HOLDSEL;
+  disarmSwap();
+  $('#xSwap').disabled = true; $('#xSwap').textContent = 'swapping…';
+  const j = await postOrder({ticker: t, action: 'swap', answer: answer || '', note: note || ''});
+  if(!j.ok) $('#panicMsg').textContent = 'REFUSED by the server: ' + (j.err || '?');
+  pollEvents(); livePoll();
+  return j;
+}
+$('#xSwap').onclick = async () => {
+  if(!HOLDSEL) return;
+  if(!swapArm){
+    swapArm = true;
+    $('#xSwap').classList.add('hot');
+    renderSwap((LIVE.manual || {})[HOLDSEL]);
+    swapTimer = setTimeout(() => { disarmSwap(); renderSwap((LIVE.manual || {})[HOLDSEL]); }, 4000);
+    return;
+  }
+  const n = ((LIVE && LIVE.manual_day && LIVE.manual_day.swaps) || 0);
+  if(n >= 1){
+    disarmSwap();
+    SIDE_MODE = 'swap';
+    $('#sideH').textContent = `Swap #${n + 1} today`;
+    const p = (LIVE.manual || {})[HOLDSEL] || {};
+    $('#sideCtx').textContent = `${HOLDSEL} ${p.qty}x ${p.strike ?? ''}${p.right ?? ''} → the other side. ` +
+      `YES swaps, NO cancels; the answer is logged either way.`;
+    $('#sideWhy').value = '';
+    $('#sideMsg').textContent = 'esc to cancel';
+    $('#sideWrap').style.display = 'flex';
+    setTimeout(() => $('#sideWhy').focus(), 30);
+    return;
+  }
+  await sendSwap('', '');
+};
+async function answerSwap(answer){
+  $('#sideMsg').textContent = 'sending…';
+  const j = await sendSwap(answer, $('#sideWhy').value.trim().slice(0, 300));
+  if(j && !j.ok){ $('#sideMsg').textContent = 'REFUSED by the server: ' + (j.err || '?'); return; }
+  closeSide();
+  SIDE_MODE = 'sideline';
 }
 
 $('#xMkt').onclick = async () => {

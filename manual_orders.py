@@ -776,6 +776,200 @@ def _quote(eng, option_id):
     return (b if b > 0 else None), (a if a > 0 else None), age
 
 
+# ---- the direction swap (operator, 2026-10-14) ----------------------------
+# One button: close the hold, and once the close is CONFIRMED FILLED, buy the
+# at-the-money contract of the OTHER right, same expiry. Built with guardrails
+# because the operator's own ledger argued against making reversals faster:
+# 6 reversals within 5 min over 10 days, next trade mean -$2, win 2/6, and 5 of
+# the 6 came straight after a loss (the revenge pattern; the research says the
+# direction right after a fast move is a coin flip). So:
+#   * the entry leg goes through _execute -- every entry guard applies (armed,
+#     sideline, 15:55, quote age, spread collar, exposure cap), checked at the
+#     moment of the re-entry, not at the click;
+#   * ATM of the NEW right at the CURRENT spot, not the same strike: after a
+#     losing call the same-strike put is in the money and dearer, a silent
+#     size-up. Same qty, cut to fit the cap;
+#   * the second swap of the ET day needs the sideline question answered YES
+#     (enforced here, not just in the viewer); every swap is logged to
+#     SWAP_LOG with its answer, and the entry carries note "swap #n";
+#   * if the close takes longer than SWAP_MAX_WAIT_S to fill, the re-entry is
+#     dropped -- the market the click was about is gone;
+#   * underlying TP/SL do not carry over (they belonged to the other side).
+SWAP_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "manual_swaps.jsonl")
+SWAP_MAX_WAIT_S = 45.0
+
+
+def swaps_today():
+    n, today = 0, _et_today()
+    try:
+        with open(SWAP_LOG, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                n += int(r.get("kind") == "swap" and r.get("date") == today)
+    except OSError:
+        pass
+    return n
+
+
+_MDAY = {"key": None, "v": None}
+
+
+def manual_day():
+    """Today's REAL manual closes, oldest first, plus the swap count -- for the
+    viewer's against-the-tape flag (stop-out streaks). Re-read only when the
+    ledger or the swap log changes."""
+    try:
+        key = tuple(os.stat(p).st_mtime_ns if os.path.exists(p) else 0
+                    for p in (LEDGER, SWAP_LOG)) + (_et_today(),)
+    except OSError:
+        key = None
+    if key is not None and key == _MDAY["key"]:
+        return _MDAY["v"]
+    from zoneinfo import ZoneInfo
+    ny, today, closes = ZoneInfo("America/New_York"), _et_today(), []
+    try:
+        with open(LEDGER, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                    if r.get("kind") != "close" or r.get("dry"):
+                        continue
+                    if _dt.datetime.fromtimestamp(r["ts"], ny).date().isoformat() != today:
+                        continue
+                    closes.append(dict(tk=r.get("ticker"), right=r.get("right"),
+                                       pnl=r.get("pnl"), ts=r["ts"],
+                                       reason=str(r.get("exit_reason") or "")[:40]))
+                except (ValueError, KeyError, TypeError):
+                    continue
+    except OSError:
+        pass
+    v = dict(closes=closes, swaps=swaps_today())
+    _MDAY.update(key=key, v=v)
+    return v
+
+
+def _swap_log(**rec):
+    try:
+        with open(SWAP_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(dict(ts=int(time.time()), date=_et_today(), **rec),
+                               separators=(",", ":"), default=str) + "\n")
+    except OSError as e:
+        print(f"  ⚠️ swap log write failed: {type(e).__name__}: {e}")
+
+
+def _atm_contract(eng, tk, expiry, right):
+    """(option_id, strike, bid, ask, age) of the live-quoted `right` contract
+    on `expiry` nearest the current spot, or None."""
+    spot = _spot(eng, tk)[0]
+    if not spot:
+        return None
+    best = None
+    for oid in list((eng.webull.tick_builder.live_option_quotes or {}).keys()):
+        t, exp, r, k = _parse_occ(oid)
+        if t != tk or exp != expiry or r != right or k is None:
+            continue
+        b, a, age = _quote(eng, oid)
+        if b is None or a is None:
+            continue
+        d = abs(k - spot)
+        if best is None or d < best[0]:
+            best = (d, oid, k, b, a, age)
+    return best[1:] if best else None
+
+
+def _now_mod():
+    from zoneinfo import ZoneInfo
+    t = _dt.datetime.now(ZoneInfo("America/New_York"))
+    return t.hour * 60 + t.minute
+
+
+def swap(eng, tk, req, now_mod=None):
+    """Start a swap: guards, log, then a marketable close. The entry leg runs
+    from _check_exits on the close's confirmed fill (_swap_enter)."""
+    from config import MANUAL_TRADING_ARMED
+    if not MANUAL_TRADING_ARMED:
+        return False, "MANUAL_TRADING_ARMED is False — not swapped"
+    if sidelined():
+        return False, "SIDELINED until tomorrow — not swapped (use CLOSE to exit)"
+    if arm_left(eng) <= 0:
+        return False, "the arming window is CLOSED — arm first (a swap opens a position)"
+    if now_mod is not None and now_mod >= EOD_FLATTEN_MOD:
+        return False, "past the 15:55 flatten — no new positions; use CLOSE"
+    pos = load_positions(eng).get(tk)
+    if not pos:
+        return False, f"no manual hold on {tk} to swap"
+    if pos.get("pending") or pos.get("exit_coid") or pos.get("cancel_sent") or pos.get("swap"):
+        return False, f"{tk} is pending, exiting or already swapping — not swapped"
+    if pos.get("dry"):
+        return False, f"{tk} is a DRY hold — swap needs a real position"
+    n = swaps_today()
+    ans = str(req.get("answer") or "").lower()
+    if n >= 1 and ans != "yes":
+        _swap_log(kind="refused", tk=tk, n=n + 1, answer=ans or None,
+                  note=str(req.get("note") or "")[:300])
+        return False, (f"swap #{n + 1} today — {SIDELINE_Q} Answered "
+                       f"{ans.upper() or 'nothing'}: not swapped")
+    old = _right(pos)
+    new = "P" if old == "C" else "C"
+    expiry = pos.get("expiry") or _parse_occ(pos["option_id"])[1]
+    pick = _atm_contract(eng, tk, expiry, new)
+    if not pick:
+        return False, (f"no live quote for a {expiry} {new} on {tk} — not swapped "
+                       f"(the position is untouched)")
+    oid, k, b, a, _age = pick
+    mid = (b + a) / 2.0
+    if mid > 0 and (a - b) / mid > MAX_SPREAD_PCT:
+        return False, (f"the {k:g}{new} spread {b:.2f}/{a:.2f} is over "
+                       f"{MAX_SPREAD_PCT:.0%} of mid — not swapped (untouched)")
+    pos["swap"] = dict(at=time.time(), right=new, expiry=expiry,
+                       qty=int(pos.get("qty") or 1), n=n + 1,
+                       note=str(req.get("note") or "")[:200])
+    save_positions(eng)
+    if not flatten(eng, tk, f"SWAP {old}->{new}", EXIT_MARKETABLE):
+        pos.pop("swap", None)
+        save_positions(eng)
+        return False, f"{tk} swap: the close FAILED to send — position still open, no swap"
+    _swap_log(kind="swap", tk=tk, n=n + 1, answer=ans or None, from_oid=pos["option_id"],
+              from_right=old, to_right=new, planned_oid=oid, qty=pos["swap"]["qty"],
+              note=pos["swap"]["note"])
+    return True, (f"{tk} SWAP #{n + 1} {old}→{new}: closing {pos['swap']['qty']}x now, "
+                  f"then buying the ATM {new} (~{k:g}) once the close fills")
+
+
+def _swap_enter(eng, tk, intent):
+    """The swap's entry leg, run on the close's confirmed fill."""
+    waited = time.time() - float(intent.get("at") or 0)
+    if waited > SWAP_MAX_WAIT_S:
+        _event(False, f"{tk} swap: the close took {waited:.0f}s to fill — re-entry "
+                      f"NOT sent (over {SWAP_MAX_WAIT_S:.0f}s; that market is gone). Flat.")
+        return
+    pick = _atm_contract(eng, tk, intent["expiry"], intent["right"])
+    if not pick:
+        _event(False, f"{tk} swap: closed, but no live {intent['right']} quote — "
+                      f"re-entry NOT sent. Flat.")
+        return
+    oid, k, b, a, _age = pick
+    limit = min(round((b + a) / 2.0 + 0.01, 2), round(a, 2))
+    cap, _basis = max_premium(eng)
+    qty = int(intent.get("qty") or 1)
+    if limit > 0 and limit * qty * 100 > cap:
+        qty = int(cap // (limit * 100))
+    if qty < 1:
+        _event(False, f"{tk} swap: closed, but one {k:g}{intent['right']} at "
+                      f"{limit:.2f} is over the ${cap:,.0f} cap — re-entry NOT sent. Flat.")
+        return
+    req = dict(action="buy", ticker=tk, option_id=oid, qty=qty, strike=k,
+               expiry=intent["expiry"], right=intent["right"],
+               note=(f"swap #{intent.get('n')}" + (f" · {intent['note']}"
+                                                   if intent.get("note") else "")))
+    p = os.path.join(DIR, f"{int(time.time()*1e6)}-swap.json")
+    _execute(eng, req, p, _now_mod())        # every entry guard, at THIS moment
+
+
 def _execute(eng, req, path, now_mod=None):
     from config import MANUAL_TRADING_ARMED, DRY_RUN
     tk = str(req.get("ticker", "")).upper()
@@ -804,6 +998,8 @@ def _execute(eng, req, path, now_mod=None):
                           if r["skipped"] else ""))
     if tk not in ALLOWED:
         return _result(path, False, f"{tk} not in {sorted(ALLOWED)}")
+    if act == "swap":
+        return _result(path, *swap(eng, tk, req, now_mod))
     if act == "close":
         mode = EXIT_911 if str(req.get("mode")) == EXIT_911 else EXIT_MARKETABLE
         if tk not in load_positions(eng):
@@ -1491,8 +1687,16 @@ def _check_exits(eng):
                                    * 100, 2) if entry > 0 else None),
                         held_s=held if held > 0 else None,
                         partial=(st == "PARTIAL_FILLED"))
+            intent = pos.get("swap")
             load_positions(eng).pop(tk, None)
             save_positions(eng)
+            if intent and st == "FILLED":
+                # the hold is gone, so the ticker is free: the swap's entry leg
+                # (a PARTIAL close leaves contracts behind -- never stack on it)
+                _swap_enter(eng, tk, intent)
+            elif intent:
+                _event(False, f"{tk} swap: the close only PARTIALLY filled — "
+                              f"re-entry NOT sent")
             continue
         if st in ("CANCELLED", "FAILED") and pos.get("replacing"):
             # our own escalation cancel is CONFIRMED -- only now is the

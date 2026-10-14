@@ -2019,6 +2019,12 @@ def snapshot(eng):
         day = manual_orders.day_gain(eng)    # the +5% day-goal flag (staging)
     except Exception:
         pass
+    mday = None
+    try:
+        import manual_orders
+        mday = manual_orders.manual_day()    # today's closes + swaps (tape flag)
+    except Exception:
+        pass
 
     return dict(
         ts=int(time.time()),
@@ -2035,6 +2041,7 @@ def snapshot(eng):
         manual_cap_basis=cap_basis,
         real_cash=_num(real_cash, 2),
         day=day,
+        manual_day=mday,
         chains=chains,
         session=str(getattr(eng, "session_date", "") or ""),
         dry_run=bool(globals().get("_DRY", True)),
