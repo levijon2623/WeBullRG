@@ -1,5 +1,8 @@
 # secrets, sessions, state -- never commit
 .env
+.env-*
+.env.*
+!.env.example
 config.toml
 state/
 *.pickle

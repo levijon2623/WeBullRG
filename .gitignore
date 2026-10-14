@@ -13,6 +13,9 @@
 # would push a funded trading account's keys to a public remote.
 .env
 .env.*
+# .env-rh etc. (trade_broadcaster's separate env file, 2026-10-14) --
+# .env.* did not match a dash, so .env-rh sat one `git add .` from a public push
+.env-*
 !.env.example
 conf/
 *.pem

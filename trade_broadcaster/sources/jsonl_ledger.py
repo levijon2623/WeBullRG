@@ -71,10 +71,16 @@ class JsonlLedgerSource(Source):
         inst = Instrument("option", str(r.get("ticker")), str(r.get("right") or "")[:1] or None,
                           float(r["strike"]) if r.get("strike") is not None else None, r.get("expiry"))
         px = r.get("entry") if opening else r.get("exit")
-        return TradeEvent(source=self.name, key=f"{self.name}:{r.get('trade_id')}:{r['kind']}",
+        # a position can close in pieces (scale-outs): one close row per fill,
+        # so the key carries the row's time and size, not just the trade id
+        key = (f"{self.name}:{r.get('trade_id')}:open" if opening else
+               f"{self.name}:{r.get('trade_id')}:close:{r.get('ts')}:{r.get('qty')}")
+        qty = float(r.get("qty") or 0)
+        total = qty + float(r.get("remaining") or 0) if not opening else qty
+        return TradeEvent(source=self.name, key=key,
                           kind=FILL, legs=[Leg(inst, "buy" if opening else "sell",
                                                "open" if opening else "close")],
-                          quantity=float(r.get("qty") or 0), total_quantity=float(r.get("qty") or 0),
+                          quantity=qty, total_quantity=total,
                           price=float(px) if px is not None else None,
                           at=dt.datetime.fromtimestamp(int(r.get("ts") or 0), dt.timezone.utc),
                           pnl_pct=(None if opening else r.get("roe_pct")), label=self.label)

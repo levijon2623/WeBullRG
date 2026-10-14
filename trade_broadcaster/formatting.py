@@ -70,6 +70,8 @@ def render(ev: TradeEvent, privacy: dict | None = None) -> Message:
     closing = (leg0.effect == "close") or (leg0.effect is None and leg0.side == "sell")
     unit = "contract" if leg0.instrument.kind == "option" else "share"
     qty = f"{ev.quantity:g} {unit}{'s' if ev.quantity != 1 else ''}"
+    if ev.kind in (FILL, PARTIAL_FILL) and closing and ev.total_quantity > ev.quantity:
+        qty = f"{ev.quantity:g} of {ev.total_quantity:g} {unit}s"        # a scale-out
 
     head_icon, head = {
         PLACED: ("🕓", "ORDER PLACED"),

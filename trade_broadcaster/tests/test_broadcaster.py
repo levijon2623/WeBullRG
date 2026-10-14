@@ -192,6 +192,24 @@ class LedgerTests(unittest.TestCase):
         self.assertTrue(any("+30.0%" in x for x in m.lines))
 
 
+class ScaleOutLedgerTests(unittest.TestCase):
+    def test_two_partial_closes_both_post(self):
+        tmp = tempfile.mkdtemp()
+        p = os.path.join(tmp, "l.jsonl")
+        open(p, "w").close()
+        store = Store(os.path.join(tmp, "s.sqlite"))
+        src = JsonlLedgerSource("desk", {"path": p}, store)
+        src.start()
+        row = dict(kind="close", trade_id="t", ticker="SPY", strike=770, right="C",
+                   expiry="2026-10-14", exit=1.3, roe_pct=30.0)
+        with open(p, "a") as f:
+            f.write(json.dumps(dict(row, ts=100, qty=1, remaining=2)) + "\n")
+            f.write(json.dumps(dict(row, ts=160, qty=2, remaining=0)) + "\n")
+        ev = src.poll()
+        self.assertEqual(len({e.key for e in ev}), 2)
+        self.assertTrue(any("1 of 3 contracts" in x for x in render(ev[0]).lines))
+
+
 class ConfigTests(unittest.TestCase):
     def test_unknown_type(self):
         c = cfg()
