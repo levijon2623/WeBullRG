@@ -970,7 +970,174 @@ def _swap_enter(eng, tk, intent):
     _execute(eng, req, p, _now_mod())        # every entry guard, at THIS moment
 
 
-def _execute(eng, req, path, now_mod=None):
+# ---- entry triggers (operator, 2026-10-14) ---------------------------------
+# "Buy the ATM call/put when price touches X." Webull cannot hold an option
+# order conditional on the UNDERLYING, so the bot holds it, like the
+# underlying TP/SL. One trigger per ticker, in a file (a restart keeps it).
+#   * placing needs the arming window (a deliberate act); the trigger then has
+#     its OWN expiry (default 30 min, max 60) and fires through _execute with
+#     armed_override -- every other entry guard re-runs at the touch: 15:55,
+#     quote age, spread collar, exposure cap (qty cut to fit), one hold per
+#     ticker. Sideline, an expiry, 15:55 or the ticker becoming held cancel it.
+#   * TOUCH, not a hold: spot at/through the level on any loop pass fires it
+#     (operator's choice -- a real limit does not wait 2 s). Direction is set
+#     at placement: a level above spot fires on the way UP, below on the way
+#     DOWN. A stale feed never fires it; a stopped bot never fires it (flat is
+#     the safe failure).
+#   * the contract is ATM AT THE TOUCH, same right and expiry as staged.
+#   * staged underlying TP/SL are checked against the LEVEL when placed and
+#     against spot again at the fill (an overshoot past the TP refuses the
+#     entry rather than open a position already at its target).
+TRIGGERS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live",
+                        "manual_triggers.json")
+TRIGGER_TTL_S = 30 * 60.0
+TRIGGER_MAX_S = 60 * 60.0
+
+
+def load_triggers():
+    return _read(TRIGGERS) or {}
+
+
+def _save_triggers(d):
+    try:
+        _write_atomic(TRIGGERS, d)
+    except OSError as e:
+        print(f"  ⚠️ trigger file write failed: {type(e).__name__}: {e}")
+
+
+def place_trigger(eng, tk, req, now_mod=None):
+    from config import MANUAL_TRADING_ARMED
+    if not MANUAL_TRADING_ARMED:
+        return False, "MANUAL_TRADING_ARMED is False — no trigger"
+    if sidelined():
+        return False, "SIDELINED until tomorrow — no trigger"
+    if arm_left(eng) <= 0:
+        return False, "the arming window is CLOSED — arm first to place a trigger"
+    if now_mod is not None and now_mod >= EOD_FLATTEN_MOD:
+        return False, "past the 15:55 flatten — no new positions"
+    if tk in load_positions(eng):
+        return False, f"{tk} already held manually — close it first"
+    if tk in (getattr(eng, "active_snipes", {}) or {}):
+        return False, f"{tk} is held by the BOT"
+    right = str(req.get("right") or "").upper()[:1]
+    if right not in ("C", "P"):
+        return False, "trigger needs right C or P"
+    expiry = str(req.get("expiry") or "")
+    try:
+        _dt.date.fromisoformat(expiry)
+    except ValueError:
+        return False, "trigger needs the staged contract's expiry"
+    try:
+        level = _num_or_none(req.get("level"))
+        qty = int(req.get("qty") or 0)
+        ul_tp, ul_sl = _num_or_none(req.get("ul_tp")), _num_or_none(req.get("ul_sl"))
+    except (TypeError, ValueError):
+        return False, "trigger level / qty / TP / SL must be numbers"
+    if level is None or level <= 0:
+        return False, "trigger needs a level"
+    if qty < 1 or qty > MAX_CONTRACTS:
+        return False, f"qty {qty} outside 1..{MAX_CONTRACTS}"
+    spot, age = _spot(eng, tk)
+    if not spot or (age is not None and age > UL_STALE_S):
+        return False, f"no live {tk} price — cannot place a trigger blind"
+    if abs(level - spot) < 0.01:
+        return False, f"{level:.2f} is spot — buy now instead"
+    if ul_tp is not None or ul_sl is not None:
+        why = validate_levels(right, level, ul_tp, ul_sl)
+        if why:
+            return False, f"trigger TP/SL vs the trigger level: {why}"
+    ttl = min(TRIGGER_MAX_S, max(60.0, float(req.get("minutes") or TRIGGER_TTL_S / 60) * 60))
+    up = level > spot
+    now = time.time()
+    d = load_triggers()
+    replaced = tk in d
+    d[tk] = dict(right=right, expiry=expiry, level=level, dir="up" if up else "down",
+                 qty=qty, ul_tp=ul_tp, ul_sl=ul_sl, placed_at=now, expires_at=now + ttl,
+                 spot_at=spot, note=str(req.get("note") or "")[:200])
+    _save_triggers(d)
+    exp = _dt.datetime.fromtimestamp(now + ttl).strftime("%H:%M")
+    return True, (f"{tk} TRIGGER: buy {qty}x ATM {'call' if right == 'C' else 'put'} when {tk} "
+                  f"{'≥' if up else '≤'} {level:.2f} (spot {spot:.2f}) · until {exp}"
+                  + (" · replaced the previous trigger" if replaced else ""))
+
+
+def cancel_trigger(eng, tk, why):
+    d = load_triggers()
+    if tk not in d:
+        return False, f"no trigger on {tk}"
+    t = d.pop(tk)
+    _save_triggers(d)
+    return True, f"{tk} trigger {t['level']:.2f} cancelled ({why})"
+
+
+def _check_triggers(eng, now_mod=None):
+    d = load_triggers()
+    if not d:
+        return
+    changed, now, side = False, time.time(), sidelined()
+    for tk, t in list(d.items()):
+        why = ("sidelined" if side
+               else "expired" if now >= float(t.get("expires_at") or 0)
+               else "past 15:55" if now_mod is not None and now_mod >= EOD_FLATTEN_MOD
+               else "its expiry has passed" if str(t.get("expiry")) < _et_today()
+               else f"{tk} is now held" if (tk in load_positions(eng) or
+                                             tk in (getattr(eng, "active_snipes", {}) or {}))
+               else None)
+        if why:
+            d.pop(tk)
+            changed = True
+            _event(False, f"{tk} entry trigger {t['level']:.2f} CANCELLED — {why}")
+            continue
+        spot, age = _spot(eng, tk)
+        if spot <= 0 or (age is not None and age > UL_STALE_S):
+            if not t.get("blind"):
+                t["blind"] = True
+                changed = True
+                _event(False, f"{tk} entry trigger BLIND — no live {tk} price; it will "
+                              f"not fire until the price is back")
+            continue
+        if t.pop("blind", None):
+            changed = True
+        lv = float(t["level"])
+        if not (spot >= lv if t.get("dir") == "up" else spot <= lv):
+            continue
+        d.pop(tk)                       # one-shot: gone BEFORE it fires
+        _save_triggers(d)
+        changed = False
+        _event(True, f"{tk} TRIGGER {lv:.2f} touched (spot {spot:.2f}) — buying the ATM "
+                     f"{'call' if t['right'] == 'C' else 'put'}")
+        _trigger_enter(eng, tk, t, now_mod)
+    if changed:
+        _save_triggers(d)
+
+
+def _trigger_enter(eng, tk, t, now_mod):
+    pick = _atm_contract(eng, tk, t["expiry"], t["right"])
+    if not pick:
+        _event(False, f"{tk} trigger: no live {t['expiry']} {t['right']} quote — NOT bought")
+        return
+    oid, k, b, a, _age = pick
+    limit = min(round((b + a) / 2.0 + 0.01, 2), round(a, 2))
+    cap, _basis = max_premium(eng)
+    qty = int(t.get("qty") or 1)
+    if limit > 0 and limit * qty * 100 > cap:
+        qty = int(cap // (limit * 100))
+    if qty < 1:
+        _event(False, f"{tk} trigger: one {k:g}{t['right']} at {limit:.2f} is over the "
+                      f"${cap:,.0f} cap — NOT bought")
+        return
+    req = dict(action="buy", ticker=tk, option_id=oid, qty=qty, strike=k,
+               expiry=t["expiry"], right=t["right"], ul_tp=t.get("ul_tp"), ul_sl=t.get("ul_sl"),
+               note=f"trigger {'≥' if t.get('dir') == 'up' else '≤'} {float(t['level']):.2f}"
+                    + (f" · {t['note']}" if t.get("note") else ""))
+    _execute(eng, req, os.path.join(DIR, f"{int(time.time()*1e6)}-trigger.json"),
+             now_mod if now_mod is not None else _now_mod(), armed_override=True)
+
+
+def _execute(eng, req, path, now_mod=None, armed_override=False):
+    """`armed_override` is a PARAMETER, never a request field: only the
+    engine's own entry trigger (_trigger_enter) sets it, because a trigger was
+    placed while armed and has its own expiry. A request file cannot."""
     from config import MANUAL_TRADING_ARMED, DRY_RUN
     tk = str(req.get("ticker", "")).upper()
     oid = str(req.get("option_id", ""))
@@ -1000,6 +1167,10 @@ def _execute(eng, req, path, now_mod=None):
         return _result(path, False, f"{tk} not in {sorted(ALLOWED)}")
     if act == "swap":
         return _result(path, *swap(eng, tk, req, now_mod))
+    if act == "trigger":
+        return _result(path, *place_trigger(eng, tk, req, now_mod))
+    if act == "untrigger":
+        return _result(path, *cancel_trigger(eng, tk, "cancelled from the viewer"))
     if act == "close":
         mode = EXIT_911 if str(req.get("mode")) == EXIT_911 else EXIT_MARKETABLE
         if tk not in load_positions(eng):
@@ -1007,8 +1178,14 @@ def _execute(eng, req, path, now_mod=None):
             # which would otherwise keep the ticker blocked and send 15:55
             # chasing something you no longer own
             return _result(path, False, f"no manual hold on {tk} to close")
-        ok = flatten(eng, tk, "viewer close", mode)
-        return _result(path, ok, f"{tk} close sent ({mode})" if ok
+        try:
+            n = int(req["qty"]) if req.get("qty") not in (None, "") else None
+        except (TypeError, ValueError):
+            return _result(path, False, "qty must be a whole number of contracts")
+        ok = flatten(eng, tk, "viewer close" if n is None else f"viewer scale-out {n}x",
+                     mode, qty=n)
+        return _result(path, ok, (f"{tk} close sent ({mode})" if n is None
+                                  else f"{tk} closing {n}x ({mode})") if ok
                        else f"{tk} close FAILED — position still open")
     if act == "levels":
         # underlying TP/SL: exit-side, so like `close` it is not gated on ARMED
@@ -1018,7 +1195,7 @@ def _execute(eng, req, path, now_mod=None):
         return _result(path, False, "MANUAL_TRADING_ARMED is False — not sent")
     if sidelined():
         return _result(path, False, "SIDELINED until tomorrow — not sent")
-    if arm_left(eng) <= 0:
+    if not armed_override and arm_left(eng) <= 0:
         return _result(path, False,
                        "the arming window is CLOSED — arm from the viewer "
                        f"(it opens for {ARM_WINDOW_S/60:.0f} min and expires "
@@ -1220,8 +1397,11 @@ def _exit_price(bid, ask, mode):
     return max(floor, round(b - spread * FILL_COST, 2))
 
 
-def flatten(eng, tk, reason="MANUAL EOD", mode=EXIT_MARKETABLE):
-    """Place a closing SELL for a manual hold.
+def flatten(eng, tk, reason="MANUAL EOD", mode=EXIT_MARKETABLE, qty=None):
+    """Place a closing SELL for a manual hold -- all of it, or `qty`
+    contracts of it (a scale-out, operator 2026-10-14). Fills are booked as
+    they arrive (_book_exit), so a scale-out shrinks the hold and leaves the
+    rest watched by its TP/SL and the 15:55 sweep.
 
     🚨 THE HOLD IS NOT DROPPED UNTIL THE FILL IS CONFIRMED. The first version
     popped manual_holds[tk] the moment the order was SENT. A rejected or
@@ -1258,7 +1438,8 @@ def flatten(eng, tk, reason="MANUAL EOD", mode=EXIT_MARKETABLE):
     # against forgetting a 0DTE was silently dead. Caught by test_order_loop.
     bid, ask, _age = _quote(eng, pos["option_id"])
     px = _exit_price(bid, ask, mode)
-    qty = int(pos["qty"])
+    held = int(pos["qty"])
+    qty = held if qty is None else max(1, min(int(qty), held))
 
     if pos.get("dry"):
         # a simulated fill gets a simulated exit: book at the bid, not at the
@@ -1266,11 +1447,14 @@ def flatten(eng, tk, reason="MANUAL EOD", mode=EXIT_MARKETABLE):
         fill = max(0.01, round(min(bid or px, max(px, bid or px)), 2))
         _event(True, f"{tk} CLOSED {qty}x @ ~{fill:.2f} ({reason}) [DRY]")
         entry = float(pos.get("entry") or 0)
-        _log_manual("close", pos, _context(eng, tk), exit=fill,
-                    exit_mode=mode, exit_reason=reason,
+        _log_manual("close", pos, _context(eng, tk), exit=fill, qty=qty,
+                    exit_mode=mode, exit_reason=reason, remaining=held - qty,
                     roe_pct=(round((fill - entry) / entry * 100, 2)
                              if entry > 0 else None))
-        load_positions(eng).pop(tk, None)
+        if qty < held:
+            pos["qty"] = held - qty
+        else:
+            load_positions(eng).pop(tk, None)
         save_positions(eng)
         return True
 
@@ -1333,7 +1517,8 @@ def flatten(eng, tk, reason="MANUAL EOD", mode=EXIT_MARKETABLE):
         why = (res or {}).get("error") or "rejected"
         n = int((pos.get("exit_retry") or {}).get("n") or 0) + 1   # sends so far
         if n < EXIT_RETRY_MAX:
-            pos["exit_retry"] = dict(mode=mode, reason=reason, n=n, at=time.time())
+            pos["exit_retry"] = dict(mode=mode, reason=reason, n=n, at=time.time(),
+                                     qty=(qty if qty < held else None))
             save_positions(eng)
             _event(False, f"{tk} exit NOT ACCEPTED ({why[:120]}) — attempt "
                           f"{n}/{EXIT_RETRY_MAX}, retrying in {EXIT_RETRY_S:.0f}s, "
@@ -1346,10 +1531,11 @@ def flatten(eng, tk, reason="MANUAL EOD", mode=EXIT_MARKETABLE):
         return False
     pos.pop("exit_retry", None)
     pos.update(exit_coid=coid, exit_at=time.time(), exit_px=px,
-               exit_mode=mode, exit_reason=reason)
+               exit_mode=mode, exit_reason=reason, exit_qty=qty, exit_booked=0)
     save_positions(eng)
-    _event(True, f"{tk} exit sent: SELL {qty}x @ limit {px:.2f} "
-                 f"({reason}, {mode})")
+    _event(True, f"{tk} exit sent: SELL {qty}x"
+                 + (f" of {held}" if qty < held else "")
+                 + f" @ limit {px:.2f} ({reason}, {mode})")
     return True
 
 
@@ -1608,6 +1794,41 @@ def _check_entries(eng):
                           f"cancel sent, not chasing")
 
 
+_EXIT_KEYS = ("exit_coid", "exit_at", "exit_px", "exit_mode", "exit_reason",
+              "exit_qty", "exit_booked", "replacing", "cancel_at", "blind")
+
+
+def _book_exit(eng, tk, pos, fq, fpx, st):
+    """Book the exit fills since the last read: one ledger close row for the
+    increment, the hold shrunk by it. `fq` is the order's CUMULATIVE filled
+    quantity."""
+    booked = int(round(float(pos.get("exit_booked") or 0)))
+    inc = int(round(float(fq))) - booked
+    if inc <= 0:
+        return
+    _cash_stale()
+    fill = fpx or float(pos.get("exit_px") or 0)
+    entry = float(pos.get("entry") or 0)
+    held_before = int(pos.get("qty") or 0)
+    inc = min(inc, held_before) if held_before else inc
+    left = max(0, held_before - inc)
+    roe = ((fill - entry) / entry * 100) if entry > 0 else None
+    _event(True, f"{tk} exit FILLED {inc}x @ {fill:.2f}"
+                 + (f" ({roe:+.0f}% on {entry:.2f})" if roe is not None else "")
+                 + (f" — {left} still held" if left else ""))
+    held_s = int(time.time()) - int(pos.get("filled_at") or pos.get("opened") or 0)
+    _log_manual("close", pos, _context(eng, tk), qty=inc,
+                exit=round(fill, 2), exit_limit=pos.get("exit_px"),
+                exit_mode=pos.get("exit_mode"), exit_reason=pos.get("exit_reason"),
+                roe_pct=round(roe, 2) if roe is not None else None,
+                pnl=(round((fill - entry) * inc * 100, 2) if entry > 0 else None),
+                held_s=held_s if held_s > 0 else None,
+                partial=(st != "FILLED"), remaining=left)
+    pos["qty"] = left
+    pos["exit_booked"] = booked + inc
+    save_positions(eng)
+
+
 def _check_exits(eng):
     """Follow up in-flight manual exits. Pops ONLY on a confirmed fill.
 
@@ -1621,7 +1842,8 @@ def _check_exits(eng):
             # a rejected exit waiting to be re-sent (see flatten)
             r = pos.get("exit_retry")
             if r and time.time() - float(r.get("at") or 0) >= EXIT_RETRY_S:
-                flatten(eng, tk, r.get("reason") or "EXIT", r.get("mode") or EXIT_911)
+                flatten(eng, tk, r.get("reason") or "EXIT", r.get("mode") or EXIT_911,
+                        qty=r.get("qty"))
             continue
         if not _poll_due(pos, "last_exit_poll"):
             continue
@@ -1667,51 +1889,55 @@ def _check_exits(eng):
             save_positions(eng)
             continue
         pos.pop("blind", None)
-        if st == "FILLED" or (st == "PARTIAL_FILLED" and fq > 0):
-            _cash_stale()
-            fill = fpx or float(pos.get("exit_px") or 0)
-            entry = float(pos.get("entry") or 0)
-            roe = ((fill - entry) / entry * 100) if entry > 0 else None
-            _event(True, f"{tk} exit FILLED @ {fill:.2f}"
-                         + (f" ({roe:+.0f}% on {entry:.2f})" if roe is not None
-                            else "")
-                         + (" [PARTIAL]" if st == "PARTIAL_FILLED" else ""))
-            held = (int(time.time()) - int(pos.get("filled_at")
-                                           or pos.get("opened") or 0))
-            _log_manual("close", pos, _context(eng, tk),
-                        exit=round(fill, 2), exit_limit=pos.get("exit_px"),
-                        exit_mode=pos.get("exit_mode"),
-                        exit_reason=pos.get("exit_reason"),
-                        roe_pct=round(roe, 2) if roe is not None else None,
-                        pnl=(round((fill - entry) * int(pos.get("qty") or 0)
-                                   * 100, 2) if entry > 0 else None),
-                        held_s=held if held > 0 else None,
-                        partial=(st == "PARTIAL_FILLED"))
+        # 🚨 FILLS ARE BOOKED AS THEY ARRIVE (2026-10-14, with scale-outs).
+        # Before this, a PARTIAL fill was treated as the whole exit: the hold
+        # was popped and any contracts the broker had NOT sold dropped out of
+        # tracking -- no TP/SL, no 15:55 sweep. Now every status read books the
+        # increment since the last one (one ledger row each) and shrinks the
+        # hold; the hold goes only when nothing is left.
+        want = int(pos.get("exit_qty") or pos.get("qty") or 0)
+        if st == "FILLED" and not fq:
+            fq = float(want)                    # broker omitted the count
+        if fq > float(pos.get("exit_booked") or 0):
+            _book_exit(eng, tk, pos, fq, fpx, st)
+        if st == "FILLED" or (want and fq >= want):
             intent = pos.get("swap")
-            load_positions(eng).pop(tk, None)
-            save_positions(eng)
-            if intent and st == "FILLED":
-                # the hold is gone, so the ticker is free: the swap's entry leg
-                # (a PARTIAL close leaves contracts behind -- never stack on it)
-                _swap_enter(eng, tk, intent)
-            elif intent:
-                _event(False, f"{tk} swap: the close only PARTIALLY filled — "
-                              f"re-entry NOT sent")
+            left = int(pos.get("qty") or 0)
+            if left <= 0:
+                load_positions(eng).pop(tk, None)
+                save_positions(eng)
+                if intent:
+                    # the hold is gone, so the ticker is free: the swap's entry leg
+                    _swap_enter(eng, tk, intent)
+            else:
+                for k in _EXIT_KEYS + ("swap",):
+                    pos.pop(k, None)
+                save_positions(eng)
+                if intent:
+                    _event(False, f"{tk} swap: only part of the position closed — "
+                                  f"re-entry NOT sent; {left} still held")
             continue
         if st in ("CANCELLED", "FAILED") and pos.get("replacing"):
             # our own escalation cancel is CONFIRMED -- only now is the
-            # contract free to sell again (see EXIT_REPLACE_WAIT_S)
+            # contract free to sell again (see EXIT_REPLACE_WAIT_S). Re-send
+            # only what this exit still owes: the requested size less what
+            # already filled (the hold has been shrunk by those fills).
             mode = pos.pop("replacing")
-            pos.pop("exit_coid", None)
-            pos.pop("cancel_at", None)
+            rest = max(0, want - int(round(float(pos.get("exit_booked") or 0))))
+            reason = pos.get("exit_reason", "EXIT")
+            for k in _EXIT_KEYS:
+                pos.pop(k, None)
             save_positions(eng)
-            flatten(eng, tk, f"{pos.get('exit_reason', 'EXIT')} ESCALATED", mode)
+            if rest > 0 and int(pos.get("qty") or 0) > 0:
+                flatten(eng, tk, f"{reason} ESCALATED", mode,
+                        qty=min(rest, int(pos["qty"])))
             continue
         if st in ("CANCELLED", "FAILED"):
             # re-arm: the next flatten() call (EOD sweep or a button) re-sends
-            pos.pop("exit_coid", None)
+            for k in _EXIT_KEYS:
+                pos.pop(k, None)
             save_positions(eng)
-            _event(False, f"{tk} exit {st} — hold RESTORED, still open")
+            _event(False, f"{tk} exit {st} — hold RESTORED, {pos.get('qty')} still open")
             continue
         if pos.get("replacing"):
             # cancel sent, not yet confirmed: never place over it. Nudge the
@@ -1818,6 +2044,7 @@ def poll(eng, now_mod=None):
         _check_entries(eng)
         _check_exits(eng)
         _check_levels(eng)
+        _check_triggers(eng, now_mod)
         # EOD FLATTEN -- it must run even if a request is malformed, and even
         # after entries have closed for the day. It goes out MARKETABLE and
         # `_check_exits` escalates to 911 pricing if it has not filled in 20s,

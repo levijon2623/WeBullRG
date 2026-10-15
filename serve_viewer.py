@@ -116,7 +116,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             req = json.loads(self.rfile.read(n).decode("utf-8"))
             act = str(req.get("action") or "buy").lower()
             if act not in ("buy", "close", "panic", "arm", "disarm", "levels",
-                           "sideline", "unsideline", "swap"):
+                           "sideline", "unsideline", "swap", "trigger", "untrigger"):
                 return self._json({"ok": False, "err": "action"}, 400)
             if act == "swap":
                 # the answer to the sideline question, required by the engine
@@ -126,7 +126,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if not isinstance(req.get("note") or "", str):
                     return self._json({"ok": False, "err": "note"}, 400)
             # underlying TP/SL prices: numbers or null, nothing else
-            for k in ("tp", "sl", "ul_tp", "ul_sl"):
+            for k in ("tp", "sl", "ul_tp", "ul_sl", "level", "minutes"):
                 if req.get(k) is not None and not isinstance(req[k], (int, float)):
                     return self._json({"ok": False, "err": f"{k} must be a number"}, 400)
             if act == "unsideline":
@@ -140,6 +140,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     req.get("ticker", "")).upper() not in (
                     "IWM", "SPY", "QQQ"):
                 return self._json({"ok": False, "err": "ticker"}, 400)
+            if act == "trigger":
+                if str(req.get("right") or "").upper() not in ("C", "P"):
+                    return self._json({"ok": False, "err": "right C/P"}, 400)
+                if not isinstance(req.get("level"), (int, float)):
+                    return self._json({"ok": False, "err": "level"}, 400)
+                q = int(req.get("qty") or 0)
+                if q < 1 or q > 20:
+                    return self._json({"ok": False, "err": "qty 1..20"}, 400)
+            if act == "close" and req.get("qty") is not None:
+                if not isinstance(req["qty"], int) or not 1 <= req["qty"] <= 20:
+                    return self._json({"ok": False, "err": "qty 1..20"}, 400)
             if act == "buy":
                 if not str(req.get("option_id") or ""):
                     return self._json({"ok": False, "err": "option_id"}, 400)

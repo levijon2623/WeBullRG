@@ -2025,6 +2025,12 @@ def snapshot(eng):
         mday = manual_orders.manual_day()    # today's closes + swaps (tape flag)
     except Exception:
         pass
+    mtrig = None
+    try:
+        import manual_orders
+        mtrig = manual_orders.load_triggers()  # resting entry triggers (chart + staging)
+    except Exception:
+        pass
 
     return dict(
         ts=int(time.time()),
@@ -2042,6 +2048,7 @@ def snapshot(eng):
         real_cash=_num(real_cash, 2),
         day=day,
         manual_day=mday,
+        manual_triggers=mtrig,
         chains=chains,
         session=str(getattr(eng, "session_date", "") or ""),
         dry_run=bool(globals().get("_DRY", True)),

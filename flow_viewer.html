@@ -118,6 +118,16 @@
     background:#3a2a10;color:#f0b35a;border:1px solid #f0883e}
   #tapeFlag b{color:#ffd29a}
   #xSwap{border-color:var(--accent);color:var(--accent)}
+  /* scale-out stepper (CLOSE n of N) */
+  #xQtyBox{display:none;align-items:center;gap:2px;flex:0 0 auto}
+  #xQtyBox button{flex:0 0 22px;padding:6px 0}
+  #xQ{font-size:10.5px;font-weight:700;min-width:44px;text-align:center;color:var(--put)}
+  /* entry triggers */
+  #trgStaged{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0;color:var(--dim);font-size:11.5px}
+  #trgStaged b{color:#79c0ff}
+  #trgBtn{border-color:#79c0ff;color:#79c0ff;margin-top:4px}
+  #hold .p.trg{color:#79c0ff;cursor:default}
+  #hold .p.trg .x{cursor:pointer;color:var(--dim);margin-left:6px}
   #xSwap.hot{background:var(--accent);color:#0d1117}
   #prem.over{color:var(--dn)}
   .bigbtn{width:100%;padding:14px;font-size:14px;font-weight:700;
@@ -279,6 +289,7 @@
       <h2><span>guard telemetry</span><span id="telemN"></span></h2>
       <div id="hold"></div>
       <div id="exitbar">
+        <span id="xQtyBox"><button id="xQm" title="fewer">−</button><span id="xQ"></span><button id="xQp" title="more">+</button></span>
         <button id="xMkt" disabled>SELECT A MANUAL POSITION</button>
         <button id="xSwap" disabled title="select a manual position">SWAP</button>
         <button id="x911">911</button>
@@ -311,6 +322,12 @@
         <label class="chk"><input type="checkbox" class="ulOn"> Enable underlying
           TP/SL <span class="d">— hold T or S, click the price chart</span></label>
         <div class="ulrow" id="ulStaged"></div>
+      </div>
+      <div class="ulbox" id="trgBox">
+        <div style="font-size:11.5px;color:var(--dim)">Entry trigger — hold <b>E</b> + click the
+          price chart: buys the ATM call/put when price touches it (30 min)</div>
+        <div id="trgStaged"></div>
+        <button id="trgBtn" disabled>PLACE TRIGGER</button>
       </div>
       <button id="armBtn" style="margin-bottom:8px">ARM</button>
       <input id="ordNote" placeholder="note (optional, stored with the fill)">
@@ -1230,6 +1247,51 @@ function setQty(v){
    side of spot for the option's direction is refused here and again there.
    Lines: bright green = TP, bright red = SL; dashed while only staged.      */
 let UL_ON = uiGet('fv_ul') === '1';
+/* ENTRY TRIGGER (manual_orders.place_trigger, operator 2026-10-14). E + click
+   stages a level for the contract being staged; PLACE TRIGGER sends it with
+   the qty and any staged TP/SL. The BOT holds it: TOUCH fires (no 2 s hold),
+   ATM at the touch, every entry guard re-run then, 30 min expiry. */
+let STAGE_TRG = {tk:null, right:null, level:null};
+const trgActive = tk => ((LIVE && LIVE.manual_triggers) || {})[tk] || null;
+const minsLeft = t => Math.max(0, Math.round((t.expires_at - Date.now()/1000) / 60));
+function renderTrg(c){
+  const el = $('#trgStaged'), b = $('#trgBtn');
+  if(!el || !b) return;
+  const tk = SEL && SEL.tk, act = tk ? trgActive(tk) : null;
+  const spot = tk && LIVE ? (LIVE.tickers[tk] || {}).spot : null;
+  if(act){
+    el.innerHTML = `<span>ACTIVE: buy ${act.qty}x ATM <b>${act.right === 'C' ? 'call' : 'put'}</b> when ${
+      esc(tk)} <b>${act.dir === 'up' ? '≥' : '≤'} ${Number(act.level).toFixed(2)}</b> · ${minsLeft(act)} min left${
+      act.blind ? ' · <b style="color:var(--dn)">BLIND</b>' : ''}</span>`;
+    b.disabled = false; b.textContent = 'CANCEL TRIGGER'; b.dataset.mode = 'cancel';
+    return;
+  }
+  const st = (c && STAGE_TRG.tk === tk && STAGE_TRG.right === c.right) ? STAGE_TRG : null;
+  const armed = !!(LIVE && LIVE.armed), side = !!(LIVE && LIVE.sidelined);
+  const held = tk && ((LIVE && LIVE.manual) || {})[tk];
+  el.innerHTML = st && st.level != null
+    ? `<span>staged: <b>${spot != null && st.level > spot ? '≥' : '≤'} ${st.level.toFixed(2)}</b>${
+        ulPct(st.level, spot)}<span class="x" id="trgX" style="cursor:pointer;margin-left:6px">✕</span></span>`
+    : '<span>no level staged</span>';
+  const why = !st || st.level == null ? 'hold E and click the chart'
+    : side ? 'SIDELINED' : !armed ? 'ARM first' : held ? `${tk} already held` : '';
+  b.dataset.mode = 'place';
+  b.disabled = !!why;
+  b.textContent = why ? `PLACE TRIGGER — ${why}`
+    : `PLACE TRIGGER: ${qtyVal()}x ATM ${c.right === 'C' ? 'CALL' : 'PUT'} ${
+        spot != null && st.level > spot ? '≥' : '≤'} ${st.level.toFixed(2)}`;
+  const x = $('#trgX');
+  if(x) x.onclick = () => { STAGE_TRG.level = null; renderTrg(c); drawUl(); };
+}
+
+/* SCALE-OUT stepper: CLOSE n of N. Defaults to ALL, so one click still
+   closes everything; the engine sells n and keeps the rest watched. */
+let CLOSEQ = {tk:null, n:null};
+function closeQty(sel){
+  const q = sel ? parseInt(sel.qty, 10) || 1 : 1;
+  if(CLOSEQ.tk !== HOLDSEL || CLOSEQ.n == null || CLOSEQ.n > q) CLOSEQ = {tk:HOLDSEL, n:q};
+  return [CLOSEQ.n, q];
+}
 let STAGE_UL = {tk:null, right:null, tp:null, sl:null};
 const UL_KEYS = new Set();
 let ulToastTimer = null;
@@ -1328,6 +1390,17 @@ function drawUl(){
   liveSeries.ulLines = [];
   if(!LIVE) return;
   const spot = (LIVE.tickers[liveTk] || {}).spot;
+  const act = trgActive(liveTk);
+  const stg = (!act && SEL && SEL.tk === liveTk && STAGE_TRG.tk === liveTk && STAGE_TRG.level != null) ? STAGE_TRG : null;
+  if(act || stg){
+    const g = act || stg, px = Number(g.level);
+    const up = act ? act.dir === 'up' : (spot != null && px > spot);
+    liveSeries.ulLines.push(liveSeries.px.createPriceLine({
+      price: px, color: '#79c0ff', lineWidth: 2, lineStyle: LWC.LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: `${act ? '▶' : 'staged ▶'} BUY ${g.right} ${up ? '≥' : '≤'} ${px.toFixed(2)}${
+        act ? ` · ${minsLeft(act)}m` : ''}`}));
+  }
   const hold = (LIVE.manual || {})[liveTk];
   let lv = null, staged = false;
   if(hold && (hold.ul_tp != null || hold.ul_sl != null)) lv = {tp: hold.ul_tp, sl: hold.ul_sl};
@@ -1345,7 +1418,22 @@ function drawUl(){
 }
 
 async function ulClick(p){
-  if(!UL_ON || !LIVE || !liveSeries || !p || !p.point) return;
+  if(!LIVE || !liveSeries || !p || !p.point) return;
+  if(UL_KEYS.has('e')){
+    if(p.paneIndex != null && p.paneIndex !== 0)
+      return ulToast('click the PRICE pane (top), not the flow pane', true);
+    const c = SEL && SEL.tk === liveTk ? selContract() : null;
+    if(!c) return ulToast('stage a contract on this ticker first (click a strike)', true);
+    const raw = liveSeries.px.coordinateToPrice(p.point.y);
+    if(raw == null) return;
+    const px = Math.round(raw * 100) / 100, spot = (LIVE.tickers[liveTk] || {}).spot;
+    if(spot != null && Math.abs(px - spot) < 0.01) return ulToast('that is spot — just buy', true);
+    STAGE_TRG = {tk: liveTk, right: c.right, level: px};
+    ulToast(`staged trigger ${spot != null && px > spot ? '≥' : '≤'} ${px.toFixed(2)} — press PLACE TRIGGER`, false);
+    renderTrg(c); drawUl();
+    return;
+  }
+  if(!UL_ON) return;
   const kind = UL_KEYS.has('t') ? 'tp' : UL_KEYS.has('s') ? 'sl' : null;
   if(!kind) return;
   if(p.paneIndex != null && p.paneIndex !== 0)
@@ -1448,6 +1536,7 @@ function renderStage(){
   $('#stage').style.display = 'flex'; placeUlPop();
   renderDayGoal();
   renderTape(c);
+  renderTrg(c);
   renderUlStage();
 
   /* 🚨 ARMED MEANS REAL. There is no "armed but pretend" state any more:
@@ -1716,22 +1805,37 @@ function renderHold(){
       <b style="color:${q.roe>=0?'var(--up)':'var(--dn)'}">${
         q.roe>0?'+':''}${q.roe ?? '?'}%</b></div>`);
   }
+  const nPos = out.length;
+  for(const [t, g] of Object.entries((LIVE && LIVE.manual_triggers) || {}))
+    out.push(`<div class="p trg"><span>▶ ${esc(t)} TRIGGER buy ${g.qty}x ATM ${g.right === 'C' ? 'call' : 'put'} ${
+      g.dir === 'up' ? '≥' : '≤'} ${Number(g.level).toFixed(2)} <span class="d">${minsLeft(g)}m left${
+      g.blind ? ' · BLIND' : ''}</span></span><span class="x" data-trgx="${esc(t)}" title="cancel">✕</span></div>`);
   $('#hold').innerHTML = out.join('') ||
     '<div class="p none" style="color:var(--fail)">no open position</div>';
+  [...document.querySelectorAll('#hold [data-trgx]')].forEach(el => el.onclick = async () => {
+    const j = await postOrder({action:'untrigger', ticker:el.dataset.trgx});
+    ulToast(j.ok ? 'cancelling the trigger — verdict in telemetry' : 'REFUSED: ' + (j.err || '?'), !j.ok);
+    pollEvents(); livePoll();
+  });
   [...document.querySelectorAll('#hold .p[data-h]')].forEach(el =>
     el.onclick = () => {
       HOLDSEL = el.dataset.h === HOLDSEL ? null : el.dataset.h;
       disarmPanic(); renderHold();
     });
 
-  $('#exitbar').style.display = out.length ? 'flex' : 'none';
+  $('#exitbar').style.display = nPos ? 'flex' : 'none';
   const sel = HOLDSEL ? m[HOLDSEL] : null;
+  const [cn, cq] = closeQty(sel);
+  const stepOn = !!(sel && !sel.pending && !sel.exit_coid && !sel.cancel_sent && cq > 1);
+  $('#xQtyBox').style.display = stepOn ? 'flex' : 'none';
+  $('#xQ').textContent = `${cn} of ${cq}`;
   $('#xMkt').disabled = !sel || !!sel.exit_coid || !!sel.cancel_sent;
   $('#xMkt').textContent = !HOLDSEL ? 'SELECT A MANUAL POSITION'
     : sel && sel.cancel_sent ? `${HOLDSEL} CANCELLING`
     : sel && sel.exit_coid ? `${HOLDSEL} EXIT IN FLIGHT`
     // nothing is owned yet, so the exit is a cancel, and the button says so
     : sel && sel.pending ? `CANCEL ${HOLDSEL} ENTRY`
+    : stepOn && cn < cq ? `CLOSE ${cn} OF ${cq} ${HOLDSEL}`
     : `CLOSE ${HOLDSEL} MARKETABLE`;
   $('#x911').disabled = !panicScope().length;
   renderSwap(sel);
@@ -1885,12 +1989,38 @@ async function answerSwap(answer){
   SIDE_MODE = 'sideline';
 }
 
+$('#trgBtn').onclick = async () => {
+  const c = selContract(); if(!SEL) return;
+  const b = $('#trgBtn'); b.disabled = true;
+  let j;
+  if(b.dataset.mode === 'cancel'){
+    j = await postOrder({action:'untrigger', ticker:SEL.tk});
+  } else {
+    if(!c || STAGE_TRG.level == null) return;
+    const u = stagedUl() || {};
+    j = await postOrder({action:'trigger', ticker:SEL.tk, right:c.right, expiry:c.expiry,
+      level:STAGE_TRG.level, qty:qtyVal(), ul_tp:u.tp ?? null, ul_sl:u.sl ?? null,
+      note:($('#ordNote').value || '').slice(0, 200)});
+    if(j.ok) STAGE_TRG.level = null;
+  }
+  ulToast(j.ok ? 'sent — the bot confirms in telemetry' : 'REFUSED: ' + (j.err || '?'), !j.ok);
+  pollEvents(); livePoll();
+};
+$('#xQm').onclick = () => { if(CLOSEQ.n > 1){ CLOSEQ.n--; renderHold(); } };
+$('#xQp').onclick = () => { const s = ((LIVE && LIVE.manual) || {})[HOLDSEL];
+  if(s && CLOSEQ.n < (parseInt(s.qty, 10) || 1)){ CLOSEQ.n++; renderHold(); } };
+
 $('#xMkt').onclick = async () => {
   if(!HOLDSEL) return;
   const t = HOLDSEL;
   $('#xMkt').disabled = true;
-  $('#xMkt').textContent = `closing ${t}…`;
-  await postOrder({ticker:t, action:'close', mode:'marketable'});
+  const s = ((LIVE && LIVE.manual) || {})[t];
+  const q = s ? parseInt(s.qty, 10) || 1 : 1;
+  const n = (CLOSEQ.tk === t && CLOSEQ.n != null && CLOSEQ.n < q) ? CLOSEQ.n : null;
+  $('#xMkt').textContent = n ? `closing ${n} of ${q}…` : `closing ${t}…`;
+  await postOrder(n ? {ticker:t, action:'close', mode:'marketable', qty:n}
+                    : {ticker:t, action:'close', mode:'marketable'});
+  CLOSEQ = {tk:null, n:null};
   pollEvents();                 // the verdict lands in the feed below
 };
 
@@ -2030,7 +2160,7 @@ addEventListener('keydown', e => {
   if(e.key === 'Escape' && $('#legend').classList.contains('on')){
     e.preventDefault(); toggleKey(false); return; }
   if(e.key === 'Escape' && SEL){ e.preventDefault(); $('#stageX').click(); return; }
-  if(e.key === 't' || e.key === 's'){ UL_KEYS.add(e.key); return; }
+  if(e.key === 't' || e.key === 's' || e.key === 'e'){ UL_KEYS.add(e.key); return; }
   if(e.key === 'k'){ e.preventDefault(); toggleKey(); return; }
   if(e.key === 'g' && LIVE){ e.preventDefault(); gxToggle(); return; }
   if(e.key === 'i' && LIVE){ e.preventDefault(); imToggle(); return; }
