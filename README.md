@@ -115,6 +115,58 @@ days you came back in can be looked at later.
 
 ![Sidelined, and the question asked before trading again](docs/images/sideline.png)
 
+**Entry trigger, day goal, volatility gauge and wait lights.** One staged
+trade, built in a single pass: hold **E** and click the chart for the entry,
+**S** for the stop, **T** for the target, then *PLACE TRIGGER*. (The day
+goal's dollar figure and the account line under the premium are removed.)
+
+![Entry trigger staged with TP/SL, day goal met, volatility gauge and wait lights](docs/images/staging-entry-trigger.png)
+
+- **Entry trigger** (blue dashed line, `staged ▶ BUY C ≥ 769.30`). "Buy the
+  at-the-money call or put when price *touches* this level." Webull cannot hold
+  an option order conditional on the underlying, so the bot holds it. It fires
+  on the first touch (no 2-second hold, unlike the stops), buys the contract
+  that is ATM *at the touch*, and re-runs every entry guard at that moment:
+  spread, quote age, 15:55, one hold per ticker, and the exposure cap, which
+  may cut the quantity. You have to be armed to place one; it then lives for
+  30 minutes on its own clock. The sideline, its expiry, 15:55 or the ticker
+  becoming held cancel it, and a stale price feed never fires it. With an entry
+  staged, the TP and SL are measured from the **entry**, not from spot: for a
+  call the stop goes below the entry, wherever spot is. At the fill they are
+  checked against spot again, so a touch that overshoots the target refuses
+  the entry rather than open a trade already at its exit.
+- **Day goal** (green banner). Net account gain for the day (account value now
+  vs at the open) against `MANUAL_DAY_GOAL_PCT` (default +5%). Once reached it
+  stays up for the rest of the day: green while the gain holds, amber with the
+  peak once it slips back. A flag, never a block. It exists because the first
+  +5% of a day is the easiest moment to forget about.
+- **VOL gauge** (header). The chance the ticker moves at least half of its
+  09:35 at-the-money straddle, either way, within the next 60 minutes, with
+  the typical rate for that time of day as the tick mark (`59% typ 54%` here).
+  Display only. Its walk-forward test failed calibration at the top end, so
+  above 65% it shows no number: the pill reads
+  *VOL HIGH* and deepens from black to red as the estimate climbs. Every
+  reading is logged and scored forward. It says how *big* the next hour is
+  likely to be, never which *way*.
+- **Wait lights** (header, one dot per ETF: `● SPY ● QQQ ● IWM`). They mark the
+  *worst* time to enter, never a good one. A 5-minute move at or beyond the
+  95th percentile of 5-minute moves (about 0.28–0.30 of the 09:35 straddle, a
+  threshold that held steady across two years) counts as a burst. The light is
+  **red** for the 0–2 closed minutes after one and **amber** for minutes 3–4:
+  the few minutes after a burst give back a little on average, and entering 3–5
+  minutes later avoided that. Otherwise **green**, which means only "not a
+  known bad moment". Grey before the 09:35 straddle or outside 09:45–14:30. The
+  effect is small (under one round trip in costs): the lights stop you paying
+  for impatience, they do not add an edge. No light is tied to the clock, since
+  no time of day was found where fading the morning's move pays.
+- Also in the bar: the regime pills are labelled **prior close** (the session
+  regime the rules gate on, set once from yesterday and held all day), and
+  **`spot < flip −1.35`** is the live distance from today's gamma flip. Orange
+  below the flip, dim above, and display only. In the exit bar, **SWAP**
+  reverses a held position into the ATM contract of the other side (the second
+  swap of the day asks the sideline question first), and a held position with
+  more than one contract gets a `− n of N +` stepper to scale out.
+
 **Weekly GEX (`weekly_gex.html`).** The week's 0–4DTE gamma map: one column
 per trading day, each drawn from that day's expiry as snapshotted each
 morning, with walls and peak derived per expiry and the price line walking
@@ -220,7 +272,7 @@ away.
 It depends on which half of the repository you use.
 
 **Trading by hand from the live viewer** — the chart, the strike strip, staged
-orders, underlying TP/SL and the sideline — needs nothing but a Webull
+orders, entry triggers, underlying TP/SL and the sideline — needs nothing but a Webull
 account:
 
 | source | used for | cost |
