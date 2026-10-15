@@ -1302,14 +1302,27 @@ function holdRight(p){
   const o = String(p.option_id || '');
   return o.length >= 9 ? o[o.length - 9] : null;
 }
-function ulWhy(right, spot, kind, px){
+function ulWhy(right, spot, kind, px, refName){
   if(!(right === 'C' || right === 'P')) return 'cannot tell call from put';
   if(!spot) return 'no live underlying price';
   const up = (right === 'C') === (kind === 'tp');
   if(up ? px <= spot : px >= spot)
-    return `${kind.toUpperCase()} ${px.toFixed(2)} must be ${up ? 'above' : 'below'} spot ${
+    return `${kind.toUpperCase()} ${px.toFixed(2)} must be ${up ? 'above' : 'below'} ${refName || 'spot'} ${
       spot.toFixed(2)} for a ${right === 'C' ? 'call' : 'put'}`;
   return null;
+}
+/* WHAT A STAGED TP/SL IS MEASURED FROM (operator, 2026-10-15). With an entry
+   trigger staged on this contract, TP/SL are relative to the ENTRY LEVEL, not
+   to spot: a breakout call at 773 can carry an SL at 772.80 even with spot at
+   772.40 -- above spot, below the entry. That is exactly what the engine's
+   place_trigger checks (validate_levels against the level) and the fill
+   re-checks against spot at the touch. A plain order, and a position already
+   held, are still measured from spot. */
+function stageRef(c, tk){
+  const t = STAGE_TRG;
+  if(c && t.tk === tk && t.right === c.right && t.level != null)
+    return {px: t.level, name: 'entry'};
+  return {px: LIVE ? (LIVE.tickers[tk] || {}).spot : null, name: 'spot'};
 }
 function ulToast(msg, bad){
   const t = $('#ulToast');
@@ -1333,12 +1346,14 @@ function renderUlStage(){
   document.querySelectorAll('.ulOn').forEach(x => { x.checked = UL_ON; });
   const u = stagedUl();
   if(!UL_ON){ el.innerHTML = ''; return; }
-  const spot = SEL && LIVE ? (LIVE.tickers[SEL.tk] || {}).spot : null;
+  const ref = SEL ? stageRef(selContract(), SEL.tk) : {px: null, name: 'spot'};
   const part = k => u && u[k] != null
-    ? `<span>${k.toUpperCase()} <b class="${k}">${u[k].toFixed(2)}</b>${ulPct(u[k], spot)}<span class="x" data-ulx="${k}">✕</span></span>`
+    ? `<span>${k.toUpperCase()} <b class="${k}">${u[k].toFixed(2)}</b>${ulPct(u[k], ref.px)}<span class="x" data-ulx="${k}">✕</span></span>`
     : `<span>${k.toUpperCase()} —</span>`;
   el.innerHTML = part('tp') + part('sl') +
-    `<span style="width:100%">staged — goes with the order, watched once it fills</span>`;
+    `<span style="width:100%">${ref.name === 'entry'
+      ? `staged vs the ENTRY ${Number(ref.px).toFixed(2)} — goes with the trigger, watched once it fills`
+      : 'staged — goes with the order, watched once it fills'}</span>`;
   el.querySelectorAll('[data-ulx]').forEach(x => x.onclick = () => {
     STAGE_UL[x.dataset.ulx] = null; renderUlStage(); drawUl(); });
 }
@@ -1429,8 +1444,15 @@ async function ulClick(p){
     const px = Math.round(raw * 100) / 100, spot = (LIVE.tickers[liveTk] || {}).spot;
     if(spot != null && Math.abs(px - spot) < 0.01) return ulToast('that is spot — just buy', true);
     STAGE_TRG = {tk: liveTk, right: c.right, level: px};
-    ulToast(`staged trigger ${spot != null && px > spot ? '≥' : '≤'} ${px.toFixed(2)} — press PLACE TRIGGER`, false);
-    renderTrg(c); drawUl();
+    let msg = `staged trigger ${spot != null && px > spot ? '≥' : '≤'} ${px.toFixed(2)} — press PLACE TRIGGER`, bad = false;
+    const u = stagedUl();
+    if(u) for(const k of ['tp', 'sl']){
+      if(u[k] == null) continue;
+      const w = ulWhy(c.right, px, k, u[k], 'entry');
+      if(w){ STAGE_UL[k] = null; msg += ` · ${k.toUpperCase()} cleared (${w})`; bad = true; }
+    }
+    ulToast(msg, bad);
+    renderUlStage(); renderTrg(c); drawUl();
     return;
   }
   if(!UL_ON) return;
@@ -1456,10 +1478,13 @@ async function ulClick(p){
   if(c){
     if(STAGE_UL.tk !== tk || STAGE_UL.right !== c.right)
       STAGE_UL = {tk, right:c.right, tp:null, sl:null};
-    const why = ulWhy(c.right, spot, kind, px);
+    const ref = stageRef(c, tk);
+    const why = ulWhy(c.right, ref.px, kind, px, ref.name);
     if(why) return ulToast(why, true);
     STAGE_UL[kind] = px;
-    ulToast(`staged ${kind.toUpperCase()} ${px.toFixed(2)} — sent with the order`, false);
+    ulToast(`staged ${kind.toUpperCase()} ${px.toFixed(2)} — sent with the ${
+      ref.name === 'entry' ? 'trigger' : 'order'}`, false);
+    renderTrg(c);
     renderUlStage(); drawUl();
     return;
   }
