@@ -1602,6 +1602,12 @@ class FlowExecutionEngine:
             # Hold goes blind on the one position nothing else is managing.
             held |= {p.get("option_id")
                      for p in (getattr(self, "manual_holds", None) or {}).values()}
+            # ...and so do contracts SHADOWED after a manual exit (until 15:55),
+            # or the "what would holding have paid" record goes blind.
+            try:
+                held |= manual_orders.shadow_oids()
+            except Exception:                   # noqa: BLE001 -- never block a rebalance
+                pass
             for occ in to_drop:
                 # Never unsubscribe if we have an active snippet holding this contract!
                 if occ not in held:

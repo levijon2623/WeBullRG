@@ -127,6 +127,10 @@
   #trgStaged b{color:#79c0ff}
   #trgBtn{border-color:#79c0ff;color:#79c0ff;margin-top:4px}
   #hold .p.trg{color:#79c0ff;cursor:default}
+  /* position age badge (ageBadge) */
+  .age{font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:6px;
+    border:1px solid var(--line);color:var(--dim)}
+  .age.early{color:#f0b35a;border-color:#f0883e;background:#3a2a10}
   #hold .p.trg .x{cursor:pointer;color:var(--dim);margin-left:6px}
   #xSwap.hot{background:var(--accent);color:#0d1117}
   #prem.over{color:var(--dn)}
@@ -1788,6 +1792,31 @@ function disarmPanic(){
   if(m){ m.style.display = 'none'; m.textContent = ''; }
 }
 
+/* POSITION AGE (operator, 2026-10-16: "prevent emotional exits too soon").
+   Minutes since the fill, AMBER for the first 15 -- the stretch the trigger-
+   path study found to be a coin flip with the option typically under water.
+   After that a neutral age with what the BOT's flow-trigger trades looked
+   like at that age (check_trigger_paths, first trigger per rule-day, SELL
+   after costs). Deliberately NO "harvest" or "cliff" colours: holding kept
+   improving the average to the close, and every time-stop tested hurt. The
+   operator's own exits are measured by shadow tracking (check_manual_shadow);
+   these reference numbers are the BOT's, not theirs. */
+const AGE_REF = [[5, -12, 33, 52], [15, -12, 36, 48], [30, -11, 36, 53],
+                 [60, -7, 42, 63], [120, 5, 46, 72]];        // [min, mean %, % green, % underlying with]
+function ageBadge(p){
+  if(!p || p.pending || !p.filled_at) return '';
+  const m = Math.max(0, Math.floor(Date.now() / 1000 - p.filled_at) / 60 | 0);
+  let ref = AGE_REF[0];
+  for(const r of AGE_REF) if(m >= r[0]) ref = r;
+  const early = m < 15;
+  const tip = (early ? 'EARLY: in the first 15 minutes the BOT\u2019s flow-trigger trades were a coin flip ' +
+      '(underlying 48-52% their way) and typically under water (about -12%). Cutting here is mostly cutting noise. '
+    : `At ~${ref[0]} min the BOT\u2019s flow-trigger trades averaged ${ref[1] > 0 ? '+' : ''}${ref[1]}% ` +
+      `(${ref[2]}% green, underlying ${ref[3]}% their way); held to the close +8% on average, median -40%. `) +
+    'Reference only: these are the bot\u2019s entries, not yours. Your own exits are being shadow-tracked to answer that.';
+  return `<span class="age${early ? ' early' : ''}" title="${esc(tip)}">${m}m${early ? ' · early' : ''}</span>`;
+}
+
 function renderHold(){
   if(!LIVE) return;
   const m = LIVE.manual || {};
@@ -1820,7 +1849,7 @@ function renderHold(){
             roe != null ? `<b style="color:${roe>=0?'var(--up)':'var(--dn)'}">${
               roe>0?'+':''}${roe}%</b>` : ''}${
             p.exit_coid ? ` <span style="color:var(--put)">⟳ exit @ ${
-              p.exit_px}</span>` : ''}`}</span></div>`);
+              p.exit_px}</span>` : ''}${ageBadge(p)}`}</span></div>`);
   }
   for(const [t, s] of Object.entries(LIVE.tickers || {})){
     const q = s.position;

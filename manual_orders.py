@@ -1794,6 +1794,78 @@ def _check_entries(eng):
                           f"cancel sent, not chasing")
 
 
+# ---- shadow tracking of manual exits (operator, 2026-10-16) ---------------
+# "Do I take profits too fast?" The bot's own trigger paths say holding pays
+# on average, but those are FLOW-TRIGGER entries; the operator's are chart
+# entries. So once a manual position is closed (in full or in part), the bot
+# keeps recording that contract's bid/ask once a minute until 15:55 -- what
+# holding would have been worth -- in SHADOW_LOG. check_manual_shadow.py
+# turns it into "exit vs held +15 / +30 / +60 min / to the close".
+# The contract stays subscribed while it is shadowed (bot_runner rebalance
+# keeps shadow_oids() with the held set). Observation only: nothing here
+# places, changes or blocks an order.
+SHADOW_WATCH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live",
+                            "manual_shadow_watch.json")
+SHADOW_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "manual_shadow.jsonl")
+SHADOW_END_MOD = 15 * 60 + 55
+
+
+def _shadow_start(pos):
+    try:
+        today = _et_today()
+        w = {k: v for k, v in (_read(SHADOW_WATCH) or {}).items() if v.get("date") == today}
+        oid = pos.get("option_id")
+        if oid and oid not in w:
+            w[oid] = dict(date=today, tk=pos.get("ticker"), trade_id=pos.get("trade_id"),
+                          entry=pos.get("entry"), started=int(time.time()), last_mod=None)
+            _write_atomic(SHADOW_WATCH, w)
+    except Exception as e:                      # noqa: BLE001 -- never break an exit
+        print(f"  ⚠️ shadow start failed: {type(e).__name__}: {e}")
+
+
+def shadow_oids():
+    """Contracts being shadowed today -- bot_runner keeps them subscribed."""
+    today = _et_today()
+    return {k for k, v in (_read(SHADOW_WATCH) or {}).items() if v.get("date") == today}
+
+
+def _shadow_tick(eng, now_mod=None):
+    w = _read(SHADOW_WATCH)
+    if not w:
+        return
+    today = _et_today()
+    m = _now_mod() if now_mod is None else now_mod
+    changed, rows = False, []
+    for oid, sh in list(w.items()):
+        if sh.get("date") != today or m > SHADOW_END_MOD:
+            w.pop(oid)                          # done for the day: release the subscription
+            changed = True
+            continue
+        if sh.get("last_mod") == m:
+            continue
+        b, a, age = _quote(eng, oid)
+        if b is None and a is None:
+            continue
+        rows.append(dict(date=today, ts=int(time.time()), mod=m, oid=oid, tk=sh.get("tk"),
+                         trade_id=sh.get("trade_id"), bid=b, ask=a,
+                         age=round(age, 1) if age is not None else None))
+        sh["last_mod"] = m
+        changed = True
+    if rows:
+        try:
+            with open(SHADOW_LOG, "a", encoding="utf-8") as f:
+                for r in rows:
+                    f.write(json.dumps(r, separators=(",", ":")) + "\n")
+        except OSError as e:
+            print(f"  ⚠️ shadow log write failed: {type(e).__name__}: {e}")
+    if changed:
+        try:
+            _write_atomic(SHADOW_WATCH, w)
+        except OSError:
+            pass
+
+
 _EXIT_KEYS = ("exit_coid", "exit_at", "exit_px", "exit_mode", "exit_reason",
               "exit_qty", "exit_booked", "replacing", "cancel_at", "blind")
 
@@ -1827,6 +1899,7 @@ def _book_exit(eng, tk, pos, fq, fpx, st):
     pos["qty"] = left
     pos["exit_booked"] = booked + inc
     save_positions(eng)
+    _shadow_start(pos)                          # keep watching what holding would have paid
 
 
 def _check_exits(eng):
@@ -2045,6 +2118,7 @@ def poll(eng, now_mod=None):
         _check_exits(eng)
         _check_levels(eng)
         _check_triggers(eng, now_mod)
+        _shadow_tick(eng, now_mod)
         # EOD FLATTEN -- it must run even if a request is malformed, and even
         # after entries have closed for the day. It goes out MARKETABLE and
         # `_check_exits` escalates to 911 pricing if it has not filled in 20s,
