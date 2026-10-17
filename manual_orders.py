@@ -288,6 +288,17 @@ def day_gain(eng):
 MAX_SPREAD_PCT = 0.15
 MAX_QUOTE_AGE = 20.0           # seconds; live_option_quotes carries a timestamp
 EOD_FLATTEN_MOD = 15 * 60 + 55  # 15:55 ET
+# 🚨 NO ENTRIES BEFORE THE 09:30 BELL (2026-10-19). Cboe now trades these
+# options 07:30-09:25 ET (Global Trading Hours), so from Monday the quotes this
+# module prices a marketable limit off are LIVE before the open -- thin and
+# wide, not yesterday's frozen close. Webull's OpenAPI trades options in
+# regular hours only, so a pre-open buy would rest until 09:30 at a limit set
+# off a pre-market book, or be refused by the broker. Refused here instead,
+# with a reason. Exits are never gated (a 0DTE hold cannot exist pre-open).
+RTH_OPEN_MOD = 9 * 60 + 30
+PRE_OPEN_MSG = ("before the 09:30 open — no new positions (pre-market option "
+                "quotes are Cboe GTH, and the broker API trades options in "
+                "regular hours only)")
 
 # ---- exits ---------------------------------------------------------------
 EXIT_MARKETABLE = "marketable"
@@ -1015,6 +1026,8 @@ def place_trigger(eng, tk, req, now_mod=None):
         return False, "the arming window is CLOSED — arm first to place a trigger"
     if now_mod is not None and now_mod >= EOD_FLATTEN_MOD:
         return False, "past the 15:55 flatten — no new positions"
+    if now_mod is not None and now_mod < RTH_OPEN_MOD:
+        return False, PRE_OPEN_MSG
     if tk in load_positions(eng):
         return False, f"{tk} already held manually — close it first"
     if tk in (getattr(eng, "active_snipes", {}) or {}):
@@ -1030,7 +1043,7 @@ def place_trigger(eng, tk, req, now_mod=None):
     try:
         level = _num_or_none(req.get("level"))
         qty = int(req.get("qty") or 0)
-        ul_tp, ul_sl = _num_or_none(req.get("ul_tp")), _num_or_none(req.get("ul_sl"))
+        ul_tps, ul_sl = _req_tps(req), _num_or_none(req.get("ul_sl"))
     except (TypeError, ValueError):
         return False, "trigger level / qty / TP / SL must be numbers"
     if level is None or level <= 0:
@@ -1042,8 +1055,9 @@ def place_trigger(eng, tk, req, now_mod=None):
         return False, f"no live {tk} price — cannot place a trigger blind"
     if abs(level - spot) < 0.01:
         return False, f"{level:.2f} is spot — buy now instead"
-    if ul_tp is not None or ul_sl is not None:
-        why = validate_levels(right, level, ul_tp, ul_sl)
+    if ul_tps or ul_sl is not None:
+        why = (validate_ladder(right, level, ul_tps, qty)
+               or validate_levels(right, level, sl=ul_sl))
         if why:
             return False, f"trigger TP/SL vs the trigger level: {why}"
     ttl = min(TRIGGER_MAX_S, max(60.0, float(req.get("minutes") or TRIGGER_TTL_S / 60) * 60))
@@ -1052,7 +1066,8 @@ def place_trigger(eng, tk, req, now_mod=None):
     d = load_triggers()
     replaced = tk in d
     d[tk] = dict(right=right, expiry=expiry, level=level, dir="up" if up else "down",
-                 qty=qty, ul_tp=ul_tp, ul_sl=ul_sl, placed_at=now, expires_at=now + ttl,
+                 qty=qty, ul_tps=ul_tps, ul_sl=ul_sl, ul_be=bool(req.get("ul_be")),
+                 placed_at=now, expires_at=now + ttl,
                  spot_at=spot, note=str(req.get("note") or "")[:200])
     _save_triggers(d)
     exp = _dt.datetime.fromtimestamp(now + ttl).strftime("%H:%M")
@@ -1101,6 +1116,8 @@ def _check_triggers(eng, now_mod=None):
         lv = float(t["level"])
         if not (spot >= lv if t.get("dir") == "up" else spot <= lv):
             continue
+        if now_mod is not None and now_mod < RTH_OPEN_MOD:
+            continue                    # a pre-market print is not a touch (PRE_OPEN_MSG)
         d.pop(tk)                       # one-shot: gone BEFORE it fires
         _save_triggers(d)
         changed = False
@@ -1126,8 +1143,11 @@ def _trigger_enter(eng, tk, t, now_mod):
         _event(False, f"{tk} trigger: one {k:g}{t['right']} at {limit:.2f} is over the "
                       f"${cap:,.0f} cap — NOT bought")
         return
+    fit = dict(qty=qty, ul_tps=ladder(t))      # the cap may have cut qty: trim far tiers to fit
+    _fit_ladder(fit)
     req = dict(action="buy", ticker=tk, option_id=oid, qty=qty, strike=k,
-               expiry=t["expiry"], right=t["right"], ul_tp=t.get("ul_tp"), ul_sl=t.get("ul_sl"),
+               expiry=t["expiry"], right=t["right"], ul_tps=fit["ul_tps"], ul_sl=t.get("ul_sl"),
+               ul_be=t.get("ul_be"),
                note=f"trigger {'≥' if t.get('dir') == 'up' else '≤'} {float(t['level']):.2f}"
                     + (f" · {t['note']}" if t.get("note") else ""))
     _execute(eng, req, os.path.join(DIR, f"{int(time.time()*1e6)}-trigger.json"),
@@ -1209,6 +1229,8 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
         return _result(path, False, f"past the {EOD_FLATTEN_MOD//60}:"
                                     f"{EOD_FLATTEN_MOD%60:02d} flatten — no new "
                                     f"positions")
+    if now_mod is not None and now_mod < RTH_OPEN_MOD:
+        return _result(path, False, PRE_OPEN_MSG)
     if qty < 1 or qty > MAX_CONTRACTS:
         return _result(path, False, f"qty {qty} outside 1..{MAX_CONTRACTS}")
     if tk in (getattr(eng, "active_snipes", {}) or {}):
@@ -1240,11 +1262,13 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
     # sent -- you asked for protection, so an order whose protection is
     # nonsensical is refused rather than sent naked.
     try:
-        ul_tp, ul_sl = _num_or_none(req.get("ul_tp")), _num_or_none(req.get("ul_sl"))
-    except (TypeError, ValueError):
-        return _result(path, False, "underlying TP/SL must be prices")
-    if ul_tp is not None or ul_sl is not None:
-        why = validate_levels(_right(oid), _spot(eng, tk)[0], ul_tp, ul_sl)
+        ul_tps, ul_sl = _req_tps(req), _num_or_none(req.get("ul_sl"))
+    except (TypeError, ValueError) as e:
+        return _result(path, False, f"underlying TP/SL must be prices ({e})")
+    if ul_tps or ul_sl is not None:
+        spot0 = _spot(eng, tk)[0]
+        why = (validate_ladder(_right(oid), spot0, ul_tps, qty)
+               or validate_levels(_right(oid), spot0, sl=ul_sl))
         if why:
             return _result(path, False, f"not sent — underlying levels: {why}")
 
@@ -1281,10 +1305,12 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
         opened=int(time.time()), dry=False,
         strike=req.get("strike"), expiry=req.get("expiry"),
         right=req.get("right"), note=str(req.get("note", ""))[:200],
-        ul_tp=ul_tp, ul_sl=ul_sl)       # watched once it fills (_check_levels)
+        ul_tps=ul_tps, ul_sl=ul_sl,     # watched once it fills (_check_levels)
+        be_after_tp=bool(req.get("ul_be")))
     save_positions(eng)
-    lv = "".join([f" · TP {ul_tp:.2f}" if ul_tp is not None else "",
-                  f" · SL {ul_sl:.2f}" if ul_sl is not None else ""])
+    lv = "".join([f" · TP {_tps_text(ul_tps)}" if ul_tps else "",
+                  f" · SL {ul_sl:.2f}" if ul_sl is not None else "",
+                  " · SL → entry after a TP" if req.get("ul_be") else ""])
     return _result(path, True,
                    f"{tk} BUY {qty}x {oid} @ limit {limit:.2f} "
                    f"(${prem:,.0f}){lv} — SENT, awaiting fill",
@@ -1592,33 +1618,184 @@ def _num_or_none(v):
     return round(float(v), 2)
 
 
+# ---- TP LADDER (operator, 2026-10-17) ---------------------------------------
+# Up to MAX_TP_TIERS underlying take-profits per hold, each selling its own
+# number of contracts: `ul_tps` = [[level, qty], ...], NEAREST FIRST. A tier
+# with qty None means "everything still held" -- a single plain TP, which is
+# exactly the pre-ladder behaviour, so a hold that only ever had `ul_tp` reads
+# as [[ul_tp, None]]. Contracts no tier claims are the RUNNER: they leave on
+# the SL, by hand, or at 15:55. Every contract that is SOLD -- a tier firing
+# or a manual scale-out -- comes off the NEAREST tier first (_consume_ladder),
+# so a manual scale-out counts as taking TP1 early (operator's choice). The
+# SL always closes everything left.
+MAX_TP_TIERS = 3
+
+
+def ladder(pos):
+    """The hold's TP tiers, nearest first: [[level, qty or None], ...]."""
+    t = pos.get("ul_tps")
+    if t is None and pos.get("ul_tp") is not None:
+        t = [[pos["ul_tp"], None]]
+    return [list(x) for x in (t or [])]
+
+
+def _parse_tps(raw):
+    """A request's tier list -> [[level, qty or None], ...]; ValueError if malformed."""
+    if raw is None:
+        return []
+    if not isinstance(raw, (list, tuple)) or len(raw) > MAX_TP_TIERS:
+        raise ValueError(f"at most {MAX_TP_TIERS} TP tiers")
+    out = []
+    for x in raw:
+        if not isinstance(x, (list, tuple)) or len(x) != 2:
+            raise ValueError("each TP tier is [level, contracts]")
+        lv = _num_or_none(x[0])
+        q = None if x[1] in (None, "") else int(x[1])
+        if lv is None:
+            raise ValueError("a TP tier needs a level")
+        if q is not None and q < 1:
+            raise ValueError("a TP tier sells at least 1 contract")
+        out.append([lv, q])
+    return out
+
+
+def validate_ladder(right, ref, tps, qty):
+    """None if the tiers make sense, else why not. Sorts `tps` nearest first
+    in place. `ref` is spot (or the trigger level for a staged trigger)."""
+    if not tps:
+        return None
+    for lv, _q in tps:
+        why = validate_levels(right, ref, tp=lv)
+        if why:
+            return why
+    tps.sort(key=lambda x: x[0], reverse=(right == "P"))
+    lv = [x[0] for x in tps]
+    if len(set(lv)) != len(lv):
+        return "two TP tiers at the same level"
+    if len(tps) > 1 and any(q is None for _, q in tps):
+        return "with more than one TP tier, every tier needs a contract count"
+    tot = sum(q for _, q in tps if q is not None)
+    if qty and tot > int(qty):
+        return f"TP tiers add up to {tot} contracts; the position is {int(qty)}"
+    return None
+
+
+def _tps_text(tps):
+    return ", ".join(f"{lv:.2f}" + (f"×{q}" if q else "") for lv, q in tps) or "—"
+
+
+def _req_tps(req):
+    """An order/trigger request's ladder: `ul_tps`, else the single `ul_tp`."""
+    if req.get("ul_tps") is not None:
+        return _parse_tps(req["ul_tps"])
+    tp = _num_or_none(req.get("ul_tp"))
+    return [[tp, None]] if tp is not None else []
+
+
+def _fit_ladder(pos):
+    """Trim the FARTHEST tiers until they fit the hold (a partial entry fill,
+    or a trigger whose qty the premium cap cut)."""
+    t = pos.get("ul_tps")
+    if not t:
+        return
+    over = sum(q for _, q in t if q) - int(pos.get("qty") or 0)
+    while over > 0 and t and t[-1][1]:
+        take = min(t[-1][1], over)
+        t[-1][1] -= take
+        over -= take
+        if not t[-1][1]:
+            t.pop()
+
+
+def _consume_ladder(pos, n):
+    """`n` contracts were sold: take them off the NEAREST tiers first."""
+    t = pos.get("ul_tps")
+    if not t:
+        return
+    for tier in list(t):
+        if n <= 0:
+            break
+        if tier[1] is None:
+            continue                            # "all that's left" -- still is
+        take = min(tier[1], n)
+        tier[1] -= take
+        n -= take
+        if not tier[1]:
+            t.remove(tier)
+    pos.pop("ul_tp_since", None)
+
+
+def _sl_to_entry(eng, tk, pos):
+    """BREAK-EVEN AFTER A TP (opt-in per hold, `be_after_tp`). Move the SL to
+    the underlying's price at the fill (`ul_at_fill`), only if that TIGHTENS
+    it, and only if it is still on the stop side of spot -- otherwise it would
+    fire the instant it is set."""
+    lv, right, cur = pos.get("ul_at_fill"), _right(pos), pos.get("ul_sl")
+    if lv is None:
+        _event(False, f"{tk} SL not moved to entry — no underlying price was recorded at the fill")
+        return
+    if cur is not None and not (lv > cur if right == "C" else lv < cur):
+        return
+    spot, _age = _spot(eng, tk)
+    why = validate_levels(right, spot, sl=lv)
+    if why:
+        _event(False, f"{tk} SL NOT moved to the entry level {lv:.2f}: {why}")
+        return
+    pos["ul_sl"] = lv
+    pos.pop("ul_sl_since", None)
+    _event(True, f"{tk} TP filled — SL moved to the entry level {lv:.2f} "
+                 f"for the {int(pos.get('qty') or 0)} still held")
+
+
 def set_levels(eng, tk, req):
-    """Viewer action `levels`: set / move / clear the underlying TP and SL on a
-    manual hold (pending or filled). Only the keys PRESENT in the request are
-    touched; a present key with null clears that level. Not gated on ARMED --
-    a stop only ever closes."""
+    """Viewer action `levels`: set / move / clear the underlying TP ladder and
+    SL on a manual hold (pending or filled). Only the keys PRESENT in the
+    request are touched; a present key with null clears it. `tps` is the whole
+    ladder; `tp` (a single level) is the pre-ladder form and means one tier
+    for everything held. `be` turns break-even-after-a-TP on or off. Not gated
+    on ARMED -- these only ever close."""
     pos = load_positions(eng).get(tk)
     if not pos:
         return False, f"no manual hold on {tk} to attach levels to"
     if pos.get("exit_coid") or pos.get("exit_retry"):
         return False, f"{tk} is already exiting — levels not changed"
     try:
-        new = {k: _num_or_none(req[k]) for k in ("tp", "sl") if k in req}
-    except (TypeError, ValueError):
-        return False, "levels must be prices"
-    tp = new.get("tp", pos.get("ul_tp"))
-    sl = new.get("sl", pos.get("ul_sl"))
+        sl_new = _num_or_none(req["sl"]) if "sl" in req else None
+        if "tps" in req:
+            tps = _parse_tps(req["tps"])
+        elif "tp" in req:
+            tp = _num_or_none(req["tp"])
+            tps = [[tp, None]] if tp is not None else []
+        else:
+            tps = None                          # ladder unchanged
+    except (TypeError, ValueError) as e:
+        return False, f"{tk}: levels must be prices ({e})"
     spot, _age = _spot(eng, tk)
-    why = validate_levels(_right(pos), spot,
-                          new.get("tp"), new.get("sl"))   # only what changed
-    if why:
-        return False, f"{tk}: {why}"
-    pos["ul_tp"], pos["ul_sl"] = tp, sl
-    for k in ("ul_tp_since", "ul_sl_since"):
-        pos.pop(k, None)
+    right = _right(pos)
+    if tps is not None:
+        why = validate_ladder(right, spot, tps, pos.get("qty"))
+        if why:
+            return False, f"{tk}: {why}"
+    if sl_new is not None:
+        why = validate_levels(right, spot, sl=sl_new)   # only what changed
+        if why:
+            return False, f"{tk}: {why}"
+    if "be" in req and bool(req["be"]) and pos.get("ul_at_fill") is None and not pos.get("pending"):
+        return False, f"{tk}: no underlying price was recorded at this fill — break-even unavailable"
+    if tps is not None:
+        pos["ul_tps"] = tps
+        pos.pop("ul_tp", None)
+        pos.pop("ul_tp_since", None)
+    if "sl" in req:
+        pos["ul_sl"] = sl_new
+        pos.pop("ul_sl_since", None)
+    if "be" in req:
+        pos["be_after_tp"] = bool(req["be"])
     save_positions(eng)
-    msg = (f"{tk} underlying levels: TP {tp:.2f}" if tp is not None else f"{tk} underlying levels: TP —")
-    msg += f" · SL {sl:.2f}" if sl is not None else " · SL —"
+    sl = pos.get("ul_sl")
+    msg = (f"{tk} underlying levels: TP {_tps_text(ladder(pos))}"
+           + (f" · SL {sl:.2f}" if sl is not None else " · SL —")
+           + (" · SL → entry after a TP" if pos.get("be_after_tp") else ""))
     return True, msg + f" (spot {spot:.2f})"
 
 
@@ -1626,8 +1803,8 @@ def _check_levels(eng):
     """Fire a hold's underlying TP/SL. Runs every loop pass; cheap, and only
     writes the hold file when something actually changes."""
     for tk, pos in list((getattr(eng, "manual_holds", None) or {}).items()):
-        tp, sl = pos.get("ul_tp"), pos.get("ul_sl")
-        if tp is None and sl is None:
+        tps, sl = ladder(pos), pos.get("ul_sl")
+        if not tps and sl is None:
             continue
         if (pos.get("pending") or pos.get("exit_coid") or pos.get("exit_retry")
                 or pos.get("cancel_sent")):
@@ -1646,7 +1823,10 @@ def _check_levels(eng):
             _event(True, f"{tk} underlying price back — TP/SL watching again")
         right = _right(pos)
         now = time.time()
-        for kind, lv in (("tp", tp), ("sl", sl)):
+        # the ladder is nearest first, so if any tier is through, tier 1 is;
+        # its confirm clock gates the whole ladder, and a gap through several
+        # tiers sells them together in one order
+        for kind, lv in (("tp", tps[0][0] if tps else None), ("sl", sl)):
             if lv is None:
                 continue
             key = f"ul_{kind}_since"
@@ -1656,11 +1836,23 @@ def _check_levels(eng):
             since = pos.setdefault(key, now)
             if now - since < UL_CONFIRM_S:
                 continue
-            reason = (f"UNDERLYING {kind.upper()} {lv:.2f} "
+            n = None                            # SL: everything
+            label = f"{lv:.2f}"
+            if kind == "tp":
+                hit = [x for x in tps if _beyond(right, "tp", spot, x[0])]
+                held = int(pos.get("qty") or 0)
+                n = (None if any(q is None for _, q in hit)
+                     else sum(q for _, q in hit))
+                if n is not None and n >= held:
+                    n = None
+                label = _tps_text(hit)
+            reason = (f"UNDERLYING {kind.upper()} {label} "
                       f"(spot {spot:.2f}, held {now - since:.1f}s)")
-            _event(True, f"{tk} {reason} — closing, marketable then 911")
+            _event(True, f"{tk} {reason} — closing "
+                         + (f"{n} of {int(pos.get('qty') or 0)}" if n else "all")
+                         + ", marketable then 911")
             pos.pop(key, None)
-            flatten(eng, tk, reason, EXIT_MARKETABLE)
+            flatten(eng, tk, reason, EXIT_MARKETABLE, qty=n)
             break
 
 
@@ -1762,6 +1954,10 @@ def _check_entries(eng):
                     pass
             pos.update(pending=False, qty=got, entry=round(fill, 2),
                        entry_coid=None, filled_at=int(time.time()))
+            spot, _age = _spot(eng, tk)
+            if spot > 0:
+                pos["ul_at_fill"] = round(spot, 2)  # the break-even level (_sl_to_entry)
+            _fit_ladder(pos)                    # a partial fill can't carry tiers for contracts it doesn't own
             save_positions(eng)
             _cash_stale()
             slip = (fill - float(pos.get("limit") or fill))
@@ -1898,6 +2094,10 @@ def _book_exit(eng, tk, pos, fq, fpx, st):
                 partial=(st != "FILLED"), remaining=left)
     pos["qty"] = left
     pos["exit_booked"] = booked + inc
+    if left:
+        _consume_ladder(pos, inc)               # sold contracts come off the nearest tier
+        if pos.get("be_after_tp") and str(pos.get("exit_reason") or "").startswith("UNDERLYING TP"):
+            _sl_to_entry(eng, tk, pos)
     save_positions(eng)
     _shadow_start(pos)                          # keep watching what holding would have paid
 

@@ -918,7 +918,12 @@ def build_netprem_one(client: Client, ticker: str, days: list[date], out_dir: Pa
                             pl.col("tape_time").alias("minute_utc"),
                             pl.col("tape_time").dt.date().alias("date"),
                             pl.col("tape_time").dt.convert_time_zone(EASTERN_TZ).alias("minute_et"),
-                        ))
+                        )
+                        # regular session only: Cboe GTH (07:30-09:25 ET, from
+                        # 2026-10-19) must not reach the history the rules were
+                        # validated on -- see unusual_whales_client.FLOW_FIRST_MOD
+                        .filter(pl.col("minute_et").dt.hour().cast(pl.Int32) * 60
+                                + pl.col("minute_et").dt.minute().cast(pl.Int32) >= 9 * 60 + 29))
     have_cols = set(combined.columns)
     if {"net_call_premium", "net_put_premium"} <= have_cols:
         combined = combined.with_columns(

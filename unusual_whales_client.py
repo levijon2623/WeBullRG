@@ -86,6 +86,38 @@ def _tick_is_today(tick: dict, today: str) -> bool:
         return False
 
 
+# 🚨 REGULAR-SESSION FLOW ONLY (Cboe Global Trading Hours, from 2026-10-19).
+# Cboe now trades SPY/QQQ/IWM/GLD and the big single-name options 07:30-09:25
+# ET. Every rule's flow gate, percentile and z-score was validated on UW
+# net-prem-ticks that started at 09:29 (historical/NETPREM*.parquet: the first
+# minute of 2+ years of data is 09:29, never earlier). A REST poll returns the
+# whole day, so without this the first poll after the bell would fold two hours
+# of thin pre-market flow into the cumulative total the rules gate on -- the
+# same shape of bug as the 2026-09-27 "yesterday's total" offset. Ticks before
+# 09:29 ET are dropped everywhere flow enters: the seed, REST and the socket.
+FLOW_FIRST_MOD = 9 * 60 + 29
+
+
+def _tick_in_session(tick: dict) -> bool:
+    """False for a flow tick stamped before 09:29 ET. A stamp that cannot be
+    read is KEPT (the behaviour before this filter existed)."""
+    tt = tick.get("tape_time") or tick.get("time")
+    if tt in (None, ""):
+        return True
+    try:
+        if isinstance(tt, (int, float)) or str(tt).isdigit():
+            v = float(tt)
+            ts = datetime.fromtimestamp(v / 1000.0 if v > 1e12 else v, timezone.utc)
+        else:
+            ts = datetime.fromisoformat(str(tt).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                return True
+        et = ts.astimezone(_now_et().tzinfo)
+    except (ValueError, OverflowError, OSError):
+        return True
+    return et.hour * 60 + et.minute >= FLOW_FIRST_MOD
+
+
 def _net_gex_from_row(row: dict):
     """Pull a signed net-GEX number out of a UW row, tolerating the several
     field-naming schemes UW uses across endpoints/versions."""
@@ -191,7 +223,7 @@ class UnusualWhalesClient:
                     # ---------------------------------------------------------
                     # 1. NET FLOW (Zero-Latency Momentum)
                     # ---------------------------------------------------------
-                    if channel.startswith("net_flow:"):
+                    if channel.startswith("net_flow:") and _tick_in_session(data):
                         net_prem = safe_float(data.get("net_call_prem")) - safe_float(data.get("net_put_prem"))
                         if ticker not in self.live_flow:
                             self.live_flow[ticker] = deque(maxlen=20) # Keep last 20 ticks
@@ -376,6 +408,11 @@ class UnusualWhalesClient:
                 if dropped:
                     print(f"  ├─ {ticker}: ignored {dropped} tick(s) from a previous "
                           f"session (UW returns the last completed day before the open)")
+                pre = sum(1 for t in data if not _tick_in_session(t))
+                data = [t for t in data if _tick_in_session(t)]
+                if pre:
+                    print(f"  ├─ {ticker}: ignored {pre} pre-market tick(s) before 09:29 ET "
+                          f"(Cboe GTH; the rules were validated on regular-session flow)")
                 for tick in data:
                     net_call = float(tick.get("net_call_premium", 0))
                     net_put = float(tick.get("net_put_premium", 0))
@@ -466,8 +503,12 @@ class UnusualWhalesClient:
                 # Standardize the REST response to perfectly match our WebSocket format.
                 # Today's ticks ONLY -- see _tick_is_today.
                 today = today_et()
+                pre = 0
                 for tick in raw_data:
                     if not _tick_is_today(tick, today):
+                        continue
+                    if not _tick_in_session(tick):
+                        pre += 1
                         continue
                     net_call = float(tick.get("net_call_premium", 0))
                     net_put = float(tick.get("net_put_premium", 0))
@@ -475,6 +516,15 @@ class UnusualWhalesClient:
                         "net_premium": net_call - net_put,
                         "time": tick.get("tape_time", "")
                     })
+                # once per ticker per day: does UW carry GTH flow at all? (the
+                # answer was unknown when the filter went in, 2026-10-17)
+                seen = getattr(self, "_pre_logged", None)
+                if seen is None:
+                    seen = self._pre_logged = set()
+                if pre and (ticker, today) not in seen:
+                    seen.add((ticker, today))
+                    print(f"  ⏰ [UW] {ticker}: {pre} pre-market flow minute(s) before 09:29 ET "
+                          f"in net-prem-ticks -- dropped (Cboe GTH; rules use regular-session flow)")
         except Exception:
             pass
 

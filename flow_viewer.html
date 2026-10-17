@@ -35,8 +35,14 @@
     display:flex;flex-direction:column;background:var(--panel)}
   #side h1{font-size:13px;margin:0;padding:12px 14px;border-bottom:1px solid var(--line);
     letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
-  #filters{padding:10px 12px;border-bottom:1px solid var(--line);display:grid;
+  #filters{padding:4px 12px 10px;display:grid;
     grid-template-columns:1fr 1fr;gap:6px}
+  #filtBox{border-bottom:1px solid var(--line)}
+  #filtBox summary{padding:6px 12px;cursor:pointer;color:var(--dim);font-size:11px;
+    list-style:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #filtBox summary::-webkit-details-marker{display:none}
+  #filtBox summary::before{content:'▸ ';color:var(--accent)}
+  #filtBox[open] summary::before{content:'▾ '}
   select,input,button{background:#0d1117;color:var(--fg);border:1px solid var(--line);
     border-radius:6px;padding:5px 7px;font:inherit;width:100%}
   button{cursor:pointer}
@@ -69,7 +75,12 @@
   #sideBox .foot button{width:auto;padding:8px 22px}
   #sideNo{border-color:var(--up);color:var(--up)}
   #sideYes{border-color:var(--dn);color:var(--dn)}
-  #list{flex:1;overflow-y:auto;min-height:120px}
+  #list{flex:1 1 auto;overflow-y:auto;min-height:120px}
+  /* live desk: the list only takes what its rows need, telemetry gets the rest */
+  #side.live #list{flex:0 1 auto}
+  .tkrow.grp .car{width:12px}
+  .tkrow.sub{padding-left:24px}
+  .tkrow.sub.sel{padding-left:21px}
   /* ---- strike strip ---- */
   .tkrow{padding:6px 12px;border-bottom:1px solid #1c2128;cursor:pointer;
     display:flex;justify-content:space-between;align-items:center}
@@ -142,13 +153,13 @@
   .bigbtn.put:hover:not(:disabled){background:#2a1416}
   .bigbtn:disabled{opacity:.3;cursor:not-allowed}
   /* ---- telemetry ---- */
-  #telem{height:190px;border-top:1px solid var(--line);display:none;
+  #telem{flex:1 1 320px;min-height:320px;border-top:1px solid var(--line);display:none;
     flex-direction:column;background:#0b0f14}
   #telem h2{margin:0;padding:7px 12px;font-size:10px;letter-spacing:.1em;
     text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--line);
     display:flex;justify-content:space-between}
   #hold{padding:3px 0;font-size:11px;border-bottom:1px solid var(--line);
-    max-height:84px;overflow-y:auto}
+    max-height:120px;overflow-y:auto;flex:0 0 auto}
   #hold .p{padding:3px 12px;cursor:pointer;display:flex;gap:8px;
     justify-content:space-between;align-items:baseline}
   #hold .p:hover{background:#1c2128}
@@ -156,13 +167,15 @@
     padding-left:9px}
   #hold .p.bot,#hold .p.none{cursor:default}
   #hold .p.bot:hover,#hold .p.none:hover{background:none}
-  #exitbar{display:none;gap:6px;padding:6px 12px;
+  #exitbar{display:none;gap:5px;padding:6px 10px;flex:0 0 auto;
     border-bottom:1px solid var(--line)}
+  #exitbar #xSwap{flex:0 0 46px;padding-left:2px;padding-right:2px}
   #exitbar button{padding:8px 6px;font-size:10.5px;font-weight:700;
     letter-spacing:.04em}
   #xMkt{border-color:var(--put);color:var(--put)}
   #xMkt:hover:not(:disabled){background:#2a2411}
-  #x911{flex:0 0 78px;border-color:var(--dn);color:var(--dn)}
+  #x911{flex:0 0 50px;border-color:var(--dn);color:var(--dn)}
+  #xMkt{flex:1 1 auto;min-width:0;letter-spacing:0 !important}
   #x911:hover:not(:disabled){background:#2a1416}
   #x911.hot{background:var(--dn);color:#fff;border-color:#fff;
     animation:pulse .7s ease-in-out infinite}
@@ -202,14 +215,19 @@
   .ulrow .x{cursor:pointer;color:var(--dim);padding:0 3px;border:1px solid var(--line);
     border-radius:4px;margin-left:3px}
   .ulrow .x:hover{color:var(--fg);border-color:var(--accent)}
-  /* The underlying TP/SL panel for the SELECTED manual hold. It used to live
-     inside the telemetry box and pushed the event feed into a sliver; now it
-     pops out to the right of the sidebar (or of the staging panel, if that is
-     open) only while a hold is selected. */
-  #ulPop{position:fixed;left:300px;bottom:0;width:300px;z-index:61;display:none;
-    background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
-    border-radius:0 8px 0 0;box-shadow:12px 0 28px #0009;padding:10px 12px 12px;
-    font-size:12px}
+  /* POSITION MANAGEMENT for the SELECTED manual hold: TP ladder, SL,
+     break-even. It popped out over the chart while the telemetry box was
+     190px; since 2026-10-17 the replay filters and the non-index rules fold
+     away and the telemetry column grows, so it sits inline under the hold. */
+  #ulPop{display:none;flex:0 0 auto;background:#10151c;border-bottom:1px solid var(--line);
+    border-left:3px solid var(--accent);padding:7px 12px 8px;font-size:11.5px}
+  .tiers{width:100%}
+  .tier{display:flex;justify-content:space-between;align-items:center;padding:1px 0}
+  .tier button{width:auto;padding:0 6px;font-size:11px;margin:0 3px;line-height:1.4}
+  .tier b.n{min-width:30px;display:inline-block;text-align:center;color:var(--fg)}
+  .tier.run{color:var(--dim)}
+  label.chk.be{width:100%;font-size:11px;margin-top:4px;cursor:pointer}
+  label.chk.be input:disabled + span{opacity:.5}
   #ulPop .h{display:flex;justify-content:space-between;align-items:baseline;
     margin-bottom:6px;color:var(--dim);font-size:10px;letter-spacing:.08em;
     text-transform:uppercase}
@@ -276,6 +294,9 @@
       <span id="liveInfo" class="d"></span>
       <button id="sideBtn" disabled>⏸ SIDELINE</button>
       <span id="sideInfo" class="d"></span></div>
+    <!-- replay filters: research, not trading -- folded away by default so the
+         live desk gets the height (operator, 2026-10-17) -->
+    <details id="filtBox"><summary id="filtSum">filters</summary>
     <div id="filters">
       <select id="fTicker"><option value="">all tickers</option></select>
       <select id="fHalf">
@@ -284,7 +305,7 @@
       </select>
       <label class="chk"><input type="checkbox" id="fTraded"> filled sessions only</label>
       <label class="chk"><input type="checkbox" id="fPass"> had a trigger clear all gates</label>
-    </div>
+    </div></details>
     <div id="list"></div>
     <!-- 3. GUARD TELEMETRY. A request that sits on REQ with no verdict under it
          means bot_runner is not running -- which is the failure you most want
@@ -292,6 +313,7 @@
     <div id="telem">
       <h2><span>guard telemetry</span><span id="telemN"></span></h2>
       <div id="hold"></div>
+      <div id="ulPop"></div>
       <div id="exitbar">
         <span id="xQtyBox"><button id="xQm" title="fewer">−</button><span id="xQ"></span><button id="xQp" title="more">+</button></span>
         <button id="xMkt" disabled>SELECT A MANUAL POSITION</button>
@@ -342,7 +364,6 @@
       <button id="stageX" style="margin-top:14px">close staging</button>
     </div>
   </div>
-  <div id="ulPop"></div>
   <div id="main">
     <div id="bar"><span class="k">loading…</span></div>
     <div id="chart"><div id="empty">loading <code>tape/index.json</code>…</div></div>
@@ -418,6 +439,16 @@ function visible(){
     (!tk || s.ticker === tk) && (!hf || half(s.date) === hf) &&
     (!tr || s.n_trade > 0) && (!ps || s.n_pass > 0));
 }
+
+/* the folded filter row says what is filtered, so a hidden filter can't
+   quietly empty the replay list */
+function filtSum(){
+  const tk = $('#fTicker').value, hf = $('#fHalf').value;
+  $('#filtSum').textContent = `filters · ${tk || 'all tickers'} · ${hf || 'IS + OOS'}${
+    $('#fTraded').checked ? ' · filled only' : ''}${$('#fPass').checked ? ' · cleared gates' : ''}`;
+}
+$('#filtBox').open = uiGet('fv_filt') === '1';
+$('#filtBox').ontoggle = () => uiSet('fv_filt', $('#filtBox').open ? '1' : null);
 
 function renderList(){
   const rows = visible();
@@ -764,6 +795,7 @@ function liveStop(){
   // the order desk is meaningless without a live engine behind it
   SEL = null; openTk = null; HOLDSEL = null; disarmFire(); disarmPanic();
   $('#stage').style.display = 'none'; $('#telem').style.display = 'none';
+  $('#side').classList.remove('live');
   $('#ulPop').style.display = 'none'; placeUlPop();
   if(cur) draw(cur); else renderList();
 }
@@ -1111,7 +1143,7 @@ $('#liveBtn').onclick = () => {
   $('#liveBtn').classList.add('on');
   $('#liveBtn').textContent = '■ STOP LIVE';
   liveSeries = null;
-  $('#telem').style.display = 'flex';
+  $('#telem').style.display = 'flex'; $('#side').classList.add('live');
   livePoll(); pollEvents();
   liveTimer = setInterval(() => { livePoll(); pollEvents(); }, 5000);
 };
@@ -1148,18 +1180,42 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g,
 const px2 = v => (typeof v === 'number' && isFinite(v)) ? v.toFixed(2) : '—';
 
 /* ---- 1. the 0DTE strike strip ---- */
+/* The three index ETFs you trade stay on top; the bot's other rules fold
+   into one row (operator, 2026-10-17). The folded row still shows any of
+   them that holds a position or is not just scanning, and the one on the
+   chart stays listed under it. */
+const IDX_TK = ['IWM', 'QQQ', 'SPY'];
+let OTH_OPEN = uiGet('fv_oth') === '1';
 function liveList(d){
   const ch = d.chains || {};
-  $('#list').innerHTML = Object.keys(d.tickers).sort().map(t => {
+  const row = (t, sub) => {
     const s = d.tickers[t], p = s.position, n = (ch[t] || []).length;
     const roe = p && p.roe != null
       ? `<span class="p ${p.roe>0?'pos':'neg'}">${p.roe>0?'+':''}${p.roe}%</span>`
       : `<span class="d">${s.state}</span>`;
-    return `<div class="tkrow ${t===liveTk?'sel':''}" data-lt="${t}">
+    return `<div class="tkrow ${sub ? 'sub ' : ''}${t===liveTk?'sel':''}" data-lt="${t}">
       <span>${n ? `<span class="car">${t===openTk?'▾':'▸'}</span>` : ''}${t}
         <span class="d">${s.rule||'—'}</span></span>${roe}</div>` +
       (t === openTk && n ? strikeStrip(t, ch[t]) : '');
-  }).join('');
+  };
+  const all = Object.keys(d.tickers).sort();
+  const oth = all.filter(t => !IDX_TK.includes(t));
+  let html = all.filter(t => IDX_TK.includes(t)).map(t => row(t)).join('');
+  if(oth.length){
+    const busy = oth.filter(t => d.tickers[t].position || !/^scanning/.test(d.tickers[t].state || ''));
+    const sum = busy.length ? busy.map(t => {
+        const q = d.tickers[t].position;
+        return q && q.roe != null
+          ? `<span class="p ${q.roe>0?'pos':'neg'}">● ${t} ${q.roe>0?'+':''}${q.roe}%</span>`
+          : `<span class="d">${t} ${esc(d.tickers[t].state || '')}</span>`;
+      }).join(' ') : '<span class="d">all scanning</span>';
+    html += `<div class="tkrow grp" id="othRow"><span><span class="car">${OTH_OPEN ? '▾' : '▸'}</span>other rules
+      <span class="d">${oth.length}</span></span><span>${sum}</span></div>`;
+    html += (OTH_OPEN ? oth : oth.filter(t => t === liveTk)).map(t => row(t, true)).join('');
+  }
+  $('#list').innerHTML = html;
+  if($('#othRow')) $('#othRow').onclick = () => {
+    OTH_OPEN = !OTH_OPEN; uiSet('fv_oth', OTH_OPEN ? '1' : null); liveList(LIVE); };
   [...document.querySelectorAll('.tkrow[data-lt]')].forEach(el =>
     el.onclick = () => {
       const t = el.dataset.lt;
@@ -1296,7 +1352,7 @@ function closeQty(sel){
   if(CLOSEQ.tk !== HOLDSEL || CLOSEQ.n == null || CLOSEQ.n > q) CLOSEQ = {tk:HOLDSEL, n:q};
   return [CLOSEQ.n, q];
 }
-let STAGE_UL = {tk:null, right:null, tp:null, sl:null};
+let STAGE_UL = {tk:null, right:null, tps:[], sl:null, be:false};
 const UL_KEYS = new Set();
 let ulToastTimer = null;
 
@@ -1345,62 +1401,166 @@ function stagedUl(){
 }
 function ulPct(px, spot){ return spot ? ` (${px >= spot ? '+' : ''}${((px/spot-1)*100).toFixed(2)}%)` : ''; }
 
+/* TP LADDER (operator, 2026-10-17). Up to 3 underlying TPs per position,
+   each selling its own number of contracts; contracts no tier claims are the
+   RUNNER (they leave on the SL, by hand, or at 15:55). A tier whose count is
+   null means "everything still held" -- one plain TP, the old behaviour, and
+   what the first T-click makes. Lower its count with − to free contracts;
+   the next T-click then ADDS a tier holding them. With every contract
+   assigned (or 3 tiers up), a T-click MOVES the tier nearest the click.
+   A manual scale-out comes off the NEAREST tier (engine side).
+   manual_orders.validate_ladder is the guard; this page only stages. */
+const MAX_TIERS = 3;
+const TPS_OPT = {};    // tk -> {tps?, be?, until}: what we just sent, until LIVE catches up
+function holdTps(t, p){
+  const o = TPS_OPT[t];
+  if(o && o.tps && Date.now() < o.until) return o.tps.map(x => [...x]);
+  if(Array.isArray(p.ul_tps)) return p.ul_tps.map(x => [Number(x[0]), x[1] == null ? null : Number(x[1])]);
+  return p.ul_tp != null ? [[Number(p.ul_tp), null]] : [];
+}
+function holdBe(t, p){
+  const o = TPS_OPT[t];
+  return (o && o.be != null && Date.now() < o.until) ? o.be : !!p.be_after_tp;
+}
+const sortTps = (tps, right) => tps.sort((a, b) => right === 'P' ? b[0] - a[0] : a[0] - b[0]);
+const tierN = (x, held) => x[1] == null ? held : x[1];
+const runnerOf = (tps, held) => Math.max(0, held - tps.reduce((s, x) => s + tierN(x, held), 0));
+function tierClick(tps, px, held, right){
+  tps = tps.map(x => [...x]);
+  if(!tps.length) return [[px, null]];
+  if(tps.some(x => x[0] === px)) return `a TP is already at ${px.toFixed(2)}`;
+  if(runnerOf(tps, held) > 0 && tps.length < MAX_TIERS) tps.push([px, runnerOf(tps, held)]);
+  else {
+    let j = 0;
+    tps.forEach((x, i) => { if(Math.abs(x[0] - px) < Math.abs(tps[j][0] - px)) j = i; });
+    tps[j][0] = px;
+  }
+  return sortTps(tps, right);
+}
+function tierStep(tps, i, d, held){
+  tps = tps.map(x => [...x]);
+  const n = tierN(tps[i], held) + d;
+  if(n < 1 || (d > 0 && runnerOf(tps, held) < 1)) return null;
+  tps[i][1] = (tps.length === 1 && n >= held) ? null : n;     // one tier, every contract = "all"
+  return tps;
+}
+// a staged ladder follows the order size: trim the FARTHEST tiers, as the engine does
+function fitTps(tps, held){
+  tps = (tps || []).map(x => [...x]);
+  let over = tps.reduce((s, x) => s + (x[1] == null ? 0 : x[1]), 0) - held;
+  while(over > 0 && tps.length && tps[tps.length - 1][1] != null){
+    const t = tps[tps.length - 1], k = Math.min(t[1], over);
+    t[1] -= k; over -= k;
+    if(!t[1]) tps.pop();
+  }
+  return tps;
+}
+function tierHtml(tps, held, ref, editable){
+  const rows = tps.map((x, i) => `<div class="tier"><span>TP${i + 1} <b class="tp">${x[0].toFixed(2)}</b>${
+      ulPct(x[0], ref)}</span><span>${editable ? `<button data-tm="${i}" title="sell fewer here">−</button>` : ''}<b class="n">${
+      x[1] == null ? 'all' : '×' + x[1]}</b>${editable ? `<button data-tq="${i}" title="sell more here">+</button>` : ''}${
+      editable ? `<span class="x" data-tx="${i}" title="remove this TP">✕</span>` : ''}</span></div>`);
+  const run = runnerOf(tps, held);
+  if(tps.length && run > 0)
+    rows.push(`<div class="tier run"><span>runner</span><span><b class="n">×${run}</b> SL · hand · 15:55</span></div>`);
+  return rows.join('') || '<div class="tier"><span>TP —</span></div>';
+}
+// wire a rendered ladder's −/+/✕ to `apply(newTps)`
+function tierWire(el, tps, held, apply){
+  el.querySelectorAll('[data-tm],[data-tq]').forEach(b => b.onclick = ev => {
+    ev.stopPropagation();
+    const i = +(b.dataset.tm ?? b.dataset.tq), nt = tierStep(tps, i, b.dataset.tm != null ? -1 : 1, held);
+    if(nt) apply(nt);
+  });
+  el.querySelectorAll('[data-tx]').forEach(b => b.onclick = ev => {
+    ev.stopPropagation();
+    apply(tps.filter((_, i) => i !== +b.dataset.tx));
+  });
+}
+
 function renderUlStage(){
   const el = $('#ulStaged'); if(!el) return;
   document.querySelectorAll('.ulOn').forEach(x => { x.checked = UL_ON; });
-  const u = stagedUl();
+  const u = stagedUl(), c = SEL ? selContract() : null;
   if(!UL_ON){ el.innerHTML = ''; return; }
-  const ref = SEL ? stageRef(selContract(), SEL.tk) : {px: null, name: 'spot'};
-  const part = k => u && u[k] != null
-    ? `<span>${k.toUpperCase()} <b class="${k}">${u[k].toFixed(2)}</b>${ulPct(u[k], ref.px)}<span class="x" data-ulx="${k}">✕</span></span>`
-    : `<span>${k.toUpperCase()} —</span>`;
-  el.innerHTML = part('tp') + part('sl') +
+  const ref = SEL ? stageRef(c, SEL.tk) : {px: null, name: 'spot'};
+  const q = qtyVal(), tps = u ? fitTps(u.tps, q) : [];
+  el.innerHTML = `<div class="tiers">${tierHtml(tps, q, ref.px, true)}</div>` +
+    (u && u.sl != null
+      ? `<span>SL <b class="sl">${u.sl.toFixed(2)}</b>${ulPct(u.sl, ref.px)}<span class="x" data-ulx="sl">✕</span></span>`
+      : '<span>SL —</span>') +
+    `<label class="chk be"><input type="checkbox" id="stBe"${u && u.be ? ' checked' : ''}><span>SL → entry level after a TP fills</span></label>` +
     `<span style="width:100%">${ref.name === 'entry'
       ? `staged vs the ENTRY ${Number(ref.px).toFixed(2)} — goes with the trigger, watched once it fills`
-      : 'staged — goes with the order, watched once it fills'}</span>`;
+      : 'staged — goes with the order, watched once it fills'} · T+click adds a TP once − frees contracts</span>`;
   el.querySelectorAll('[data-ulx]').forEach(x => x.onclick = () => {
-    STAGE_UL[x.dataset.ulx] = null; renderUlStage(); drawUl(); });
+    STAGE_UL.sl = null; renderUlStage(); drawUl(); });
+  tierWire(el, tps, q, nt => { STAGE_UL.tps = nt; renderUlStage(); drawUl(); });
+  $('#stBe').onchange = () => {
+    if(!c) return;
+    if(!u) STAGE_UL = {tk: SEL.tk, right: c.right, tps: [], sl: null, be: false};
+    STAGE_UL.be = $('#stBe').checked;
+  };
 }
 
-function placeUlPop(){
-  const st = $('#stage'), pop = $('#ulPop');
-  const left = (st && st.style.display === 'flex') ? 630 : 300;
-  pop.style.left = left + 'px';
-  /* the chart key and its hint live in the same bottom-left corner: step
-     them clear of the popout while it is open, back when it closes */
-  const k = pop.style.display === 'block' ? (left + 312) + 'px' : '';
-  $('#keyHint').style.left = k; $('#legend').style.left = k;
-}
+/* the hold's levels now sit inline in the telemetry column, so nothing
+   floats over the chart key any more */
+function placeUlPop(){ $('#keyHint').style.left = ''; $('#legend').style.left = ''; }
 
 function renderUlHold(){
   const el = $('#ulPop'); if(!el) return;
   const t = HOLDSEL, p = (LIVE && t) ? (LIVE.manual || {})[t] : null;
   if(!p){ el.style.display = 'none'; placeUlPop(); return; }
   const spot = (LIVE.tickers[t] || {}).spot;
-  const part = k => p['ul_' + k] != null
-    ? `<span>${k.toUpperCase()} <b class="${k}">${Number(p['ul_' + k]).toFixed(2)}</b>${
-        ulPct(Number(p['ul_' + k]), spot)}<span class="x" data-ulk="${k}">✕</span></span>`
-    : `<span>${k.toUpperCase()} —</span>`;
+  const held = parseInt(p.qty, 10) || 1, tps = holdTps(t, p), be = holdBe(t, p);
+  const busy = !!(p.exit_coid || p.exit_retry), edit = UL_ON && !busy;
+  const sl = p.ul_sl != null
+    ? `<span>SL <b class="sl">${Number(p.ul_sl).toFixed(2)}</b>${ulPct(Number(p.ul_sl), spot)}${
+        edit ? '<span class="x" data-ulk="sl">✕</span>' : ''}</span>` : '<span>SL —</span>';
+  const noBe = p.ul_at_fill == null && !p.pending;
   const onChart = liveTk === t;
-  el.innerHTML = `<div class="h"><span>underlying TP/SL · <b>◆ ${esc(t)} ${
+  el.innerHTML = `<div class="h"><span>position · <b>◆ ${esc(t)} ${held}x ${
       p.strike ?? ''}${p.right ?? ''}</b></span><span id="ulPopX" title="deselect">✕</span></div>
     <label class="chk" style="display:flex;gap:6px;align-items:center;cursor:pointer">
       <input type="checkbox" class="ulOn" style="width:auto"> enable — T or S + click the price chart</label>
-    <div class="ulrow">${part('tp')}${part('sl')}${
+    <div class="ulrow"><div class="tiers">${tierHtml(tps, held, spot, edit)}</div>${sl}${
       p.ul_blind ? '<b style="color:var(--dn)">BLIND — no live price</b>' : ''}${
-      p.pending ? '<span>(active once filled)</span>' : ''}</div>
+      p.pending ? '<span>(active once filled)</span>' : ''}${
+      busy ? '<span style="color:var(--put)">exit in flight — levels locked</span>' : ''}</div>
+    <label class="chk be" title="${noBe ? 'no underlying price was recorded at this fill' : ''}"><input type="checkbox" id="hBe"${
+      be ? ' checked' : ''}${noBe || busy ? ' disabled' : ''}><span>SL → entry level${
+      p.ul_at_fill != null ? ' ' + Number(p.ul_at_fill).toFixed(2) : ''} after a TP fills</span></label>
     <div class="hint">${!UL_ON ? 'tick enable to place levels'
-      : onChart ? `spot ${spot != null ? Number(spot).toFixed(2) : '?'} · hold <b>T</b> or <b>S</b> and click`
+      : onChart ? `spot ${spot != null ? Number(spot).toFixed(2) : '?'} · <b>T</b>+click adds a TP (moves the nearest once every contract is assigned; − frees some) · <b>S</b>+click SL`
       : `the chart shows ${esc(liveTk || '—')} — open <b>${esc(t)}</b> to place levels`}</div>`;
-  el.style.display = 'block'; placeUlPop();
+  el.style.display = 'block';
   el.querySelectorAll('.ulOn').forEach(x => { x.checked = UL_ON; x.onchange = () => setUlOn(x.checked); });
   $('#ulPopX').onclick = () => { HOLDSEL = null; disarmPanic(); renderHold(); };
   el.querySelectorAll('[data-ulk]').forEach(x => x.onclick = async () => {
-    const j = await postOrder({action:'levels', ticker:t, [x.dataset.ulk]: null});
-    ulToast(j.ok ? `clearing ${t} ${x.dataset.ulk.toUpperCase()} — verdict in telemetry`
-                 : 'REFUSED: ' + (j.err || '?'), !j.ok);
+    const j = await postOrder({action:'levels', ticker:t, sl: null});
+    ulToast(j.ok ? `clearing ${t} SL — verdict in telemetry` : 'REFUSED: ' + (j.err || '?'), !j.ok);
     pollEvents();
   });
+  if(edit) tierWire(el, tps, held, nt => sendTps(t, nt));
+  $('#hBe').onchange = async () => {
+    const v = $('#hBe').checked;
+    TPS_OPT[t] = {be: v, until: Date.now() + 4000};
+    const j = await postOrder({action:'levels', ticker:t, be: v});
+    if(!j.ok) delete TPS_OPT[t];
+    ulToast(j.ok ? `${t} break-even after a TP ${v ? 'ON' : 'off'} — verdict in telemetry`
+                 : 'REFUSED: ' + (j.err || '?'), !j.ok);
+    pollEvents();
+  };
+}
+
+async function sendTps(t, tps){
+  TPS_OPT[t] = {tps, until: Date.now() + 4000};
+  renderUlHold(); drawUl();
+  const j = await postOrder({action:'levels', ticker:t, tps});
+  if(!j.ok){ delete TPS_OPT[t]; renderUlHold(); drawUl(); }
+  ulToast(j.ok ? `${t} TP ${tps.map(x => x[0].toFixed(2) + (x[1] == null ? '' : '×' + x[1])).join(', ') || 'cleared'
+                 } sent — the bot confirms in telemetry` : 'REFUSED: ' + (j.err || '?'), !j.ok);
+  pollEvents();
 }
 
 function drawUl(){
@@ -1422,18 +1582,21 @@ function drawUl(){
   }
   const hold = (LIVE.manual || {})[liveTk];
   let lv = null, staged = false;
-  if(hold && (hold.ul_tp != null || hold.ul_sl != null)) lv = {tp: hold.ul_tp, sl: hold.ul_sl};
-  else if(!hold && SEL && SEL.tk === liveTk && stagedUl()){ lv = stagedUl(); staged = true; }
-  if(!lv) return;
-  for(const [k, col] of [['tp', '#56d364'], ['sl', '#ff6b6b']]){
-    if(lv[k] == null) continue;
-    const px = Number(lv[k]);
-    liveSeries.ulLines.push(liveSeries.px.createPriceLine({
-      price: px, color: col, lineWidth: 3,
-      lineStyle: staged ? LWC.LineStyle.Dashed : LWC.LineStyle.Solid,
-      axisLabelVisible: true,
-      title: `${staged ? 'staged ' : ''}${k.toUpperCase()} ${px.toFixed(2)}${ulPct(px, spot)}`}));
+  if(hold) lv = {tps: holdTps(liveTk, hold), sl: hold.ul_sl,
+                 be: holdBe(liveTk, hold) ? hold.ul_at_fill : null};
+  else if(SEL && SEL.tk === liveTk && stagedUl()){
+    const u = stagedUl(); lv = {tps: fitTps(u.tps, qtyVal()), sl: u.sl}; staged = true;
   }
+  if(!lv) return;
+  const line = (px, col, w, style, title) => liveSeries.ulLines.push(liveSeries.px.createPriceLine({
+    price: Number(px), color: col, lineWidth: w, lineStyle: style, axisLabelVisible: true, title}));
+  const st = staged ? LWC.LineStyle.Dashed : LWC.LineStyle.Solid;
+  const pre = staged ? 'staged ' : '';
+  lv.tps.forEach((x, i) => line(x[0], '#56d364', 3, st,
+    `${pre}TP${lv.tps.length > 1 ? i + 1 : ''}${x[1] == null ? '' : ' ×' + x[1]} ${x[0].toFixed(2)}${ulPct(x[0], spot)}`));
+  if(lv.sl != null) line(lv.sl, '#ff6b6b', 3, st, `${pre}SL ${Number(lv.sl).toFixed(2)}${ulPct(Number(lv.sl), spot)}`);
+  if(lv.be != null && Number(lv.be) !== Number(lv.sl))
+    line(lv.be, '#8b949e', 1, LWC.LineStyle.Dotted, 'SL → here after a TP');
 }
 
 async function ulClick(p){
@@ -1450,10 +1613,12 @@ async function ulClick(p){
     STAGE_TRG = {tk: liveTk, right: c.right, level: px};
     let msg = `staged trigger ${spot != null && px > spot ? '≥' : '≤'} ${px.toFixed(2)} — press PLACE TRIGGER`, bad = false;
     const u = stagedUl();
-    if(u) for(const k of ['tp', 'sl']){
-      if(u[k] == null) continue;
-      const w = ulWhy(c.right, px, k, u[k], 'entry');
-      if(w){ STAGE_UL[k] = null; msg += ` · ${k.toUpperCase()} cleared (${w})`; bad = true; }
+    if(u){
+      const keep = u.tps.filter(x => !ulWhy(c.right, px, 'tp', x[0], 'entry'));
+      if(keep.length < u.tps.length){
+        msg += ` · ${u.tps.length - keep.length} TP cleared (not past the entry)`; bad = true; u.tps = keep; }
+      const w = u.sl != null ? ulWhy(c.right, px, 'sl', u.sl, 'entry') : null;
+      if(w){ u.sl = null; msg += ` · SL cleared (${w})`; bad = true; }
     }
     ulToast(msg, bad);
     renderUlStage(); renderTrg(c); drawUl();
@@ -1472,6 +1637,12 @@ async function ulClick(p){
   if(hold){
     const why = ulWhy(holdRight(hold), spot, kind, px);
     if(why) return ulToast(why, true);
+    if(hold.exit_coid || hold.exit_retry) return ulToast(`${tk} is exiting — levels locked`, true);
+    if(kind === 'tp'){
+      const nt = tierClick(holdTps(tk, hold), px, parseInt(hold.qty, 10) || 1, holdRight(hold));
+      if(typeof nt === 'string') return ulToast(nt, true);
+      return sendTps(tk, nt);
+    }
     const j = await postOrder({action:'levels', ticker:tk, [kind]: px});
     ulToast(j.ok ? `${tk} ${kind.toUpperCase()} ${px.toFixed(2)} sent — the bot confirms in telemetry`
                  : 'REFUSED: ' + (j.err || '?'), !j.ok);
@@ -1481,11 +1652,15 @@ async function ulClick(p){
   const c = SEL && SEL.tk === tk ? selContract() : null;
   if(c){
     if(STAGE_UL.tk !== tk || STAGE_UL.right !== c.right)
-      STAGE_UL = {tk, right:c.right, tp:null, sl:null};
+      STAGE_UL = {tk, right:c.right, tps:[], sl:null, be:false};
     const ref = stageRef(c, tk);
     const why = ulWhy(c.right, ref.px, kind, px, ref.name);
     if(why) return ulToast(why, true);
-    STAGE_UL[kind] = px;
+    if(kind === 'tp'){
+      const nt = tierClick(fitTps(STAGE_UL.tps, qtyVal()), px, qtyVal(), c.right);
+      if(typeof nt === 'string') return ulToast(nt, true);
+      STAGE_UL.tps = nt;
+    } else STAGE_UL.sl = px;
     ulToast(`staged ${kind.toUpperCase()} ${px.toFixed(2)} — sent with the ${
       ref.name === 'entry' ? 'trigger' : 'order'}`, false);
     renderTrg(c);
@@ -1707,7 +1882,12 @@ async function fire(right){
     strike: c.strike, expiry: c.expiry, right: c.right,
     note: $('#ordNote').value.trim().slice(0, 200)};
   const u = UL_ON ? stagedUl() : null;
-  if(u){ if(u.tp != null) body.ul_tp = u.tp; if(u.sl != null) body.ul_sl = u.sl; }
+  if(u){
+    const tps = fitTps(u.tps, qtyVal());
+    if(tps.length) body.ul_tps = tps;
+    if(u.sl != null) body.ul_sl = u.sl;
+    if(u.be) body.ul_be = true;
+  }
   $('#ordMsg').textContent = 'queuing…';
   try {
     const r = await fetch('/order', {method:'POST', headers:{
@@ -1717,7 +1897,7 @@ async function fire(right){
     $('#ordMsg').textContent = j.ok
       ? `queued ${j.queued} — waiting on the bot's verdict (telemetry, below left)`
       : 'REFUSED by the server: ' + (j.err || '?');
-    if(j.ok && u) STAGE_UL = {tk:null, right:null, tp:null, sl:null};
+    if(j.ok && u) STAGE_UL = {tk:null, right:null, tps:[], sl:null, be:false};
   } catch(e){
     $('#ordMsg').textContent = 'post failed: ' + e.message +
       ' (serve_viewer.py, not a bare http.server?)';
@@ -1742,7 +1922,7 @@ $('#stageX').onclick = () => {
   if(LIVE) liveList(LIVE);
 };
 for(const id of ['#qtyR', '#qtyN'])
-  $(id).oninput = () => { setQty($(id).value); disarmFire(); renderStage(); };
+  $(id).oninput = () => { setQty($(id).value); disarmFire(); renderStage(); drawUl(); };
 
 /* ---- 3. guard telemetry ---- */
 async function pollEvents(){
@@ -1839,9 +2019,10 @@ function renderHold(){
         <span class="d">${p.pending ? `limit ${px2(p.limit)}`
                                     : '@ ' + p.entry}${
           p.dry ? ' DRY' : ''}</span>${
-        (p.ul_tp != null || p.ul_sl != null) ? `<span class="ultag" title="underlying${
-          p.ul_tp != null ? ' TP ' + Number(p.ul_tp).toFixed(2) : ''}${
-          p.ul_sl != null ? ' SL ' + Number(p.ul_sl).toFixed(2) : ''}">TP/SL</span>` : ''}</span>
+        (holdTps(t, p).length || p.ul_sl != null) ? `<span class="ultag" title="underlying${
+          holdTps(t, p).map((x, i) => ` TP${i + 1} ${x[0].toFixed(2)}${x[1] == null ? '' : '×' + x[1]}`).join('')}${
+          p.ul_sl != null ? ' SL ' + Number(p.ul_sl).toFixed(2) : ''}">${
+          holdTps(t, p).length > 1 ? holdTps(t, p).length + 'TP' : 'TP'}/SL</span>` : ''}</span>
       <span>${p.pending
         ? `<span style="color:var(--put)">${
             p.cancel_sent ? 'cancelling…' : 'PENDING FILL'}</span>`
@@ -2051,9 +2232,10 @@ $('#trgBtn').onclick = async () => {
     j = await postOrder({action:'untrigger', ticker:SEL.tk});
   } else {
     if(!c || STAGE_TRG.level == null) return;
-    const u = stagedUl() || {};
+    const u = (UL_ON && stagedUl()) || {};
     j = await postOrder({action:'trigger', ticker:SEL.tk, right:c.right, expiry:c.expiry,
-      level:STAGE_TRG.level, qty:qtyVal(), ul_tp:u.tp ?? null, ul_sl:u.sl ?? null,
+      level:STAGE_TRG.level, qty:qtyVal(), ul_tps:fitTps(u.tps, qtyVal()), ul_sl:u.sl ?? null,
+      ul_be:!!u.be,
       note:($('#ordNote').value || '').slice(0, 200)});
     if(j.ok) STAGE_TRG.level = null;
   }
@@ -2249,7 +2431,8 @@ document.querySelectorAll('.ulOn').forEach(x => { x.checked = UL_ON; x.onchange 
   for(const t of [...new Set(IDX.sessions.map(s=>s.ticker))].sort())
     $('#fTicker').add(new Option(t,t));
   for(const el of ['#fTicker','#fHalf','#fTraded','#fPass'])
-    $(el).onchange = renderList;
+    $(el).onchange = () => { filtSum(); renderList(); };
+  filtSum();
   renderList();
   const first = visible()[0];
   if(first) load(first.file);

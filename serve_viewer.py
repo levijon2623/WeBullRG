@@ -129,6 +129,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             for k in ("tp", "sl", "ul_tp", "ul_sl", "level", "minutes"):
                 if req.get(k) is not None and not isinstance(req[k], (int, float)):
                     return self._json({"ok": False, "err": f"{k} must be a number"}, 400)
+            # TP ladder: up to 3 [price, contracts-or-null] pairs
+            for k in ("tps", "ul_tps"):
+                v = req.get(k)
+                if v is None:
+                    continue
+                if not isinstance(v, list) or len(v) > 3 or not all(
+                        isinstance(x, list) and len(x) == 2
+                        and isinstance(x[0], (int, float)) and not isinstance(x[0], bool)
+                        and (x[1] is None or (isinstance(x[1], int) and not isinstance(x[1], bool)
+                                              and 1 <= x[1] <= 20))
+                        for x in v):
+                    return self._json({"ok": False, "err": f"{k}: up to 3 [price, qty 1..20]"}, 400)
+            for k in ("be", "ul_be"):
+                if req.get(k) is not None and not isinstance(req[k], bool):
+                    return self._json({"ok": False, "err": f"{k} must be true/false"}, 400)
             if act == "unsideline":
                 if str(req.get("answer") or "").lower() not in ("yes", "no"):
                     return self._json({"ok": False, "err": "answer yes/no"}, 400)
