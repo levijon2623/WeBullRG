@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080">
+<title>QQQ 10/30 Puts</title>
+<!-- A share card, rendered to PNG by render_post.py (1080x1350, 4:5).
+     Data: Unusual Whales API via probe_uoa.py (2026-10-17). -->
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121820; --line:#232c38; --grid:#1b222c;
+    --ink:#eef1f5; --ink2:#b4bcc8; --muted:#7d8796;
+    --bought:#3987e5; --sold:#e66767;          /* diverging pair, validated on #0f1419 */
+    --s700:#9085e9; --s715:#199e70;             /* categorical, validated on #0f1419 */
+    --accent:#f0b35a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg)}
+  body{width:1080px;height:1350px;overflow:hidden;color:var(--ink);
+    font:16px/1.4 "Segoe UI",system-ui,-apple-system,sans-serif}
+  .num{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  .wrap{padding:40px 48px 0}
+  .kicker{font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  h1{margin:8px 0 6px;font-size:43px;line-height:1.08;font-weight:800;letter-spacing:-.01em}
+  .sub{font-size:20px;color:var(--ink2);max-width:960px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0 18px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .tile .v{font-size:30px;font-weight:800;line-height:1.1}
+  .tile .l{font-size:13.5px;color:var(--muted);margin-top:3px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px 10px;margin-bottom:14px}
+  .card h2{margin:0;font-size:19px;font-weight:700}
+  .card .h2s{font-size:14px;color:var(--muted);margin:2px 0 4px}
+  .legend{display:flex;gap:18px;font-size:13.5px;color:var(--ink2);margin:4px 0 0;flex-wrap:wrap}
+  .sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:6px}
+  svg text{font-family:"Segoe UI",system-ui,sans-serif}
+  .scen{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px}
+  .scen div{border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:15px;color:var(--ink2);background:#0f141b}
+  .scen b{color:var(--ink);font-size:16px}
+  .ctx{font-size:14.5px;color:var(--ink2);margin:10px 2px 0}
+  .foot{position:absolute;left:0;right:0;bottom:0;padding:13px 48px;border-top:1px solid var(--line);
+    background:#0e131a;display:flex;justify-content:space-between;align-items:center;font-size:13.5px;color:var(--muted)}
+  .foot b{color:var(--ink2);font-weight:600}
+  .foot .repo{color:var(--ink);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">QQQ options flow · Friday Oct 16, 2026 · final 13 minutes</div>
+  <h1>$243M of QQQ 10/30 puts into Friday's close</h1>
+  <div class="sub">Two multi-leg packages at 3:47 and 3:57 PM ET, after a −2.5% day.
+    New downside hedge, or a trapped put seller buying back? Monday's open interest decides.</div>
+
+  <div class="tiles">
+    <div class="tile"><div class="v num">$243M</div><div class="l">net premium paid (debit)</div></div>
+    <div class="tile"><div class="v num">−8.9M sh</div><div class="l">QQQ delta ≈ $6.3B, if opening</div></div>
+    <div class="tile"><div class="v num">+$10.2M</div><div class="l">vega per vol point (long vol)</div></div>
+    <div class="tile"><div class="v num">$709.80</div><div class="l">QQQ close (from $728.00)</div></div>
+  </div>
+
+  <div class="card">
+    <h2>What traded, by strike (10/30 expiry puts)</h2>
+    <div class="h2s">Contracts in the two packages · side read from ask/bid · premium per strike at right</div>
+    <svg id="ladder" width="946" height="350" role="img" aria-label="Contracts bought and sold by strike"></svg>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--bought)"></span>bought (at the ask)</span>
+      <span><span class="sw" style="background:var(--sold)"></span>sold (at the bid)</span>
+      <span><span class="sw" style="background:repeating-linear-gradient(45deg,var(--bought) 0 3px,#0b0f14 3px 6px)"></span>hatched = 3:57 PM package; solid = 3:47 PM</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Open interest before Friday: this didn't start Friday</h2>
+    <div class="h2s">Start-of-day open interest, contracts · 10/30 $700 put and $715 put</div>
+    <svg id="oi" width="946" height="250" role="img" aria-label="Open interest of the 700 and 715 puts since Sept 23"></svg>
+  </div>
+
+  <div class="scen">
+    <div><b>New hedge</b> if Monday shows $700P OI → ~200k, $715P ↑ ~80k, $675P ↑ ~55k.<br>
+      Reads as event protection on a big equity book.</div>
+    <div><b>Partly a cover</b> if $700P OI is flat or down.<br>
+      Then some of Friday was the 10/6 seller (57k sold @ $1.80) buying back near $10.</div>
+  </div>
+  <div class="ctx">Why 10/30: it likely spans FOMC and big-tech earnings week. Selling $675 puts helps fund the protection.</div>
+</div>
+
+<div class="foot">
+  <span>Data: Unusual Whales API · method: <b>probe_uoa.py</b> (open source) · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span>
+</div>
+
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, a, parent) => { const e = document.createElementNS(NS, tag);
+  for (const k in a) e.setAttribute(k, a[k]); if (parent) parent.appendChild(e); return e; };
+const txt = (parent, x, y, s, a = {}) => { const t = el('text', Object.assign({x, y, fill: '#b4bcc8', 'font-size': 14}, a), parent);
+  t.textContent = s; return t; };
+
+/* ---- ladder: diverging bars by strike ---- */
+(() => {
+  const svg = document.getElementById('ladder');
+  const defs = el('defs', {}, svg);
+  const pat = el('pattern', {id: 'hatch', width: 7, height: 7, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)'}, defs);
+  el('rect', {width: 7, height: 7, fill: '#0b0f14'}, pat);
+  el('rect', {width: 4, height: 7, fill: '#3987e5'}, pat);
+  const W = 946, x0 = 380, k = 3.2;            // px per 1k contracts
+  const y = s => 22 + (719 - s) * 6.4;          // strike -> y (proportional)
+  const rows = [
+    {s: 715, segs: [[55.342, 'b', 1], [28.0, 'b', 2]], prem: '$130M paid'},
+    {s: 700, segs: [[110.647, 'b', 1]], prem: '$111M paid'},
+    {s: 690, segs: [[40.0, 'b', 2]], prem: '$28M paid'},
+    {s: 675, segs: [[-55.305, 's', 1]], prem: '$26M collected'},
+  ];
+  // spot line
+  const ys = y(709.8);
+  el('line', {x1: 70, x2: W - 10, y1: ys, y2: ys, stroke: '#f0b35a', 'stroke-width': 1.5, 'stroke-dasharray': '5 5'}, svg);
+  txt(svg, W - 10, ys - 6, 'QQQ close $709.80', {fill: '#f0b35a', 'text-anchor': 'end', 'font-size': 13.5, 'font-weight': 600});
+  // zero axis
+  el('line', {x1: x0, x2: x0, y1: 6, y2: 330, stroke: '#3a4554', 'stroke-width': 1.5}, svg);
+  txt(svg, x0 - 8, 344, '← sold', {'text-anchor': 'end', fill: '#7d8796', 'font-size': 13});
+  txt(svg, x0 + 8, 344, 'bought →', {fill: '#7d8796', 'font-size': 13});
+  const H = 30;
+  for (const r of rows) {
+    const yc = y(r.s);
+    txt(svg, 10, yc + 6, `$${r.s}P`, {fill: '#eef1f5', 'font-size': 19, 'font-weight': 700, class: 'num'});
+    let xr = x0 + 1, tot = 0;
+    for (const [n, sd, pkg] of r.segs) {
+      const w = Math.abs(n) * k;
+      if (n > 0) {
+        el('rect', {x: xr, y: yc - H / 2, width: w - 2, height: H, rx: 4,
+          fill: pkg === 2 ? 'url(#hatch)' : '#3987e5'}, svg);
+        xr += w; tot += n;
+      } else {
+        el('rect', {x: x0 - w - 1, y: yc - H / 2, width: w, height: H, rx: 4, fill: '#e66767'}, svg);
+      }
+    }
+    if (r.segs[0][0] > 0) {
+      txt(svg, xr + 10, yc - 2, `${tot.toFixed(1)}k`, {fill: '#eef1f5', 'font-size': 17, 'font-weight': 700, class: 'num'});
+      txt(svg, xr + 10, yc + 15, r.prem, {fill: '#b4bcc8', 'font-size': 13.5});
+    } else {
+      const n = -r.segs[0][0];
+      txt(svg, x0 - n * k - 12, yc - 2, `${n.toFixed(1)}k`, {fill: '#eef1f5', 'font-size': 17, 'font-weight': 700, 'text-anchor': 'end', class: 'num'});
+      txt(svg, x0 - n * k - 12, yc + 15, r.prem, {fill: '#b4bcc8', 'font-size': 13.5, 'text-anchor': 'end'});
+    }
+  }
+  // the 2:1:1 note
+  txt(svg, W - 10, y(675) + 4, '3:47 PM package = 2 × $700P + 1 × $715P − 1 × $675P', {'text-anchor': 'end', fill: '#7d8796', 'font-size': 13.5});
+})();
+
+/* ---- OI lines ---- */
+(() => {
+  const svg = document.getElementById('oi');
+  const d700 = [19490,23335,23562,23535,38115,40414,39101,38685,38705,38615,88124,88081,88882,88817,91322,91301,92589,95634];
+  const d715 = [2038,2221,2174,2294,2403,2500,21867,21937,22694,22773,22781,29677,29879,29903,31369,36979,44330,95625];
+  const days = ['9/23','9/24','9/25','9/28','9/29','9/30','10/1','10/2','10/5','10/6','10/7','10/8','10/9','10/12','10/13','10/14','10/15','10/16'];
+  const L = 58, R = 790, T = 14, B = 212, ymax = 100000;
+  const X = i => L + i * (R - L) / (days.length - 1), Y = v => B - v / ymax * (B - T);
+  for (const v of [0, 25000, 50000, 75000, 100000]) {
+    el('line', {x1: L, x2: R, y1: Y(v), y2: Y(v), stroke: v ? '#1b222c' : '#3a4554', 'stroke-width': 1}, svg);
+    txt(svg, L - 8, Y(v) + 5, v ? `${v / 1000}k` : '0', {'text-anchor': 'end', fill: '#7d8796', 'font-size': 12.5, class: 'num'});
+  }
+  days.forEach((d, i) => { if (i % 2 === 0 || i === days.length - 1)
+    txt(svg, X(i), B + 20, d, {'text-anchor': 'middle', fill: '#7d8796', 'font-size': 12.5}); });
+  const path = (arr, col) => {
+    el('path', {d: arr.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' '),
+      fill: 'none', stroke: col, 'stroke-width': 2.5, 'stroke-linejoin': 'round'}, svg);
+    el('circle', {cx: X(arr.length - 1), cy: Y(arr[arr.length - 1]), r: 5, fill: col, stroke: '#121820', 'stroke-width': 2}, svg);
+  };
+  path(d700, '#9085e9'); path(d715, '#199e70');
+  // direct end labels (both end at ~95.6k: stack them)
+  const xe = R + 12, ye = Y(95630);
+  txt(svg, xe, ye - 4, '$700P 95.6k', {fill: '#eef1f5', 'font-size': 14, 'font-weight': 700});
+  el('rect', {x: xe - 1, y: ye - 17, width: 4, height: 16, fill: '#9085e9', rx: 1}, svg).setAttribute('x', xe - 8);
+  txt(svg, xe, ye + 15, '$715P 95.6k', {fill: '#eef1f5', 'font-size': 14, 'font-weight': 700});
+  el('rect', {x: xe - 8, y: ye + 3, width: 4, height: 16, fill: '#199e70', rx: 1}, svg);
+  txt(svg, xe, ye + 36, 'before Friday', {fill: '#7d8796', 'font-size': 12.5});
+  // annotations
+  const ann = (i, v, lines, dx, dy, anchor) => {
+    el('line', {x1: X(i), y1: Y(v), x2: X(i) + dx, y2: Y(v) + dy, stroke: '#7d8796', 'stroke-width': 1}, svg);
+    lines.forEach((s, j) => txt(svg, X(i) + dx + (anchor === 'end' ? -4 : 4), Y(v) + dy + 4 + j * 16, s,
+      {fill: j ? '#b4bcc8' : '#eef1f5', 'font-size': 13.5, 'font-weight': j ? 400 : 600, 'text-anchor': anchor || 'start'}));
+  };
+  ann(10, 88124, ['10/6: ~57k $700P SOLD @ $1.80', 'QQQ $760 · now ~$10 → seller under water'], -28, -8, 'end');
+  ann(16, 44330, ['10/15: +51k $715P bought'], -22, 60, 'end');
+})();
+</script>
+</body>
+</html>
