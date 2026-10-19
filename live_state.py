@@ -1080,6 +1080,10 @@ def _weekly_update_locked(uw, tk, spot):
                     taken_et=now.isoformat(timespec="seconds"), spot=round(spot, 4),
                     uw_date=data_dates[-1], exp=exp, src=_data_src())
                 changed = True
+                try:
+                    _oi_ref_save(tk, iso)           # tomorrow's pre-open freshness reference
+                except Exception:                   # noqa: BLE001 -- never block the snapshot
+                    pass
                 print(f"  📅 [WEEKLY GEX] {tk}: snapshot {iso} -- "
                       f"{len(exp)} expir{'y' if len(exp) == 1 else 'ies'} "
                       f"({', '.join(sorted(exp))}) at spot {spot:.2f}")
@@ -1117,11 +1121,137 @@ def _weekly_update_locked(uw, tk, spot):
         _wk_write(doc)
 
 
+# ---- PRE-OPEN weekly snapshot (operator, 2026-10-19) -------------------------
+# A second morning map, before the bell, beside the 09:31 one (which stays the
+# canonical, look-ahead-free archive). Possible since Cboe's Global Trading
+# Hours (2026-10-19): option quotes and greeks are LIVE from 07:30 ET instead
+# of Friday's frozen marks. Measured that first morning (check_oi_timing.py):
+# UW's open interest turned over at 06:15-06:30 ET, Webull's at 07:00-07:15,
+# quotes went live at 07:30 -> one pass at 07:35 has both.
+#   * Stored under tickers[tk]["pre"][date], never in "snapshots".
+#   * 🚨 FRESH OI IS CHECKED BY VALUE. webull_viewer_data stamps every row with
+#     today's date whatever its OI is, so the date says nothing. The pass
+#     compares the contracts' open interest with the map the last 09:31
+#     snapshot saw (oi_ref.json) and waits while most are unchanged. With no
+#     reference (first run) it accepts from 07:45, flagged "unverified".
+#   * Webull data only: that is the source the heat runs on, and the only one
+#     whose pre-open behaviour has been measured.
+WEEKLY_PRE_MOD = 7 * 60 + 35
+WEEKLY_PRE_END_MOD = 9 * 60 + 25
+WEEKLY_PRE_UNVERIFIED_MOD = 7 * 60 + 45
+OI_REF = os.path.join(WEEKLY_DIR, "oi_ref.json")
+_WK_PRE_SAID = set()        # (ticker, date, what) messages already printed
+
+
+def _oi_ref_load():
+    try:
+        with open(OI_REF, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _oi_ref_save(tk, iso):
+    """At the 09:31 snapshot: remember the OI this ticker's contracts carried,
+    so tomorrow's pre-open pass can tell new OI from old."""
+    oi = {s: v["oi"] for s, v in list(_CSTAT.items())
+          if s[:len(tk)] == tk and s[len(tk):len(tk) + 1].isdigit() and v.get("oi") is not None}
+    if len(oi) < 20:
+        return
+    ref = _oi_ref_load()
+    ref[tk] = dict(date=iso, oi=oi)
+    _atomic_write(OI_REF, ref)
+
+
+def _weekly_preopen(eng, tk):
+    import webull_viewer_data as WV
+    now = _dt.datetime.now(_NY)
+    mod, today = now.hour * 60 + now.minute, now.date()
+    if tk not in WEEKLY_TICKERS or not (WEEKLY_PRE_MOD <= mod < WEEKLY_PRE_END_MOD):
+        return
+    if WV.source() != "webull":
+        if (tk, today, "src") not in _WK_PRE_SAID:
+            _WK_PRE_SAID.add((tk, today, "src"))
+            print(f"  📅 [WEEKLY PRE] {tk}: viewer data is UW -- pre-open snapshot is Webull-only, skipped")
+        return
+    with _WK_LOCK:
+        monday, days = _week_days(today)
+        if today not in days:
+            return
+        doc = _wk_doc(monday, days)
+        t = doc["tickers"].setdefault(tk, {"snapshots": {}, "px": {}})
+        if today.isoformat() in (t.get("pre") or {}):
+            return
+    spot = 0.0
+    try:
+        spot = float(eng.get_spot_price(tk) or 0)       # Webull streams pre-market prints
+    except Exception:                                   # noqa: BLE001
+        pass
+    if not spot:
+        spot = WV.spot(tk) or 0.0
+    if not spot:
+        return
+    exps = [d.isoformat() for d in days if d >= today]
+    rows, quotes, stats, cov, n = WV.snapshot_rows(tk, spot, WEEKLY_BAND + 0.005, exps)
+    if not rows:
+        return
+    # ---- is this TODAY's open interest?
+    ref = _oi_ref_load().get(tk) or {}
+    old = ref.get("oi") or {}
+    common = [s for s, v in stats.items() if v.get("oi") is not None and s in old]
+    changed = sum(1 for s in common if stats[s]["oi"] != old[s])
+    share = changed / len(common) if common else None
+    if len(common) >= 20 and ref.get("date") != today.isoformat():
+        if share < 0.5:
+            if (tk, today, "wait") not in _WK_PRE_SAID:
+                _WK_PRE_SAID.add((tk, today, "wait"))
+                print(f"  ⏳ [WEEKLY PRE] {tk}: open interest still the {ref.get('date')} values "
+                      f"({changed}/{len(common)} changed) -- waiting for today's")
+            return
+        check = "fresh"
+    elif mod >= WEEKLY_PRE_UNVERIFIED_MOD:
+        check = "unverified"
+    else:
+        return
+    live = sum(1 for b, a in quotes.values() if b and a) / max(len(quotes), 1)
+    exp = {}
+    for e in exps:
+        h = _expiry_heat([r for r in rows if r["e"] == e], spot)
+        if h:
+            exp[e] = h
+    if not exp:
+        return
+    with _WK_LOCK:
+        doc = _wk_doc(monday, days)
+        t = doc["tickers"].setdefault(tk, {"snapshots": {}, "px": {}})
+        t.setdefault("pre", {})[today.isoformat()] = dict(
+            taken_et=now.isoformat(timespec="seconds"), spot=round(spot, 4), exp=exp, src="webull",
+            oi_check=check, oi_changed=round(share, 3) if share is not None else None,
+            oi_ref_date=ref.get("date"), quotes_live=round(live, 3), coverage=round(cov, 3))
+        _wk_write(doc)
+    print(f"  📅 [WEEKLY PRE] {tk}: pre-open snapshot {today} -- {len(exp)} expir"
+          f"{'y' if len(exp) == 1 else 'ies'} at spot {spot:.2f}, OI {check}"
+          + (f" ({share:.0%} changed vs {ref.get('date')})" if share is not None else "")
+          + f", quotes live {live:.0%}")
+
+
+def _weekly_preopen_pass(eng):
+    now = _dt.datetime.now(_NY)
+    if not (WEEKLY_PRE_MOD <= now.hour * 60 + now.minute < WEEKLY_PRE_END_MOD):
+        return
+    for tk in WEEKLY_TICKERS:
+        try:
+            _weekly_preopen(eng, tk)
+        except Exception as e:                  # never reach the loop
+            print(f"  ⚠️ [WEEKLY PRE] {tk}: {type(e).__name__}: {e}")
+
+
 def _gex_loop(eng):
     """Daemon. Seven UW calls per ticker per pass, so it runs slowly and
     staggered -- and like the VWAP thread it can never reach the trading loop."""
     while True:
         if not uw_market_open():
+            _weekly_preopen_pass(eng)               # no-op outside 07:35-09:25 ET
             time.sleep(CLOSED_SLEEP)
             continue
         try:

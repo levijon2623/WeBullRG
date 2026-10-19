@@ -16,6 +16,11 @@
   price line walks across them. A new week starts clean. ?week=YYYY-MM-DD
   opens an archived week.
 
+  PRE-OPEN (2026-10-19): a second morning map at ~07:35 ET, built on that
+  morning's fresh open interest and Cboe pre-market (GTH) quotes, stored apart
+  from the 09:31 snapshot. "morning: auto" shows it for today until 09:31,
+  then the at-open map; the tooltip shows how the walls moved between them.
+
   "As of" replays the page as it stood on that morning: expiries still ahead
   use that morning's snapshot, the price line stops at that day's close.
   Walls and peak are DERIVED per expiry from its own strikes -- UW's
@@ -57,6 +62,8 @@
     <h1>Weekly GEX</h1>
     <span id="tks"></span>
     <label>view <select id="asof"></select></label>
+    <label title="pre-open = ~07:35 ET map on fresh open interest and pre-market quotes; at open = the 09:31 map (the archive); auto = pre-open until 09:31, then at open">morning <select id="mo">
+      <option value="auto">auto</option><option value="open">at open</option><option value="pre">pre-open</option></select></label>
     <label>scale <select id="scale">
       <option value="day">per day</option><option value="week">whole week</option></select></label>
     <label title="add the index's gamma (SPX on SPY, NDX on QQQ, RUT on IWM), mapped to the ETF's price by that morning's ratio">γ <select id="gx">
@@ -113,11 +120,19 @@ function markLabel(g, txt, x, yv, col){
   g.fillStyle = col; g.fillText(txt, x, yv - 5);
 }
 
-function T(){ return (doc && doc.tickers && doc.tickers[tk]) || {snapshots:{}, px:{}}; }
+function T(){ return (doc && doc.tickers && doc.tickers[tk]) || {snapshots:{}, px:{}, pre:{}}; }
+/* the morning maps the "morning" selector allows: at-open snapshots, pre-open
+   ones, or both (auto: a day's at-open map wins over its pre-open one) */
+function snapsFor(){
+  const t = T(), m = $('#mo').value, out = {};
+  if (m !== 'open') for (const d in (t.pre || {})) out[d] = Object.assign({pre: true}, t.pre[d]);
+  if (m !== 'pre') for (const d in (t.snapshots || {})) out[d] = t.snapshots[d];
+  return out;
+}
 
 function fillAsof(){
   const sel = $('#asof'), keep = sel.value;
-  const snaps = Object.keys(T().snapshots).sort();
+  const snaps = Object.keys(snapsFor()).sort();
   sel.innerHTML = `<option value="">latest</option>` +
     snaps.map(s => `<option value="${s}">as of ${dlabel(s)}</option>`).join('');
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
@@ -131,13 +146,16 @@ function fillAsof(){
    were missing -- falls back to the ETF heat and its header says so. */
 const IDX = {SPY:'SPX', QQQ:'NDX', IWM:'RUT'};
 function pick(E, V){
-  const snaps = T().snapshots, lim = V && V < E ? V : E;
+  const snaps = snapsFor(), lim = V && V < E ? V : E;
   let best = null;
   for (const s of Object.keys(snaps).sort())
     if (s <= lim && snaps[s].exp && snaps[s].exp[E]) best = s;
   if (!best) return null;
   const S = snaps[best], b = S.blend, bl = $('#gx').value && b && b.exp && b.exp[E];
+  const P = !S.pre && (T().pre || {})[best], pe = P && P.exp && P.exp[E];
   return {snap: best, taken: S.taken_et, spot: S.spot, src: S.src, ...(bl || S.exp[E]),
+          pre: !!S.pre, oi_check: S.oi_check, quotes_live: S.quotes_live,
+          preW: pe ? {call: pe.call_wall, put: pe.put_wall, peak: pe.peak, taken: P.taken_et} : null,
           blended: !!bl, wantBlend: !!$('#gx').value,
           bmeta: bl ? {idx: b.idx, ratio: b.ratio, src: b.ratio_src, taken: b.taken_et} : null};
 }
@@ -150,7 +168,7 @@ function draw(){
   g.fillStyle = '#0d1117'; g.fillRect(0, 0, W, H);
   const empty = $('#empty');
   if (!doc){ empty.style.display = 'flex';
-    empty.textContent = 'no weekly snapshot yet — the bot writes live/weekly_gex/latest.json at the first GEX pass after 09:31 ET on a trading day.';
+    empty.textContent = 'no weekly snapshot yet — the bot writes live/weekly_gex/latest.json at ~07:35 ET (pre-open) and at the first GEX pass after 09:31 ET on a trading day.';
     return; }
   const days = doc.days || [], V = $('#asof').value || null, t = T();
   const cols = days.map(E => pick(E, V));
@@ -239,8 +257,9 @@ function draw(){
     g.fillStyle = d === today ? '#a371f7' : '#8b949e'; g.font = '11px ui-monospace,monospace';
     g.fillText(narrow ? `${dlabel(d).slice(0, 3)} ${tag}` : `${dlabel(d)} · ${tag}`, i * cw + 4, 14);
     const c = cols[i]; g.fillStyle = '#6e7681'; g.font = '10px ui-monospace,monospace';
-    const base = c ? (narrow ? `${c.snap.slice(5)} ${c.taken.slice(11, 16)}`
-                             : `snap ${dlabel(c.snap)} ${c.taken.slice(11, 16)}`) : null;
+    const base = c ? (narrow ? `${c.snap.slice(5)} ${c.taken.slice(11, 16)}${c.pre ? ' pre' : ''}`
+                             : `snap ${dlabel(c.snap)} ${c.taken.slice(11, 16)}${c.pre ? ' · PRE-OPEN' : ''}`) : null;
+    if (c && c.pre) g.fillStyle = '#d29922';     // amber header = pre-open map
     const bx = c && c.wantBlend
       ? (c.blended ? ` +${c.bmeta.idx}${c.share != null ? ' ' + Math.round(c.share * 100) + '%' : ''}`
                    : (narrow ? ' ETF' : ` no ${IDX[tk] || 'index'}`)) : '';
@@ -300,6 +319,10 @@ $('#wrap').addEventListener('mousemove', ev => {
     const h = c.heat.reduce((b, h) => Math.abs(h[0] - p) < Math.abs(b[0] - p) ? h : b, c.heat[0]);
     s += `\nstrike ${h[0]}  net ${fmtG(h[1])}\n  call ${fmtG(h[2])}  put ${fmtG(h[3])}` +
          `\nsnapshot ${dlabel(c.snap)} ${c.taken.slice(11, 16)} ET, spot ${c.spot}` +
+         (c.pre ? `\nPRE-OPEN map: Cboe pre-market quotes${c.quotes_live != null ? ' (' + Math.round(c.quotes_live * 100) + '% quoted)' : ''}, ` +
+                  `open interest ${c.oi_check === 'fresh' ? "checked: today's" : 'not verified'}` : '') +
+         (c.preW ? `\nsince pre-open (${c.preW.taken.slice(11, 16)}): call ${c.preW.call}→${c.call_wall}  ` +
+                   `put ${c.preW.put}→${c.put_wall}  peak ${c.preW.peak}→${c.peak}` : '') +
          `\nwalls: call ${c.call_wall}${c.call_wall_alt != null ? '≈' + c.call_wall_alt : ''}` +
          `  put ${c.put_wall}${c.put_wall_alt != null ? '≈' + c.put_wall_alt : ''}` +
          `  peak ${c.peak}${c.peak_alt != null ? '≈' + c.peak_alt : ''}` +
@@ -320,6 +343,8 @@ $('#wrap').addEventListener('mousemove', ev => {
 });
 $('#wrap').addEventListener('mouseleave', () => $('#tip').style.display = 'none');
 for (const id of ['#asof', '#scale', '#zoom']) $(id).addEventListener('change', draw);
+$('#mo').value = localGet('wk_mo') || 'auto';
+$('#mo').addEventListener('change', () => { localSet('wk_mo', $('#mo').value); fillAsof(); draw(); });
 $('#gx').value = localGet('wk_gx') || '';
 $('#gx').addEventListener('change', () => { localSet('wk_gx', $('#gx').value); draw(); });
 window.addEventListener('resize', draw);
