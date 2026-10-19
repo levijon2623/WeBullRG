@@ -31,7 +31,7 @@ TPL = """<!doctype html>
     <div class="h2s">{tsub}</div>
     <table class="trades" id="tt"></table>
     <div class="legend"><span><span class="chip b">BOUGHT</span> at the ask</span><span><span class="chip s">SOLD</span> at the bid</span>
-      <span><span class="chip x">SPREAD</span> both sides</span><span><span class="chip pend">MON</span> Friday print, confirmed by Monday's open interest</span></div>
+      <span><span class="chip x">SPREAD</span> both sides</span>{legend}</div>
   </div>
   <div class="read">{read}</div>
 </div>
@@ -135,7 +135,99 @@ CARDS = {
              "<span class='mon'>Friday was lighter here (1.2× normal); IWM's hedging peaks came on 10/8 and 10/14.</span>"),
 }
 
-for fn, c in CARDS.items():
+LEGEND_FRI = "<span><span class=\"chip pend\">MON</span> Friday print, confirmed by Monday's open interest</span>"
+LEGEND_MON = ("<span><span class=\"chip ok\">✓ CONFIRMED</span> / <span class=\"chip rev\">↻ REVISED</span> "
+              "by Monday's (10/19) open interest</span>")
+UPD = ' <span class="upd">MONDAY UPDATE</span>'
+
+# ---- Monday 10/19 update: Friday's prints judged by the 10/19 start-of-day open
+#      interest (UW per-contract history, checked 2026-10-19 09:47-09:55 ET).
+UPDATES = {
+    "2026-10-19-spy-positioning-update.html": dict(
+        title="SPY Positioning Update", kicker="SPY options positioning · Oct 5–16, judged by Oct 19 open interest" + UPD,
+        h1="SPY: Friday's 10/30 put spread was real",
+        sub="Monday's open interest confirmed it: about 87k $750 puts bought and 81k $735 puts sold were kept. "
+            "SPY is the one place Friday added fresh protection.",
+        tiles=tiles([("−1.5%", "SPY, Oct 5 → 16 (Fri −1.1%)"), ("+87k", "10/30 $750 puts kept (91% of volume)"),
+                     ("+81k", "10/30 $735 puts sold, kept (93%)"), ("+$135M", "net puts opened, Oct 5–15")]),
+        tsub="Biggest structures, by premium · dates are the trading day",
+        legend=LEGEND_MON,
+        bars=CARDS["2026-10-16-spy-positioning.html"]["bars"],
+        trades=[
+            dict(d="10/16", k="Oct-30 $750 put  /  $735 put sold", side="x", chip="SPREAD", n="+87k / +81k", prem=46.4,
+                 note="kept: open interest 28k → 116k and 14k → 95k", upd="ok"),
+            dict(d="10/06", k="Dec-18 $810 call", side="b", chip="BOUGHT", n="55k", prem=44.6,
+                 note="upside bet, still held (80k open)"),
+            dict(d="10/06", k="Mar-27 $655 / $500 put spread", side="x", chip="SPREAD", n="~100k", prem=45.1,
+                 note="tail protection, still held"),
+            dict(d="10/15", k="Oct-30 $760 put  /  $745 put sold", side="x", chip="ROLL UP", n="53k / 47k", prem=38.3,
+                 note="64k of the $740s closed into this spread"),
+            dict(d="10/12", k="Dec-28 $845 put", side="b", chip="BOUGHT", n="1.6k", prem=28.5, note="two-year protection"),
+            dict(d="10/06", k="Oct-30 $740 put", side="b", chip="BOUGHT", n="99k", prem=17.4,
+                 note="bought near the highs, rolled up on 10/15"),
+        ],
+        read="<b>Read:</b> unlike QQQ and SPX, where Friday's hedges were partly cashed in, SPY added a new 10/30 put "
+             "spread and kept it. Protection for the late-October window is now layered: 760/745 and 750/735."
+             "<span class='mon'>Same 10/30 expiry as QQQ's hedgers; the SPX $7,750/$7,650 puts were mostly closed (−15k).</span>"),
+    "2026-10-19-qqq-positioning-update.html": dict(
+        title="QQQ Positioning Update", kicker="QQQ options positioning · Oct 5–16, judged by Oct 19 open interest" + UPD,
+        h1="QQQ: Friday was a hedge reset, not a new bet",
+        sub="Monday's open interest: about 64k $715 puts closed for profit, protection re-struck lower ($700 / $690), "
+            "paid for by selling $675 puts and Nov $720 calls. A collar being managed.",
+        tiles=tiles([("−63.7k", "10/30 $715 puts closed: ~$45M profit banked"), ("+36k", "new floor: $690 (+27.7k) and $700 (+8.2k) puts"),
+                     ("+55k / +7k", "$675 puts and Nov $720 calls sold to fund it"), ("+11k", "net new put open interest, five 10/30 strikes")]),
+        tsub="Friday's packages, judged by Monday's open interest · then the build before it",
+        legend=LEGEND_MON,
+        bars=CARDS["2026-10-16-qqq-positioning.html"]["bars"],
+        trades=[
+            dict(d="10/16", k="Oct-30 $715 put", side="x", chip="CLOSED", n="−63.7k", prem=101.3,
+                 note="the 10/15 build, ~$8.87 → ~$16: profit taken", upd="rev"),
+            dict(d="10/16", k="Oct-30 $690 / $700 puts", side="b", chip="BOUGHT", n="+28k / +8k", prem=26.4,
+                 note="the floor, moved down ($700: 131k traded, only 8k kept)", upd="rev"),
+            dict(d="10/16", k="Oct-30 $675 put", side="s", chip="SOLD", n="+55k", prem=25.0,
+                 note="funds the new protection", upd="ok"),
+            dict(d="10/16", k="Nov-20 $720 call", side="s", chip="SOLD", n="+7.3k", prem=12.6,
+                 note="kept: the call-selling half of the collar", upd="ok"),
+            dict(d="10/15", k="Oct-30 $715 put", side="b", chip="BOUGHT", n="51k", prem=60.4,
+                 note="the build that Friday cashed in"),
+            dict(d="10/15–16", k="Nov-6 $769 call", side="b", chip="BOUGHT", n="~30k", prem=2.7,
+                 note="cheap upside kept (open interest 15k → 30k)", upd="ok"),
+            dict(d="10/06", k="Oct-30 $700 put", side="s", chip="SOLD", n="57k", prem=10.2,
+                 note="the trapped seller may have covered: can't be separated"),
+        ],
+        read="<b>Read:</b> a hedged tech book managing its collar: gains banked after the −6% slide, the floor moved "
+             "down, funded by selling more downside and some upside. Defensive, not escalating."
+             "<span class='mon'>10/30 still holds ~104k $700P, 70k $690P and 67k $675P: the put weight moved from $715 to $700–675.</span>"),
+    "2026-10-19-iwm-positioning-update.html": dict(
+        title="IWM Positioning Update", kicker="IWM options positioning · Oct 5–16, judged by Oct 19 open interest" + UPD,
+        h1="IWM: hedges re-struck lower, still two-way",
+        sub="Friday's November put spreads moved down a notch: $262s closed, $257s sold and $258s added. "
+            "The call buying and the November protection from earlier stay in place.",
+        tiles=tiles([("−4.6%", "IWM, Oct 5 → 16 (Fri −1.7%)"), ("+39k", "Nov-20 $257 puts sold, kept"),
+                     ("+16k / −8k", "Nov-20 $258 puts added / $262 closed"), ("+$50M", "net calls opened, Oct 5–15")]),
+        tsub="Biggest structures, by premium · dates are the trading day",
+        legend=LEGEND_MON,
+        bars=CARDS["2026-10-16-iwm-positioning.html"]["bars"],
+        trades=[
+            dict(d="10/16", k="Nov-20 $258 / $262 / $257 puts", side="x", chip="SPREADS", n="+16k / −8k / +39k", prem=48.3,
+                 note="spread moved down a notch, net small", upd="rev"),
+            dict(d="10/07", k="Nov-20 $270 put", side="b", chip="BOUGHT", n="42k", prem=20.7, note="still held (139k open)"),
+            dict(d="10/05", k="Oct-30 $284 call", side="b", chip="BOUGHT", n="25k", prem=13.0,
+                 note="bullish, with $270 puts leaning sold …"),
+            dict(d="10/13", k="Oct-30 $278 call", side="b", chip="ROLL DOWN", n="26k", prem=9.6,
+                 note="… $284s partly sold, calls moved lower"),
+            dict(d="10/14", k="Dec-18 $260 put  /  Nov-20 $258 put sold", side="x", chip="SPREAD", n="13k / 39k", prem=10.3,
+                 note="financing the hedge"),
+            dict(d="10/13", k="Nov-20 $263 put", side="b", chip="BOUGHT", n="35k", prem=8.9,
+                 note="more protection, same day as the roll"),
+        ],
+        read="<b>Read:</b> small caps stay two-way: protection in November puts, re-struck slightly lower on Friday, and "
+             "call buyers who rolled down rather than giving up."
+             "<span class='mon'>Friday was light here (1.2× normal put premium): the hedge peaks were 10/8 and 10/14.</span>"),
+}
+
+for fn, c in list(CARDS.items()) + list(UPDATES.items()):
+    c.setdefault("legend", LEGEND_FRI)
     html = TPL.format(**{k: v for k, v in c.items() if k not in ("bars", "trades")},
                       bars=json.dumps(c["bars"]), trades=json.dumps(c["trades"]))
     with open(os.path.join(HERE, fn), "w", encoding="utf-8") as f:

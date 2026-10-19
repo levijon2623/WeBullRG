@@ -41,7 +41,8 @@ function tradeTable(tbl, rows) {
     const col = r.side === 's' ? 'var(--sold)' : r.side === 'b' ? 'var(--bought)' : '#7d8796';
     return `<tr><td class="d">${r.d}</td>
       <td><span class="k">${r.k}</span><br><span class="note">${r.note || ''}</span></td>
-      <td><span class="chip ${r.side}">${r.chip}</span>${r.pend ? '<span class="chip pend">MON</span>' : ''}</td>
+      <td><span class="chip ${r.side}">${r.chip}</span>${r.pend ? '<span class="chip pend">MON</span>' : ''}${
+        r.upd === 'ok' ? '<span class="chip ok">✓ CONFIRMED</span>' : r.upd === 'rev' ? '<span class="chip rev">↻ REVISED</span>' : ''}</td>
       <td class="n num">${r.n}</td>
       <td class="p"><div class="bar"><i style="width:${w}px;background:${col}"></i><span class="num">${money(r.prem)}</span></div></td></tr>`;
   }).join('');

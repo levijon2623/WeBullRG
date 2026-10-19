@@ -47,6 +47,11 @@ svg text{font-family:"Segoe UI",system-ui,sans-serif}
 .chip.s{color:#f3b0b0;border-color:var(--sold);background:#33171a}
 .chip.x{color:var(--ink2);border-color:#56606e;background:#1a2029}
 .chip.pend{color:var(--accent);border-color:#8a6a35;background:#2a2213;margin-left:6px}
+/* Monday-update verdicts on a Friday print: icon + label, never color alone */
+.chip.ok{color:#7ee2a0;border-color:#2f8f4e;background:#12291b;margin-left:6px}
+.chip.rev{color:var(--accent);border-color:#8a6a35;background:#2a2213;margin-left:6px}
+.upd{display:inline-block;margin-left:10px;padding:2px 8px;border-radius:4px;font-size:12px;letter-spacing:.06em;
+  color:#0b0f14;background:var(--accent);vertical-align:3px}
 .bar{display:flex;align-items:center;gap:8px}
 .bar i{display:block;height:12px;border-radius:3px}
 .bar span{font-size:13.5px;color:var(--ink);white-space:nowrap}
