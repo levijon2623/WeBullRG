@@ -41,7 +41,7 @@ function tradeTable(tbl, rows) {
     const col = r.side === 's' ? 'var(--sold)' : r.side === 'b' ? 'var(--bought)' : '#7d8796';
     return `<tr><td class="d">${r.d}</td>
       <td><span class="k">${r.k}</span><br><span class="note">${r.note || ''}</span></td>
-      <td><span class="chip ${r.side}">${r.chip}</span>${r.pend ? '<span class="chip pend">MON</span>' : ''}${
+      <td><span class="chip ${r.side}">${r.chip}</span>${r.pend ? `<span class="chip pend">${r.pend === true ? 'MON' : r.pend}</span>` : ''}${
         r.upd === 'ok' ? '<span class="chip ok">✓ CONFIRMED</span>' : r.upd === 'rev' ? '<span class="chip rev">↻ REVISED</span>' : ''}</td>
       <td class="n num">${r.n}</td>
       <td class="p"><div class="bar"><i style="width:${w}px;background:${col}"></i><span class="num">${money(r.prem)}</span></div></td></tr>`;
@@ -75,7 +75,7 @@ function pairBars(svg, rows, max, opt = {}) {
 
 /* Simple vertical-free horizontal bars for a comparison: rows [{label, v, text, color}] */
 function compareBars(svg, rows, max, opt = {}) {
-  const x0 = opt.x0 || 70, W = +svg.getAttribute('width'), k = (W - x0 - 90) / max, H = 26, gap = 14;
+  const x0 = opt.x0 || 70, W = +svg.getAttribute('width'), k = (W - x0 - 90) / max, H = opt.H || 26, gap = opt.gap || 14;
   rows.forEach((r, i) => {
     const y = 6 + i * (H + gap), w = Math.max(3, Math.abs(r.v) * k);
     txt(svg, 0, y + H / 2 + 6, r.label, {fill: '#eef1f5', 'font-size': 16, 'font-weight': 700});

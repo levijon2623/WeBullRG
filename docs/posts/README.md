@@ -22,6 +22,17 @@ SVG drawn by the page's own script.
   then render. Use it when a series of cards shares one layout (one per ticker).
 - A one-off card (e.g. `2026-10-16-etf-overview.html`) links `card.css` / `card.js` and writes its own body.
 
+## The morning "Notable Activity" card
+
+1. `python probe_notable.py --expiry YYYY-MM-DD --spots SPY=..,QQQ=..,IWM=.. --out docs/posts/notable/DATE.json`
+   (repo root). Pulls the expiry's flow so far for SPY/QQQ/IWM and SPX/NDX/RUT: directional delta per ticker
+   in dollars, put/call premium, the biggest contracts with side, multi-leg share and start-of-day open
+   interest. Writes a skeleton spec: numbers filled, words left as TODO.
+2. Edit the spec: merge legs that print in the same size into one row (a package), call a leg that runs
+   the last session's spread backwards a roll, write the headline, the notes and the read.
+3. `python docs/posts/make_notable.py docs/posts/notable/DATE.json`, then render it as usual.
+   The rows carry a chip for the session whose open interest will confirm them (e.g. TUE).
+
 ## Making a new card
 
 1. **Start from the analysis, not the design.** Every number on the card comes

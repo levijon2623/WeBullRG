@@ -1,0 +1,35 @@
+{
+ "date": "2026-10-19",
+ "kicker": "10/30 options flow · Mon Oct 19, 2026 · through 11:50 ET",
+ "h1": "Hedgers roll up into the bounce",
+ "sub": "Stocks bounced Monday morning, and the 10/30 protection wasn't dropped. It was moved up closer to the price in SPY, added to in QQQ, and started fresh in IWM.",
+ "tiles": [["770.00", "SPY, +0.9% vs Friday"], ["724.00", "QQQ, +2.0%"], ["272.44", "IWM, +0.7%"], ["−$1.5B", "net 10/30 delta, all six: mildly bearish"]],
+ "bars_title": "Directional delta in the 10/30 expiry, Monday so far",
+ "bars_sub": "$ billions · all bearish (puts bought / calls sold) · ETFs and their indexes · Friday's QQQ alone was −$6.2B",
+ "bars_max": 0.55,
+ "bars": [
+  {"label": "SPY", "v": 0.52, "text": "−$0.52B"},
+  {"label": "SPX", "v": 0.45, "text": "−$0.45B"},
+  {"label": "QQQ", "v": 0.37, "text": "−$0.37B"},
+  {"label": "NDX", "v": 0.04, "text": "−$0.04B"},
+  {"label": "IWM", "v": 0.11, "text": "−$0.11B"},
+  {"label": "RUT", "v": 0.02, "text": "−$0.02B"}
+ ],
+ "trades": [
+  {"d": "SPY", "k": "Oct-30 $760 put  /  $745 put", "side": "b", "chip": "BOUGHT", "n": "61k / 57k", "prem": 32.3,
+   "note": "the new spread, 93–99% multi-leg …", "pend": "TUE"},
+  {"d": "SPY", "k": "Oct-30 $750 put sold  /  $735 put bought", "side": "x", "chip": "REVERSED", "n": "85k / 84k", "prem": 27.2,
+   "note": "… Friday's 750/735 spread, run backwards: a roll up", "pend": "TUE"},
+  {"d": "SPX", "k": "Oct-30 $7,650 put", "side": "b", "chip": "BOUGHT", "n": "2.2k", "prem": 11.7,
+   "note": "the index side: modest", "pend": "TUE"},
+  {"d": "QQQ", "k": "Oct-30 $700 put", "side": "b", "chip": "BOUGHT", "n": "22k", "prem": 10.2,
+   "note": "adding to Friday's new floor while puts are cheaper", "pend": "TUE"},
+  {"d": "IWM", "k": "Oct-30 $265 put  /  $259 put sold", "side": "x", "chip": "SPREAD", "n": "31k / 25k", "prem": 7.0,
+   "note": "a new put spread in the same window", "pend": "TUE"},
+  {"d": "QQQ", "k": "Oct-30 $715 put", "side": "s", "chip": "SOLD", "n": "4k", "prem": 3.7,
+   "note": "trimming what is left of the $715s", "pend": "TUE"}
+ ],
+ "confirm": "confirmed by Tuesday's open interest",
+ "read": "<b>Read:</b> a managed hedge, not a fresh bearish bet. The SPY hedger moved its 10/30 spread up from 750/735 to 760/745, the same move it made on 10/15, keeping protection close to the price into the late-October window.",
+ "mon": "Intraday read · side from ask/bid · NDX and RUT stay quiet: outside the S&amp;P, the ETF flow is the story."
+}
