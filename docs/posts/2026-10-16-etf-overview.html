@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1080">
+<title>ETF Positioning Overview</title>
+<!-- Share card (README.md): the overview of the three ETF positioning cards of 2026-10-16.
+     Data: Unusual Whales API via probe_uoa.py runs of 2026-10-17/18. -->
+<link rel="stylesheet" href="card.css">
+<style>
+  .cmp{display:grid;grid-template-columns:150px repeat(3,1fr);gap:0;font-size:16px}
+  .cmp div{padding:12px 10px;border-top:1px solid var(--grid)}
+  .cmp .hd{border-top:none;font-size:22px;font-weight:800;color:var(--ink);padding-top:2px}
+  .cmp .rl{color:var(--muted);font-size:13.5px}
+  .cmp .v{color:var(--ink);font-weight:700}
+  .cmp .w{color:var(--ink2);font-size:14px}
+  .cmp .hot{color:var(--accent)}
+  .twin{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px}
+  .twin .card{margin-bottom:0}
+  ol.take{margin:6px 0 2px;padding-left:22px;font-size:16.5px;color:var(--ink2)}
+  ol.take li{margin:9px 0}
+  ol.take b{color:var(--ink)}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="kicker">SPY · QQQ · IWM options positioning · Oct 5–16, 2026</div>
+  <h1>Protection everywhere. Tech got the most.</h1>
+  <div class="sub">All three ETFs saw steady, financed put buying through a two-week slide. Friday's surge was QQQ's alone,
+    and the call side split three ways.</div>
+
+  <div class="card" style="margin-top:18px">
+    <div class="cmp">
+      <div class="hd"></div><div class="hd">SPY</div><div class="hd">QQQ</div><div class="hd">IWM</div>
+      <div class="rl">Price, Oct 5 → 16</div><div class="v num">−1.5%</div><div class="v num hot">−6.1%</div><div class="v num">−4.6%</div>
+      <div class="rl">Friday put premium</div><div class="v num">$1.62B · 2.1×</div><div class="v num hot">$2.42B · 3.2×</div><div class="v num">$285M · 1.2×</div>
+      <div class="rl">Net puts opened, Oct 5–15</div><div class="v num">+$135M</div><div class="v num">+$89M <span class="w">+ $243M Fri</span></div><div class="v num">+$66M</div>
+      <div class="rl">Call side</div><div class="w"><b style="color:var(--ink)">Bought upside:</b> $45M Dec $810 calls</div>
+        <div class="w"><b style="color:var(--ink)">Sold:</b> upside calls written (collar)</div><div class="w"><b style="color:var(--ink)">Bought:</b> 10/30 calls, rolled lower</div>
+      <div class="rl">Style</div><div class="w">Put spreads, rolled up as it fell</div><div class="w">Heavy puts into Friday's close</div><div class="w">Hedged both ways</div>
+    </div>
+  </div>
+
+  <div class="twin">
+    <div class="card">
+      <h2>Price move since Oct 5</h2>
+      <div class="h2s">Close to close, %</div>
+      <svg id="mv" width="440" height="128" role="img" aria-label="Price move by ETF"></svg>
+    </div>
+    <div class="card">
+      <h2>Friday's put premium vs a normal day</h2>
+      <div class="h2s">10/16 put premium ÷ the Oct 5–9 average</div>
+      <svg id="pp" width="440" height="128" role="img" aria-label="Friday put premium multiple by ETF"></svg>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h2>What it adds up to</h2>
+    <ol class="take">
+      <li><b>Hedging, not shorting.</b> All three bought protection all month and paid for part of it by selling lower
+        puts: the signature of big long books insuring themselves.</li>
+      <li><b>10/30 is the date.</b> On 10/15, SPY's $760 puts (+53k) and QQQ's $715 puts (+51k) were bought the same day,
+        same expiry: the window of FOMC and big-tech earnings.</li>
+      <li><b>Friday was a tech event.</b> QQQ's $2.42B of puts outran SPY's, a rare flip for the smaller market,
+        right after QQQ's −6% two-week slide.</li>
+      <li><b>Calls split three ways.</b> QQQ sold its upside, SPY added a $45M upside bet, IWM kept buying calls
+        and rolling them lower: defensive in tech, two-way in small caps.</li>
+    </ol>
+  </div>
+
+  <div class="read"><b>Monday:</b> Friday's prints are confirmed or not by the 10/19 open interest (QQQ $700P toward
+    ~200k = a new hedge; flat = partly a trapped seller covering).<span class="mon">Detail per ETF in the SPY, QQQ and IWM cards.
+    Side is read from ask/bid; "opened" counts are a lower bound.</span></div>
+</div>
+<div class="foot">
+  <span>Data: Unusual Whales API · method: <b>probe_uoa.py</b> (open source) · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span>
+</div>
+<script src="card.js"></script>
+<script>
+compareBars(document.getElementById('mv'), [
+  {label: 'SPY', v: 1.5, text: '−1.5%', color: '#9085e9'},
+  {label: 'QQQ', v: 6.1, text: '−6.1%', color: '#9085e9'},
+  {label: 'IWM', v: 4.6, text: '−4.6%', color: '#9085e9'}], 6.5);
+compareBars(document.getElementById('pp'), [
+  {label: 'SPY', v: 2.07, text: '2.1×', color: '#199e70'},
+  {label: 'QQQ', v: 3.19, text: '3.2×', color: '#199e70'},
+  {label: 'IWM', v: 1.21, text: '1.2×', color: '#199e70'}], 3.4);
+</script>
+</body></html>

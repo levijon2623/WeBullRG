@@ -12,6 +12,16 @@ python docs/posts/render_post.py <card>.html --scale 1 --out preview.png   # qui
 No packages and no network: fonts are system fonts, and the charts are inline
 SVG drawn by the page's own script.
 
+## Shared pieces
+
+- `card.css`: the frame, tokens (validated colors), tiles, trade-list and chip styles.
+- `card.js`: `divergingBars` (bought vs sold to open, shared scale across a series of cards),
+  `tradeTable` (the "trades that matter" list, with a MON chip for prints Monday's open interest
+  confirms) and `compareBars` (one measure across tickers, one hue, no legend needed).
+- `make_etf_cards.py`: a worked example of data-driven cards. The numbers live in dicts; re-run it,
+  then render. Use it when a series of cards shares one layout (one per ticker).
+- A one-off card (e.g. `2026-10-16-etf-overview.html`) links `card.css` / `card.js` and writes its own body.
+
 ## Making a new card
 
 1. **Start from the analysis, not the design.** Every number on the card comes
