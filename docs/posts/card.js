@@ -47,6 +47,31 @@ function tradeTable(tbl, rows) {
   }).join('');
 }
 
+/* Paired bars: rows [{label, a, b, ta, tb}] -- two series per row (colors ca / cb, e.g. index vs
+   ETF), signed values grow left/right from a zero axis. A legend names the two series. */
+function pairBars(svg, rows, max, opt = {}) {
+  const W = +svg.getAttribute('width'), lab = opt.labelW || 150, H = 20, gap = 6, rowGap = 20;
+  const neg = rows.some(r => r.a < 0 || r.b < 0), pos = rows.some(r => r.a > 0 || r.b > 0);
+  const x0 = neg && !pos ? W - 120 : neg ? lab + (W - lab - 120) / 2 : lab + 8;
+  const span = neg && pos ? (W - lab - 120) / 2 : (neg ? x0 - lab - 70 : W - x0 - 120);
+  const k = span / max;
+  const y1 = rows.length * (2 * H + gap + rowGap) - rowGap + 4;
+  el('line', {x1: x0, x2: x0, y1: 0, y2: y1, stroke: '#3a4554', 'stroke-width': 1.5}, svg);
+  rows.forEach((r, i) => {
+    const y = i * (2 * H + gap + rowGap);
+    txt(svg, 0, y + H + 8, r.label, {fill: '#eef1f5', 'font-size': 16, 'font-weight': 700});
+    [[r.a, r.ta, opt.ca || '#9085e9', 0], [r.b, r.tb, opt.cb || '#199e70', H + gap]].forEach(([v, t, col, dy]) => {
+      const w = Math.max(2, Math.abs(v) * k), left = v < 0;
+      el('rect', {x: left ? x0 - w : x0 + 1, y: y + dy, width: w, height: H, rx: 4, fill: col}, svg);
+      // long bars carry their label inside (dark ink), so it never runs into the row label
+      const inside = w > 170;
+      txt(svg, inside ? (left ? x0 - w + 10 : x0 + w - 10) : (left ? x0 - w - 8 : x0 + w + 9), y + dy + H - 5, t,
+          {'text-anchor': inside ? (left ? 'start' : 'end') : (left ? 'end' : 'start'),
+           fill: inside ? '#0b0f14' : '#eef1f5', 'font-size': 14, 'font-weight': 700, class: 'num'});
+    });
+  });
+}
+
 /* Simple vertical-free horizontal bars for a comparison: rows [{label, v, text, color}] */
 function compareBars(svg, rows, max, opt = {}) {
   const x0 = opt.x0 || 70, W = +svg.getAttribute('width'), k = (W - x0 - 90) / max, H = 26, gap = 14;

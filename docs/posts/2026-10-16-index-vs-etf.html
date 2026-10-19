@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1080">
+<title>Index vs ETF</title>
+<!-- Share card (README.md). Numbers: probe_index_vs_etf.py run of 2026-10-18 (UW /oi-per-expiry,
+     /greek-flow/{expiry}, /options-volume). Index levels = ETF close x index_gex.SEED_RATIO. -->
+<link rel="stylesheet" href="card.css">
+<style>
+  .twin{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .twin .card{margin-bottom:0}
+  ol.take{margin:6px 0 2px;padding-left:22px;font-size:16px;color:var(--ink2)}
+  ol.take li{margin:8px 0}
+  ol.take b{color:var(--ink)}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="kicker">Index vs ETF options · Oct 5–16, 2026 · SPX / NDX / RUT vs SPY / QQQ / IWM</div>
+  <h1>Where the hedging actually lives</h1>
+  <div class="sub">Institutions can hedge in index options (cash-settled, ~10× an ETF contract) or the ETFs.
+    Measured in dollars, the answer differs by index: the S&amp;P hedge is in SPX, the tech hedge is in QQQ.</div>
+
+  <div class="tiles">
+    <div class="tile"><div class="v num">~9×</div><div class="l">SPX vs SPY: put open interest added (notional)</div></div>
+    <div class="tile"><div class="v num">~3×</div><div class="l">QQQ vs NDX: the tech hedge sits in the ETF</div></div>
+    <div class="tile"><div class="v num">≈ 1×</div><div class="l">RUT vs IWM: about even</div></div>
+    <div class="tile"><div class="v num">$0</div><div class="l">NDX twin of QQQ's −$6.2B Friday trade</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Put open interest added, Oct 5–16</h2>
+    <div class="h2s">Expiries 10/23, 10/30 and 11/20 · contracts × 100 × price, $ billions · bought or sold to open</div>
+    <svg id="oi" width="946" height="200" role="img" aria-label="Put open interest added, index vs ETF"></svg>
+    <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>index (SPX · NDX · RUT, all roots)</span>
+      <span><span class="sw" style="background:var(--s2)"></span>ETF (SPY · QQQ · IWM)</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Friday's 10/30 trade, in delta</h2>
+    <div class="h2s">Net directional delta of the 10/30 expiry on Oct 16, $ billions · negative = bearish (puts bought / calls sold)</div>
+    <svg id="dl" width="946" height="200" role="img" aria-label="Friday 10/30 directional delta, index vs ETF"></svg>
+    <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>index</span>
+      <span><span class="sw" style="background:var(--s2)"></span>ETF</span></div>
+  </div>
+
+  <div class="card">
+    <h2>What it adds up to</h2>
+    <ol class="take">
+      <li><b>S&amp;P: the ETF view understates it.</b> SPX added ~$437B of put open interest vs SPY's ~$50B, and Friday's
+        10/30 SPX delta (−$1.6B) was 3× SPY's. The SPY cards show the small end of an S&amp;P hedge.</li>
+      <li><b>Nasdaq: the ETF view <i>is</i> the story.</b> QQQ added ~3× NDX's put notional, and Friday's −$6.2B 10/30 QQQ
+        package had no NDX twin: NDX 10/30 delta was flat and its biggest 10/30 puts traded in single-digit lots.</li>
+      <li><b>Russell: index and ETF agree.</b> Similar size, small net delta in both: no one-sided bet.</li>
+      <li><b>Filtered out:</b> SPX Dec box spreads (financing at 7000/8000, ~33k a leg). Read leg by leg they look like
+        +$40B of bullish delta; they are market-neutral.</li>
+    </ol>
+  </div>
+</div>
+<div class="foot">
+  <span>Data: Unusual Whales API · method: <b>probe_index_vs_etf.py</b> · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span>
+</div>
+<script src="card.js"></script>
+<script>
+pairBars(document.getElementById('oi'), [
+  {label: 'S&P 500', a: 437, b: 49.9, ta: 'SPX $437B', tb: 'SPY $50B'},
+  {label: 'Nasdaq-100', a: 13.6, b: 39.1, ta: 'NDX $14B', tb: 'QQQ $39B'},
+  {label: 'Russell 2000', a: 12.5, b: 15.6, ta: 'RUT $12B', tb: 'IWM $16B'}], 437);
+pairBars(document.getElementById('dl'), [
+  {label: 'S&P 500', a: -1.65, b: -0.53, ta: 'SPX −$1.65B', tb: 'SPY −$0.53B'},
+  {label: 'Nasdaq-100', a: -0.004, b: -6.18, ta: 'NDX ~$0', tb: 'QQQ −$6.18B'},
+  {label: 'Russell 2000', a: -0.01, b: -0.003, ta: 'RUT ~$0', tb: 'IWM ~$0'}], 6.18);
+</script>
+</body></html>
