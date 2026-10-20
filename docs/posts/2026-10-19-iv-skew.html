@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1080">
+<title>IV and Skew</title>
+<!-- Share card (README.md). Numbers: probe_iv.py --expiry 2026-10-30 --start 2026-09-28 --end 2026-10-19 (UW
+     term-structure, historical-risk-reversal-skew, per-contract IV; realized vol from daily closes). -->
+<link rel="stylesheet" href="card.css">
+<style>
+  .riv{display:grid;grid-template-columns:120px repeat(5,1fr);font-size:15px}
+  .riv div{padding:7px 8px;border-top:1px solid var(--grid)}
+  .riv .hd{border-top:none;color:var(--muted);font-size:13px}
+  .riv .t{color:var(--ink);font-weight:800}
+  .riv .v{color:var(--ink);font-weight:700}
+</style></head><body>
+<div class="wrap">
+  <div class="kicker">10/30 expiry · implied volatility &amp; skew · Sep 28 – Oct 19, 2026</div>
+  <h1>Puts got pricey. Broad fear didn't.</h1>
+  <div class="sub">Put skew roughly doubled in all three ETFs and their indexes, but overall volatility only rose in tech.
+    Protection costs more than recent moves, yet IV ranks sit low to middling: targeted hedging, not panic.</div>
+  <div class="tiles">
+    <div class="tile"><div class="v num">~2×</div><div class="l">25Δ put skew, 9/28 → 10/16, all six</div></div>
+    <div class="tile"><div class="v num">+6–10 pts</div><div class="l">IV of puts 8% below spot, 10/12 → 10/16</div></div>
+    <div class="tile"><div class="v num">+4.7 pts</div><div class="l">QQQ 10/30 ATM IV (19.5% → 24.2%); SPY only +1.2</div></div>
+    <div class="tile"><div class="v num">21 · 47 · 22</div><div class="l">IV rank (1y): SPY · QQQ · IWM</div></div>
+  </div>
+  <div class="card">
+    <h2>SPY's 10/30 smile: only the puts got bid</h2>
+    <div class="h2s">Implied volatility by strike, % from that day's price · out-of-the-money puts left, calls right</div>
+    <svg id="sm" width="946" height="190" role="img" aria-label="SPY 10/30 volatility smile on Oct 12, 16 and 19"></svg>
+    <div class="legend"><span><span class="sw" style="background:#7d8796"></span>Oct 12 (before)</span>
+      <span><span class="sw" style="background:var(--s1)"></span>Oct 16 (the selloff)</span>
+      <span><span class="sw" style="background:var(--s2)"></span>Oct 19 (Monday's bounce)</span></div>
+  </div>
+  <div class="card">
+    <h2>25-delta skew: puts priced over calls, vol points</h2>
+    <div class="h2s">10/30 expiry · Sep 28 vs the Oct 16 peak (Monday in brackets) · index skew runs steeper; the ETFs rose more</div>
+    <svg id="sk" width="946" height="222" role="img" aria-label="25-delta skew Sep 28 vs Oct 16 by ticker"></svg>
+    <div class="legend"><span><span class="sw" style="background:#7d8796"></span>Sep 28</span>
+      <span><span class="sw" style="background:var(--s1)"></span>Oct 16 peak</span></div>
+  </div>
+  <div class="card">
+    <h2>RIV: how rich is it?</h2>
+    <div class="riv">
+      <div class="hd"></div><div class="hd">30-day IV</div><div class="hd">21-day realized</div><div class="hd">fear premium</div><div class="hd">IV rank (1y)</div><div class="hd">index skew − ETF</div>
+      <div class="t">SPY</div><div class="v num">14.4%</div><div class="v num">10.3%</div><div class="v num">+4.1</div><div class="v num">21</div><div class="v num">SPX +1.1</div>
+      <div class="t">QQQ</div><div class="v num">21.8%</div><div class="v num">18.4%</div><div class="v num">+3.4</div><div class="v num">47</div><div class="v num">NDX +1.2</div>
+      <div class="t">IWM</div><div class="v num">19.9%</div><div class="v num">14.5%</div><div class="v num">+5.4</div><div class="v num">22</div><div class="v num">RUT +0.9</div>
+    </div>
+  </div>
+  <div class="read"><b>Read:</b> hedgers paid for the tails, not the middle; only in tech did volatility itself rise (QQQ ATM +8 pts in the 10/12 → 10/16 week).
+    Monday's bounce barely cheapened protection (skew −0.6 to −0.9): hedges rolled, not dropped.
+    <span class="mon">Index level from the ETF · realized vol from daily closes · RUT's UW IV rank unreliable, left out.</span></div>
+</div>
+<div class="foot">
+  <span>Data: Unusual Whales API · method: <b>probe_iv.py</b> · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span>
+</div>
+<script src="card.js"></script>
+<script>
+const SM = {"2026-10-12": [[-8.75, 21.79], [-8.11, 20.8], [-7.47, 19.87], [-6.82, 18.94], [-6.18, 18.03], [-5.54, 17.17], [-4.9, 16.3], [-4.25, 15.47], [-3.61, 14.65], [-2.97, 13.85], [-2.33, 13.07], [-1.68, 12.31], [-1.04, 11.54], [-0.4, 10.79], [0.24, 12.37], [0.89, 11.66], [1.53, 11.1], [2.17, 10.7], [2.81, 10.4], [3.46, 10.23], [4.1, 10.21], [4.74, 10.44]], "2026-10-16": [[-7.63, 27.22], [-6.98, 25.88], [-6.32, 24.55], [-5.67, 23.28], [-5.01, 22.06], [-4.36, 20.86], [-3.7, 19.71], [-3.05, 18.61], [-2.39, 17.54], [-1.74, 16.49], [-1.08, 15.41], [-0.43, 14.29], [0.23, 15.26], [0.88, 14.14], [1.54, 13.18], [2.19, 12.38], [2.85, 11.79], [3.5, 11.42], [4.16, 11.35], [4.81, 11.59], [5.47, 11.94]], "2026-10-19": [[-8.02, 28.1], [-7.37, 26.74], [-6.72, 25.4], [-6.06, 24.1], [-5.41, 22.82], [-4.76, 21.59], [-4.11, 20.4], [-3.45, 19.23], [-2.8, 18.1], [-2.15, 17.0], [-1.5, 15.93], [-0.85, 14.85], [-0.19, 13.76], [0.46, 14.68], [1.11, 13.65], [1.76, 12.76], [2.42, 12.06], [3.07, 11.57], [3.72, 11.44], [4.37, 11.64], [5.03, 12.17], [5.68, 13.09]]}, RR = {"SPY": {"2026-09-28": 2.0, "2026-09-29": 2.0, "2026-09-30": 2.1, "2026-10-01": 2.3, "2026-10-02": 2.0, "2026-10-05": 1.4, "2026-10-06": 1.1, "2026-10-07": 1.3, "2026-10-08": 2.0, "2026-10-09": 1.6, "2026-10-12": 1.4, "2026-10-13": 1.7, "2026-10-14": 2.8, "2026-10-15": 2.1, "2026-10-16": 4.2, "2026-10-19": 3.6}, "SPX": {"2026-09-28": 4.0, "2026-09-29": 3.9, "2026-09-30": 4.0, "2026-10-01": 4.1, "2026-10-02": 3.5, "2026-10-05": 3.0, "2026-10-06": 2.6, "2026-10-07": 2.9, "2026-10-08": 3.4, "2026-10-09": 2.8, "2026-10-12": 2.8, "2026-10-13": 3.0, "2026-10-14": 4.2, "2026-10-15": 3.4, "2026-10-16": 5.5, "2026-10-19": 4.8}, "QQQ": {"2026-09-28": 2.7, "2026-09-29": 2.8, "2026-09-30": 3.1, "2026-10-01": 3.1, "2026-10-02": 2.6, "2026-10-05": 2.1, "2026-10-06": 2.1, "2026-10-07": 2.3, "2026-10-08": 3.1, "2026-10-09": 2.8, "2026-10-12": 2.8, "2026-10-13": 3.0, "2026-10-14": 4.0, "2026-10-15": 3.5, "2026-10-16": 6.2, "2026-10-19": 5.5}, "NDX": {"2026-09-28": 4.5, "2026-09-29": 4.5, "2026-09-30": 4.6, "2026-10-01": 4.9, "2026-10-02": 4.1, "2026-10-05": 4.0, "2026-10-06": 3.5, "2026-10-07": 3.7, "2026-10-08": 4.6, "2026-10-09": 3.9, "2026-10-12": 4.1, "2026-10-13": 4.4, "2026-10-14": 5.2, "2026-10-15": 4.8, "2026-10-16": 7.3, "2026-10-19": 6.6}, "IWM": {"2026-09-28": 2.0, "2026-09-29": 2.1, "2026-09-30": 1.7, "2026-10-01": 2.3, "2026-10-02": 1.8, "2026-10-05": 1.5, "2026-10-06": 1.0, "2026-10-07": 1.4, "2026-10-08": 1.4, "2026-10-09": 1.3, "2026-10-12": 0.8, "2026-10-13": 0.9, "2026-10-14": 2.2, "2026-10-15": 1.9, "2026-10-16": 4.3, "2026-10-19": 3.8}, "RUT": {"2026-09-28": 3.8, "2026-09-29": 3.7, "2026-09-30": 3.7, "2026-10-01": 3.9, "2026-10-02": 3.4, "2026-10-05": 3.1, "2026-10-06": 2.6, "2026-10-07": 2.9, "2026-10-08": 3.0, "2026-10-09": 2.4, "2026-10-12": 2.5, "2026-10-13": 2.4, "2026-10-14": 3.7, "2026-10-15": 2.9, "2026-10-16": 5.6, "2026-10-19": 4.7}};
+lineChart(document.getElementById('sm'), [
+  {label: 'Oct 12', color: '#7d8796', pts: SM['2026-10-12'], dy: 16},
+  {label: 'Oct 16', color: '#9085e9', pts: SM['2026-10-16'], dy: -14},
+  {label: 'Oct 19', color: '#199e70', pts: SM['2026-10-19'], dy: 2}],
+  {x0: -9, x1: 6, xticks: [-8, -6, -4, -2, 0, 2, 4, 6], xfmt: m => (m > 0 ? '+' : '') + m + '%',
+   yfmt: v => v.toFixed(0) + '%', ystep: 5, zero: false, right: 120,
+   endfmt: () => '',   // three close endings: the legend names them
+   ann: [{x: -8, y: 27.2, text: '+6.6 pts at −8%,|only +1.2 at +4%', dx: 150, dy: 58}]});
+const rows = ['SPY', 'SPX', 'QQQ', 'NDX', 'IWM', 'RUT'].map(t => ({label: t,
+  a: RR[t]['2026-09-28'], b: RR[t]['2026-10-16'],
+  ta: '+' + RR[t]['2026-09-28'].toFixed(1), tb: '+' + RR[t]['2026-10-16'].toFixed(1) + '  (Mon +' + RR[t]['2026-10-19'].toFixed(1) + ')'}));
+pairBars(document.getElementById('sk'), rows, 7.5, {ca: '#7d8796', cb: '#9085e9', labelW: 70, H: 13, gap: 2, rowGap: 7, inside: false, top: 6});
+</script>
+</body></html>
