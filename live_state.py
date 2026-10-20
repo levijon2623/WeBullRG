@@ -1134,8 +1134,8 @@ def _weekly_update_locked(uw, tk, spot):
 #     compares the contracts' open interest with the map the last 09:31
 #     snapshot saw (oi_ref.json) and waits while most are unchanged. With no
 #     reference (first run) it accepts from 07:45, flagged "unverified".
-#   * Webull data only: that is the source the heat runs on, and the only one
-#     whose pre-open behaviour has been measured.
+#   * Webull data only -- whatever VIEWER_DATA says: it is the only source whose
+#     pre-open behaviour has been measured (the box's viewer runs on UW).
 WEEKLY_PRE_MOD = 7 * 60 + 35
 WEEKLY_PRE_END_MOD = 9 * 60 + 25
 WEEKLY_PRE_UNVERIFIED_MOD = 7 * 60 + 45
@@ -1169,11 +1169,13 @@ def _weekly_preopen(eng, tk):
     mod, today = now.hour * 60 + now.minute, now.date()
     if tk not in WEEKLY_TICKERS or not (WEEKLY_PRE_MOD <= mod < WEEKLY_PRE_END_MOD):
         return
-    if WV.source() != "webull":
-        if (tk, today, "src") not in _WK_PRE_SAID:
-            _WK_PRE_SAID.add((tk, today, "src"))
-            print(f"  📅 [WEEKLY PRE] {tk}: viewer data is UW -- pre-open snapshot is Webull-only, skipped")
-        return
+    # 🚨 WEBULL WHATEVER THE VIEWER'S SOURCE (fixed 2026-10-20). The first version
+    # skipped unless VIEWER_DATA resolved to webull -- and the box runs on UW
+    # (auto + a UW key), so 10-20's 07:35 pass logged "skipped" for all three.
+    # The pre-open map always comes from Webull option snapshots: their open
+    # interest is the same OCC figure (turned over 07:00-07:15 ET on 10-19) and
+    # Webull-only ETF GEX passed the 10-01 check against UW. The 09:31 map stays
+    # on the viewer's own source; each map carries its `src`.
     with _WK_LOCK:
         monday, days = _week_days(today)
         if today not in days:
