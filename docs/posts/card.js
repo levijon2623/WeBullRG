@@ -73,6 +73,41 @@ function pairBars(svg, rows, max, opt = {}) {
   });
 }
 
+/* Intraday lines: series [{label, color, pts: [[minute_of_day, value], ...]}], one shared y axis
+   (same unit), zero line, hourly ticks, direct end labels, optional annotations
+   opt.ann [{x: minute, y: value, text, dx, dy, anchor}], '|' in text = line break. Two series max. */
+function lineChart(svg, series, opt = {}) {
+  const W = +svg.getAttribute('width'), H = +svg.getAttribute('height');
+  const L = opt.left || 54, R = W - (opt.right || 140), T = 10, B = H - 26;
+  const x0 = opt.x0 || 570, x1 = opt.x1 || 975;
+  const vals = series.flatMap(s => s.pts.map(p => p[1])).concat([0]);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const padv = (hi - lo) * 0.08 || 0.1; lo -= padv; hi += padv;
+  const X = m => L + (m - x0) / (x1 - x0) * (R - L), Y = v => B - (v - lo) / (hi - lo) * (B - T);
+  const step = opt.ystep || 0.25;
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    el('line', {x1: L, x2: R, y1: Y(v), y2: Y(v), stroke: Math.abs(v) < 1e-9 ? '#56606e' : '#1b222c', 'stroke-width': Math.abs(v) < 1e-9 ? 1.5 : 1}, svg);
+    txt(svg, L - 8, Y(v) + 4, (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(2), {'text-anchor': 'end', fill: '#7d8796', 'font-size': 12, class: 'num'});
+  }
+  for (let m = Math.ceil(x0 / 60) * 60; m <= x1; m += 60)
+    txt(svg, X(m), B + 18, `${Math.floor(m / 60) > 12 ? Math.floor(m / 60) - 12 : Math.floor(m / 60)}:00`, {'text-anchor': 'middle', fill: '#7d8796', 'font-size': 12});
+  series.forEach((s, i) => {
+    const pts = s.pts.filter(p => p[0] >= x0 && p[0] <= x1);
+    el('path', {d: pts.map((p, j) => `${j ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' '),
+      fill: 'none', stroke: s.color, 'stroke-width': 2.5, 'stroke-linejoin': 'round'}, svg);
+    const e = pts[pts.length - 1];
+    el('circle', {cx: X(e[0]), cy: Y(e[1]), r: 4.5, fill: s.color, stroke: '#121820', 'stroke-width': 2}, svg);
+    txt(svg, X(e[0]) + 10, Y(e[1]) + 5, `${s.label} ${e[1] >= 0 ? '+' : '−'}$${Math.abs(e[1]).toFixed(2)}B`,
+        {fill: '#eef1f5', 'font-size': 14, 'font-weight': 700});
+  });
+  (opt.ann || []).forEach(a => {
+    const ax = X(a.x), ay = Y(a.y), tx = ax + (a.dx || 0), ty = ay + (a.dy || 0);
+    el('line', {x1: ax, y1: ay, x2: tx, y2: ty, stroke: '#7d8796', 'stroke-width': 1}, svg);
+    a.text.split('|').forEach((s, j) => txt(svg, tx + (a.anchor === 'end' ? -4 : 4), ty + 4 + j * 16, s,
+      {fill: j ? '#b4bcc8' : '#eef1f5', 'font-size': 13, 'font-weight': j ? 400 : 600, 'text-anchor': a.anchor || 'start'}));
+  });
+}
+
 /* Simple vertical-free horizontal bars for a comparison: rows [{label, v, text, color}] */
 function compareBars(svg, rows, max, opt = {}) {
   const x0 = opt.x0 || 70, W = +svg.getAttribute('width'), k = (W - x0 - 90) / max, H = opt.H || 26, gap = opt.gap || 14;
