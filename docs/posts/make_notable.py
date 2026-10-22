@@ -15,6 +15,7 @@ notes and the read are written by hand from what the numbers show. Keys:
   bars       [{label, v, text}, ...]         v = magnitude (abs), text = signed label
   trades     [{d, k, side, chip, n, prem, note, pend}]  card.js tradeTable rows;
              d = ticker, pend = "TUE" etc. (the session whose OI confirms it)
+  table_sub  optional subtitle of the trade table (default: biggest contracts by premium)
   confirm    legend text for the pend chip
   read, mon  the read box (mon = small print under it)
 """
@@ -42,7 +43,7 @@ TPL = """<!doctype html>
   </div>
   <div class="card">
     <h2>Notable activity</h2>
-    <div class="h2s">Biggest contracts by premium · side read from ask/bid · multi-leg packages read as one trade</div>
+    <div class="h2s">{table_sub}</div>
     <table class="trades" id="tt"></table>
     <div class="legend"><span><span class="chip b">BOUGHT</span> at the ask</span><span><span class="chip s">SOLD</span> at the bid</span>
       <span><span class="chip x">SPREAD</span> both sides</span><span><span class="chip pend">{pend}</span> {confirm}</span></div>
@@ -74,7 +75,9 @@ def main(path):
                      bars_h=len(spec["bars"]) * 32 + 4, bars=json.dumps(spec["bars"]), bars_max=spec["bars_max"],
                      trades=json.dumps(spec["trades"]), pend=pend,
                      confirm=spec.get("confirm", "confirmed by the next session's open interest"),
-                     read=spec["read"], mon=spec.get("mon", ""))
+                     read=spec["read"], mon=spec.get("mon", ""),
+                     table_sub=spec.get("table_sub", "Biggest contracts by premium · side read from ask/bid · "
+                                                     "multi-leg packages read as one trade"))
     dst = os.path.join(HERE, f"{spec['date']}-notable.html")
     open(dst, "w", encoding="utf-8").write(out)
     print("wrote", dst)

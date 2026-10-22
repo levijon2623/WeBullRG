@@ -1,0 +1,36 @@
+{
+ "date": "2026-10-22",
+ "kicker": "Options flow · Thu Oct 22, 2026 · Wednesday's new open interest + Thursday through 10:19 ET",
+ "h1": "IWM hedged hardest; QQQ rolls lower",
+ "sub": "Wednesday's new open interest was mostly protection: about $31M of IWM puts bought after Tuesday's rally, QQQ's late-October puts back on, and a large short-dated SPX upside call. Thursday morning, QQQ looks to be rolling its 10/23 puts out to 10/30 and down to $690.",
+ "tiles": [["765.80", "SPY at 10:18 ET"], ["712.44", "QQQ, the laggard"], ["276.34", "IWM, after Tuesday's rally"], ["~$31M", "IWM puts bought Wednesday, Oct-23 to Nov-20"]],
+ "bars_title": "Directional delta in the 10/30 expiry, Thursday so far",
+ "bars_sub": "$ billions through 10:19 ET · red = bearish (puts bought / calls sold) · QQQ's is the $690 put buying",
+ "bars_max": 0.37,
+ "bars": [
+  {"label": "SPY", "v": 0.03, "text": "−$0.03B"},
+  {"label": "SPX", "v": 0.21, "text": "+$0.21B"},
+  {"label": "QQQ", "v": 0.35, "text": "−$0.35B"},
+  {"label": "NDX", "v": 0.02, "text": "+$0.02B"},
+  {"label": "IWM", "v": 0.01, "text": "+$0.01B"},
+  {"label": "RUT", "v": 0.03, "text": "+$0.03B"}
+ ],
+ "table_sub": "Wednesday's biggest new positions (now in open interest) and Thursday's roll · side from ask/bid · multi-leg legs read as one trade",
+ "trades": [
+  {"d": "QQQ", "k": "Oct-23 $710 put sold  →  Oct-30 $690 put bought", "side": "x", "chip": "ROLL", "n": "45k / 24k", "prem": 24.3,
+   "note": "Thursday morning, 68–98% multi-leg: out a week, down $20", "pend": "FRI"},
+  {"d": "IWM", "k": "Nov-20 $263 put  /  $270 put", "side": "b", "chip": "BOUGHT", "n": "40k / 27k", "prem": 23.9,
+   "note": "Wednesday, 79–88% at the ask · plus 20k Oct-23 puts", "upd": "ok"},
+  {"d": "QQQ", "k": "Oct-30 $696 put  ·  Nov-20 $690 put", "side": "x", "chip": "BLOCKS", "n": "23k / 11k", "prem": 19.7,
+   "note": "Wednesday, traded at mid: side unclear, most likely hedges", "upd": "ok"},
+  {"d": "SPY", "k": "Nov-20 $800 call  +  $736 put", "side": "x", "chip": "PACKAGE", "n": "27k / 16k", "prem": 16.2,
+   "note": "Wednesday, both legs at the ask, one package", "upd": "ok"},
+  {"d": "SPY", "k": "Oct-27 $767 put", "side": "b", "chip": "BOUGHT", "n": "37k", "prem": 9.1,
+   "note": "Wednesday, near the money, three sessions out", "upd": "ok"},
+  {"d": "SPX", "k": "Oct-27 $7,900 call", "side": "b", "chip": "BOUGHT", "n": "23k", "prem": 7.7,
+   "note": "Wednesday, ~2.7% above spot, 99% multi-leg: likely a spread leg", "upd": "ok"}
+ ],
+ "confirm": "confirmed by Friday's open interest",
+ "read": "<b>Read:</b> hedgers are protecting gains, not betting on a crash: puts bought into strength and rolled lower as QQQ slips, with some upside (SPX 7,900 calls) bought alongside. The QQQ roll is an inference from two multi-leg prints; Friday's open interest settles it.",
+ "mon": "✓ = already in open interest · FRI = intraday, side from ask/bid · SPX Nov-20 7000/8000 box-spread legs (financing) left out · NDX and RUT quiet"
+}
