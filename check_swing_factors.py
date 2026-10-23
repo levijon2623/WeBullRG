@@ -130,15 +130,19 @@ SEED = 20261022
 
 
 # ------------------------------------------------------------------ build
-def build():
+def build(tickers=ALL):
+    """One EOD row per contract (DTE <= 75) per day -> _swing_cache/eod_{T}.parquet. Also caches day
+    premium and multi-leg volume (used by check_uoa_events.py)."""
     os.makedirs(CACHE, exist_ok=True)
+    tickers = tuple(tickers)
     days = sorted(glob.glob(f"{LAKE}/date=*/bars.parquet"))
-    out = {t: [] for t in ALL}
+    out = {t: [] for t in tickers}
     cols = ["underlying_symbol", "option_chain_id", "expiry", "option_type", "strike", "minute_et",
-            "iv_close", "delta_close", "bid_close", "ask_close", "open_interest", "volume", "ask_volume", "bid_volume"]
+            "iv_close", "delta_close", "bid_close", "ask_close", "open_interest", "volume", "ask_volume", "bid_volume",
+            "premium", "multi_volume"]
     for i, f in enumerate(days):
         day = dt.date.fromisoformat(f.split("date=")[1][:10])
-        d = (pl.scan_parquet(f).filter(pl.col("underlying_symbol").is_in(list(ALL)))
+        d = (pl.scan_parquet(f).filter(pl.col("underlying_symbol").is_in(list(tickers)))
              .filter(pl.col("expiry") <= pl.lit(day + dt.timedelta(days=MAX_DTE)))
              .select(cols).collect())
         if d.is_empty():
@@ -153,9 +157,10 @@ def build():
             pl.col("underlying_symbol").first(), pl.col("expiry").first(), pl.col("option_type").first(),
             pl.col("strike").first(), pl.col("open_interest").drop_nulls().first().alias("oi"),
             pl.col("volume").sum().alias("vol"), pl.col("ask_volume").sum().alias("askv"),
-            pl.col("bid_volume").sum().alias("bidv"))
+            pl.col("bid_volume").sum().alias("bidv"), pl.col("premium").sum().alias("prem"),
+            pl.col("multi_volume").sum().alias("mlegv"))
         g = tot.join(last, on="option_chain_id", how="left").with_columns(pl.lit(day).alias("date"))
-        for t in ALL:
+        for t in tickers:
             p = g.filter(pl.col("underlying_symbol") == t)
             if p.height:
                 out[t].append(p)
@@ -240,7 +245,10 @@ def panel(t):
     f["term"] = f["iv9"] / f["iv30"]
     f["ivrank"] = f["iv30"].rolling(252, min_periods=120).apply(lambda w: (w[:-1] < w[-1]).mean(), raw=True)
     f["dskew"] = f["skew"] - f["skew"].shift(5)
-    fl = daily_flow(t).reindex(f.index)
+    try:
+        fl = daily_flow(t).reindex(f.index)
+    except Exception:                                    # no NETPREM file for this ticker
+        fl = pd.Series(np.nan, index=f.index)
     f["flow5"] = fl.rolling(5, min_periods=4).sum() / fl.abs().shift(1).rolling(60, min_periods=30).mean()
     # sticky customer delta from day d's trading, known on d+1
     e2 = e[(e["dte"].between(7, 60)) & (e["vol"] > 0)].copy()
