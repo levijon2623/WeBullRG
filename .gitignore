@@ -145,3 +145,6 @@ Thumbs.db
 # config.toml can hold chat ids, state/ holds the Robinhood session pickle.
 /config.toml
 /state/
+
+# third-party EODHD skills download (2026-10-23): reference docs only, not ours to publish
+eohdhd_skills/

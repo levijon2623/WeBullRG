@@ -246,6 +246,21 @@
   #bar{padding:9px 14px;border-bottom:1px solid var(--line);display:flex;
     gap:16px;align-items:center;flex-wrap:wrap;background:var(--panel)}
   #bar .k{color:var(--dim)} #bar b{font-weight:600}
+  /* news strip (news_logger.py -> live/news/latest.json): context, not a signal --
+     check_news_reaction found no tradeable reaction to headlines (2026-10-23) */
+  #newsWrap{position:relative}
+  #news{display:none;padding:4px 14px;border-bottom:1px solid var(--line);font-size:12px;
+    background:var(--bg);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #news.on{display:block}
+  #news .nt,#newsList .nt{color:var(--dim)}
+  #news .nc,#newsList .nc{border:1px solid var(--line);border-radius:999px;padding:0 6px;
+    font-size:10.5px;margin-right:4px;color:var(--accent)}
+  #news .fresh,#newsList .fresh{color:var(--fg);font-weight:600}
+  #news .pos,#newsList .pos{color:var(--up)} #news .neg,#newsList .neg{color:var(--dn)}
+  #newsList{display:none;position:absolute;left:0;right:0;top:100%;z-index:30;max-height:55vh;
+    overflow:auto;background:var(--panel);border-bottom:1px solid var(--line);font-size:12px}
+  #newsList.open{display:block}
+  #newsList div{padding:4px 14px;border-top:1px solid var(--line)}
   .tag{border:1px solid var(--line);border-radius:999px;padding:1px 9px;font-size:11px}
   #chart{flex:1;min-height:0}
   /* 🚨 THE KEY IS A POPUP, NOT A STRIP. It was a permanent band across the
@@ -366,6 +381,8 @@
   </div>
   <div id="main">
     <div id="bar"><span class="k">loading…</span></div>
+    <div id="newsWrap"><div id="news" title="latest relevant headline -- click for the list"></div>
+      <div id="newsList"></div></div>
     <div id="chart"><div id="empty">loading <code>tape/index.json</code>…</div></div>
     <div id="legend"></div>
     <div id="ulToast"></div>
@@ -789,6 +806,7 @@ function waitLights(d){
 function liveStop(){
   clearInterval(liveTimer); liveTimer = null; LIVE = null; liveSeries = null;
   uiSet('fv_live', null);
+  renderNews();                                  // hides the news strip
   $('#liveBtn').classList.remove('on'); $('#liveBtn').textContent = '● GO LIVE';
   $('#liveInfo').textContent = '';
   sideConf = false; renderSide();
@@ -1137,6 +1155,44 @@ function liveDraw(d, s){
       the engine wrote</span>`;
 }
 
+/* ---- news strip: live/news/latest.json, written by news_logger.py on the box.
+   Keyword-filtered headlines (news_filter.py), newest first. Shown only in live
+   mode and only when the file exists; titles are external text -> esc(). */
+let NEWS = null, newsTick = 0;
+const etHM = s => s ? new Date(s).toLocaleTimeString('en-US',
+  {timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false}) : '--:--';
+async function pollNews(){
+  try { const r = await fetch('live/news/latest.json?t='+Date.now());
+        NEWS = r.ok ? await r.json() : null; }
+  catch(e){ NEWS = null; }
+  renderNews();
+}
+function newsRow(it){
+  const t = it.t || it.seen, age = (Date.now() - Date.parse(t)) / 60000;
+  const s = it.sent === 'POSITIVE' ? '<span class="pos">▲</span> '
+          : it.sent === 'NEGATIVE' ? '<span class="neg">▼</span> ' : '';
+  const cats = (it.cats || []).map(c => `<span class="nc">${esc(c)}</span>`).join('');
+  return `<span class="nt">${etHM(t)}</span> ${cats}${s}<span class="${age < 10 ? 'fresh' : ''}">${esc(it.title)}</span>`
+       + ` <span class="nt">· ${esc(it.src || it.feed)}</span>`;
+}
+function renderNews(){
+  const el = $('#news'), ls = $('#newsList');
+  const items = (NEWS && NEWS.items) || [];
+  if(!liveTimer || !items.length){ el.classList.remove('on'); ls.classList.remove('open'); return; }
+  el.classList.add('on');
+  const n15 = items.filter(it => Date.now() - Date.parse(it.t || it.seen) < 15 * 60000).length;
+  const stale = NEWS.updated && Date.now() - Date.parse(NEWS.updated) > 5 * 60000;
+  el.innerHTML = `<span class="nt">${stale ? '⚠ news stale' : 'news'}${n15 ? ' · ' + n15 + ' in 15m' : ''} ▾</span>&nbsp; `
+               + newsRow(items[0]);
+  if(!ls.classList.contains('open')) return;
+  const st = NEWS.status || {}, er = ['UW', 'WB'].filter(k => st[k] && st[k].err)
+    .map(k => `${k}: ${esc(st[k].err)}`).join(' · ');
+  ls.innerHTML = items.slice(0, 80).map(it => `<div>${newsRow(it)}</div>`).join('')
+    + `<div class="nt">keyword-filtered (news_filter.py) · UW + Webull/Benzinga · updated ${etHM(NEWS.updated)} ET`
+    + `${er ? ' · ' + er : ''} · context only, not a signal</div>`;
+}
+$('#news').onclick = () => { $('#newsList').classList.toggle('open'); renderNews(); };
+
 $('#liveBtn').onclick = () => {
   if(liveTimer) return liveStop();
   uiSet('fv_live', '1');
@@ -1145,7 +1201,8 @@ $('#liveBtn').onclick = () => {
   liveSeries = null;
   $('#telem').style.display = 'flex'; $('#side').classList.add('live');
   livePoll(); pollEvents();
-  liveTimer = setInterval(() => { livePoll(); pollEvents(); }, 5000);
+  liveTimer = setInterval(() => { livePoll(); pollEvents(); if(++newsTick % 6 === 0) pollNews(); }, 5000);
+  pollNews();
 };
 
 /* ===================== ORDER DESK ====================================
