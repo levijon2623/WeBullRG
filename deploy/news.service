@@ -1,0 +1,36 @@
+# /etc/systemd/system/cleanbot-news.service
+#
+# news_logger.py: forward log of market headlines (UW + Webull/Benzinga) with
+# our own first-seen time, and live/news/latest.json for the viewer's news
+# strip. Its own process: starting, stopping or crashing it never touches the
+# bot or the viewer.
+#
+#   sudo cp deploy/news.service /etc/systemd/system/cleanbot-news.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cleanbot-news
+#
+# 🚨 WEBULL TOKEN: READ-ONLY. The logger reads conf/token.txt (the bot's) and
+# never creates or refreshes one -- WorkingDirectory must be the bot's folder
+# so the SDK's default token path ("conf") resolves to the bot's file. REST
+# only, no streaming connection.
+
+[Unit]
+Description=Cleanbot news logger
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+# the venv, not the system python (no dotenv / webull SDK there)
+ExecStart=/root/bot_engine/venv/bin/python news_logger.py
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-news
+
+[Install]
+WantedBy=multi-user.target
