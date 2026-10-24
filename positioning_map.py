@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["requests", "numpy", "scipy", "python-dotenv"]
+# dependencies = ["requests", "numpy", "python-dotenv"]
 # ///
 """
 positioning_map.py
@@ -68,7 +68,14 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import requests
 from dotenv import load_dotenv
-from scipy.special import ndtr
+from statistics import NormalDist
+
+# no scipy: the box's bot venv doesn't have it, and installing it could move numpy under the running bot
+_erf = np.vectorize(math.erf, otypes=[float])
+
+
+def ndtr(x):
+    return 0.5 * (1.0 + _erf(np.asarray(x, float) / math.sqrt(2.0)))
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 os.chdir(ROOT)
@@ -231,7 +238,7 @@ def oi_changes(uw, tks, day, max_pages=80):
 def implied_spot(rows, day):
     """UW has no index quotes: back the index level out of its own chain -- for near-the-money calls of the
     nearest 1+ DTE expiry, S = K * exp(d1 * iv * sqrt(T) - iv^2 T / 2) with d1 = N^-1(delta) (UW's greeks)."""
-    from scipy.special import ndtri
+    ndtri = NormalDist().inv_cdf
     by = {}
     for s, x in rows.items():
         p = parse_occ(s)
