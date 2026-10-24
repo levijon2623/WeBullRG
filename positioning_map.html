@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Positioning Map</title>
+<!--
+  Daily positioning map (user, 2026-10-24): strike x expiry, 0-45 days, for
+  S&P (SPY + SPX/SPXW in SPY units), QQQ and IWM. Reads live/posmap/{SP,QQQ,
+  IWM}.json (positioning_map.py on the box, pre-open + at-open builds) and
+  {..}_today.json (today's prints, every 5 min). ?date=YYYY-MM-DD opens an
+  archived morning.
+
+  LAYERS
+    overnight change  each cell split: calls left, puts right. FILLED = open
+                      interest added, OUTLINED = closed. Colour = how the
+                      volume that changed it traded: blue bought at the ask,
+                      red sold at the bid, grey mid / mixed. Depth = size.
+    standing gamma    dealer gamma at spot by the usual convention (dealers
+                      long calls, short puts): green +, red -.
+    today's flow      today's volume by cell and side (tomorrow's open
+                      interest says what stuck).
+  LINES  yellow = cumulative zero-gamma (flip) level per expiry; white dashed
+         = spot; dotted = last close. Strip above the columns = IV - realized
+         vol (IVRP), left of centre cheap, right rich.
+  CONTEXT, NOT A SIGNAL: see positioning_map.py.
+-->
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3; --dim:#8b949e;
+    --up:#3fb950; --dn:#f85149; --accent:#a371f7; --flip:#e3b341;
+    --bought:#3987e5; --sold:#e66767; --mid:#7d8796;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  #app{display:flex;flex-direction:column;height:100vh}
+  #bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;
+    border-bottom:1px solid var(--line);background:var(--panel)}
+  #bar h1{font-size:13px;margin:0 8px 0 0;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  #bar a{color:var(--accent);text-decoration:none}
+  button,select{background:#0d1117;color:var(--fg);border:1px solid var(--line);
+    border-radius:6px;padding:4px 9px;font:inherit;cursor:pointer}
+  button.on{border-color:var(--accent);background:#241b33}
+  #info{margin-left:auto;color:var(--dim);font-size:11px}
+  #legend{display:flex;flex-wrap:wrap;gap:14px;padding:5px 12px;font-size:11px;
+    color:var(--dim);border-bottom:1px solid var(--line)}
+  #legend i{display:inline-block;width:14px;height:9px;margin-right:5px;vertical-align:middle}
+  #legend i.ring{background:none !important;border:2px solid}
+  #body{flex:1;min-height:0;display:flex}
+  #wrap{position:relative;flex:1;min-width:0}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #tip{position:absolute;pointer-events:none;background:#0b0f14ee;border:1px solid var(--line);
+    border-radius:6px;padding:6px 8px;font-size:11px;white-space:pre;display:none;z-index:5}
+  #empty{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    color:var(--dim);text-align:center;padding:16px}
+  #side{width:420px;flex:0 0 420px;border-left:1px solid var(--line);background:var(--panel);
+    overflow:auto;font-size:11.5px;padding:10px 12px}
+  #side h2{font-size:12px;margin:4px 0 8px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
+  #side table{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:10.5px;display:block;overflow-x:auto}
+  #side td,#side th{padding:3px 4px;border-top:1px solid var(--line);text-align:right;white-space:nowrap}
+  #side th{color:var(--dim);font-weight:400}
+  #side td:first-child,#side th:first-child{text-align:left}
+  #side .pk{color:var(--flip)} #side .b{color:var(--bought)} #side .s{color:var(--sold)} #side .m{color:var(--mid)}
+  #side .note{color:var(--dim);margin:6px 0 12px}
+  #side .pkg{padding:4px 0;border-top:1px solid var(--line);cursor:pointer}
+  #side .pkg:hover{background:#1c2128}
+  @media (max-width:900px){ #side{display:none} }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="bar">
+    <h1>Positioning</h1>
+    <span id="tks"></span>
+    <label id="grpL">roots <select id="grp">
+      <option value="all">SPY + SPX</option><option value="0">SPY only</option><option value="1">SPX only</option></select></label>
+    <label>layer <select id="layer">
+      <option value="chg">overnight change</option><option value="std">standing gamma</option>
+      <option value="today">today's flow</option></select></label>
+    <label>expiries <select id="rng">
+      <option value="7">0–7 days</option><option value="21" selected>0–21 days</option><option value="45">0–45 days</option></select></label>
+    <label title="whole map = sizes comparable across expiries; per expiry = each column scaled to its own biggest cell (today's 0DTE volume dwarfs the rest)">scale <select id="scale">
+      <option value="map">whole map</option><option value="col">per expiry</option></select></label>
+    <label>zoom <select id="zoom">
+      <option value="0.03">±3%</option><option value="0.06" selected>±6%</option><option value="0.10">±10%</option></select></label>
+    <label>view <select id="view"><option value="grid">grid</option><option value="ivrp">IVRP bubbles</option></select></label>
+    <a href="flow_viewer.html">flow viewer</a> <a href="weekly_gex.html">weekly GEX</a>
+    <span id="info"></span>
+  </div>
+  <div id="legend"></div>
+  <div id="body">
+    <div id="wrap"><canvas id="cv"></canvas><div id="tip"></div><div id="empty"></div></div>
+    <div id="side"></div>
+  </div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const MK = [['SP', 'S&P'], ['QQQ', 'QQQ'], ['IWM', 'IWM']];
+const qs = new URLSearchParams(location.search), DATE = qs.get('date');
+let mk = qs.get('m') || localGet('pm_mk') || 'SP', doc = null, today = null, layout = null, sel = null, hiLegs = null;
+function localGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function localSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtN = v => { if (v == null) return '—'; const a = Math.abs(v);
+  return (v < 0 ? '−' : '') + (a >= 1e9 ? (a/1e9).toFixed(2)+'B' : a >= 1e6 ? (a/1e6).toFixed(1)+'M'
+    : a >= 1e3 ? (a/1e3).toFixed(a >= 1e4 ? 0 : 1)+'k' : a.toFixed(0)); };
+const sg = v => v == null ? '—' : (v > 0 ? '+' : '') + fmtN(v);
+const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
+const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const dlab = iso => { const d = new Date(iso + 'T12:00:00'); return `${DOW[d.getDay()]} ${iso.slice(5)}`; };
+const C = {b: '#3987e5', s: '#e66767', m: '#7d8796', up: '#3fb950', dn: '#f85149', flip: '#e3b341'};
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a.toFixed(3)})`; };
+const sideCol = (ask, bid) => ask != null && ask >= 0.6 ? C.b : bid != null && bid >= 0.6 ? C.s : C.m;
+const OCC = /^([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/;
+
+function drawTabs(){
+  $('#tks').innerHTML = MK.map(([k, l]) => `<button data-k="${k}" class="${k === mk ? 'on' : ''}">${l}</button>`).join(' ');
+  for (const b of document.querySelectorAll('#tks button'))
+    b.onclick = () => { mk = b.dataset.k; localSet('pm_mk', mk); sel = null; hiLegs = null; drawTabs(); load(); };
+  $('#grpL').style.display = mk === 'SP' ? '' : 'none';
+}
+
+function legend(){
+  const L = $('#layer').value;
+  const items = L === 'std'
+    ? [['up', 'dealer +γ (damps moves)'], ['dn', 'dealer −γ (amplifies)']]
+    : [['b', L === 'today' ? 'bought at the ask' : 'added, bought at the ask'], ['s', L === 'today' ? 'sold at the bid' : 'added, sold at the bid'],
+       ['m', 'mid / mixed']].concat(L === 'chg' ? [['ring', 'outlined = closed']] : []);
+  $('#legend').innerHTML = items.map(([k, t]) => k === 'ring'
+      ? `<span><i class="ring" style="border-color:#8b949e"></i>${t}</span>`
+      : `<span><i style="background:${C[k]}"></i>${t}</span>`).join('') +
+    `<span>cell: calls left · puts right</span><span><i style="background:${C.flip};height:2px"></i>zero-gamma (flip), cumulative</span>` +
+    `<span><i style="background:#e6edf3;height:2px"></i>spot</span><span>top strip: IV − realized (IVRP)</span>` +
+    `<span>context, not a signal</span>`;
+}
+
+/* ---- data -> per-cell view for the chosen layer and roots */
+function cellsFor(){
+  const L = $('#layer').value, g = $('#grp').value, col = Object.fromEntries(doc.cell_cols.map((c, i) => [c, i]));
+  const out = new Map();
+  const add = (ei, k, f) => { const key = ei + '|' + k; let z = out.get(key);
+    if (!z){ z = {ei, k, oc: 0, op: 0, dc: 0, dp: 0, g: 0, gd: 0, vc: 0, vp: 0, bc: 0, sc: 0, bp: 0, sp: 0, ml: 0, pr: 0, ivw: 0, ivn: 0};
+            out.set(key, z); } f(z); };
+  if (L === 'today'){
+    if (!today || !today.rows) return out;
+    const exIdx = Object.fromEntries(doc.expiries.map((e, i) => [e.e, i]));
+    for (const [sym, r] of Object.entries(today.rows)){
+      const m = OCC.exec(sym); if (!m) continue;
+      const idx = /^SPX/.test(m[1]) ? 1 : 0;
+      if (mk === 'SP' && g !== 'all' && +g !== idx) continue;
+      const e = `20${m[2]}-${m[3]}-${m[4]}`, ei = exIdx[e]; if (ei == null) continue;
+      const ratio = idx ? doc.ratio : 1, k = Math.round(+m[6] / 1000 / ratio), w = ratio;
+      const [v, a, b, ml, pr] = r;
+      add(ei, k, z => { if (m[5] === 'C'){ z.vc += v * w; z.bc += a * w; z.sc += b * w; }
+                        else { z.vp += v * w; z.bp += a * w; z.sp += b * w; } z.ml += ml * w; z.pr += pr; });
+    }
+    for (const z of out.values()){ z.c_ask = z.vc ? z.bc / z.vc : null; z.c_bid = z.vc ? z.sc / z.vc : null;
+      z.p_ask = z.vp ? z.bp / z.vp : null; z.p_bid = z.vp ? z.sp / z.vp : null; }
+    return out;
+  }
+  for (const r of doc.cells){
+    if (mk === 'SP' && g !== 'all' && r[col.grp] !== +g) continue;
+    add(r[col.ei], r[col.k], z => {
+      const vc = r[col.vol];
+      z.oc += r[col.oi_c]; z.op += r[col.oi_p]; z.dc += r[col.d_c]; z.dp += r[col.d_p]; z.g += r[col.g]; z.gd += r[col.gd];
+      for (const [s, a, b] of [['c', 'c_ask', 'c_bid'], ['p', 'p_ask', 'p_bid']]){
+        const share = s === 'c' ? Math.abs(r[col.d_c]) : Math.abs(r[col.d_p]);
+        if (r[col[a]] != null){ z['w' + s] = (z['w' + s] || 0) + share + 1e-9;
+          z['a' + s] = (z['a' + s] || 0) + r[col[a]] * (share + 1e-9); z['x' + s] = (z['x' + s] || 0) + r[col[b]] * (share + 1e-9); } }
+      z.pr += r[col.prem]; z.vc += vc || 0;
+      if (r[col.mleg] != null){ z.ml += r[col.mleg] * (vc || 0); }
+      if (r[col.ivrp] != null){ z.ivw += r[col.ivrp] * (r[col.oi_c] + r[col.oi_p]); z.ivn += r[col.oi_c] + r[col.oi_p]; }
+    });
+  }
+  for (const z of out.values()){
+    z.c_ask = z.wc ? z.ac / z.wc : null; z.c_bid = z.wc ? z.xc / z.wc : null;
+    z.p_ask = z.wp ? z.ap / z.wp : null; z.p_bid = z.wp ? z.xp / z.wp : null;
+    z.mleg = z.vc ? z.ml / z.vc : null; z.ivrp = z.ivn ? z.ivw / z.ivn : null;
+  }
+  return out;
+}
+
+function draw(){
+  const cv = $('#cv'), wrap = $('#wrap'), dpr = window.devicePixelRatio || 1;
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#0d1117'; g.fillRect(0, 0, W, H);
+  legend();
+  const empty = $('#empty');
+  if (!doc){ empty.style.display = 'flex'; empty.textContent =
+    'no positioning map yet — positioning_map.py writes live/posmap/ once the overnight open interest lands (~06:35 ET on trading days).';
+    layout = null; return; }
+  empty.style.display = 'none';
+  const maxD = +$('#rng').value, zoom = +$('#zoom').value, S = doc.spot;
+  const cols = doc.expiries.map((e, i) => ({...e, i})).filter(e => e.dte <= maxD);
+  const lo = S * (1 - zoom), hi = S * (1 + zoom);
+  const AX = 58, TOP = 64, BOT = 6, pw = W - AX, ph = H - TOP - BOT;
+  const y = p => TOP + (hi - p) / (hi - lo) * ph;
+  const cw = pw / Math.max(cols.length, 1);
+  const cells = cellsFor(), L = $('#layer').value, view = $('#view').value;
+  const vis = [...cells.values()].filter(z => z.k >= lo && z.k <= hi && cols.some(c => c.i === z.ei));
+  layout = {cols, cw, TOP, ph, lo, hi, AX, pw, y, cells, view};
+  const bh = Math.max(2, Math.abs(y(0) - y(1)) * 0.9);
+
+  if (view === 'ivrp') return drawBubbles(g, W, H, layout);
+
+  // ---- cells
+  const val = z => L === 'chg' ? [z.dc, z.dp] : L === 'std' ? [z.g, 0] : [z.vc, z.vp];
+  const mxAll = Math.max(1, ...vis.flatMap(z => val(z).map(Math.abs))), mxCol = {};
+  for (const z of vis) mxCol[z.ei] = Math.max(mxCol[z.ei] || 1, ...val(z).map(Math.abs));
+  const perCol = $('#scale').value === 'col';
+  const colX = {}; cols.forEach((c, j) => colX[c.i] = j * cw);
+  for (const z of vis){
+    const x0 = colX[z.ei], yy = y(z.k) - bh / 2, mx = perCol ? mxCol[z.ei] : mxAll;
+    if (L === 'std'){
+      const lin = Math.min(1, Math.abs(z.g) / mx); if (lin < 0.01) continue;
+      const a = Math.sqrt(lin);
+      g.fillStyle = rgba(z.g >= 0 ? C.up : C.dn, 0.08 + 0.85 * a); g.fillRect(x0 + 1, yy, cw - 2, bh); continue;
+    }
+    const [vc, vp] = val(z);
+    for (const [v, half, ask, bid] of [[vc, 0, z.c_ask, z.c_bid], [vp, 1, z.p_ask, z.p_bid]]){
+      if (!v) continue;
+      const lin = Math.min(1, Math.abs(v) / mx); if (lin < 0.01) continue;   // under 1% of the biggest: noise
+      const a = Math.sqrt(lin), col = sideCol(ask, bid), hx = x0 + 1 + half * (cw - 2) / 2, hw = (cw - 2) / 2 - 1;
+      const k0 = col === C.m ? 0.6 : 1;                                       // mid / mixed recedes
+      if (v > 0){ g.fillStyle = rgba(col, k0 * (0.15 + 0.85 * a)); g.fillRect(hx, yy, hw, bh); }
+      else { g.strokeStyle = rgba(col, k0 * (0.3 + 0.7 * a)); g.lineWidth = Math.min(2.5, Math.max(1, bh / 3));
+             g.strokeRect(hx + 1, yy + 0.5, hw - 2, Math.max(1, bh - 1)); }
+    }
+  }
+  // ---- highlighted package legs
+  if (hiLegs){
+    g.strokeStyle = C.flip; g.lineWidth = 2;
+    for (const s of hiLegs){ const d = doc.detail[s]; if (!d) continue;
+      const ei = doc.expiries.findIndex(e => e.e === d[0]); if (colX[ei] == null) continue;
+      const k = Math.round(d[3]); g.strokeRect(colX[ei] + 1, y(k) - bh / 2 - 2, cw - 2, bh + 4); }
+  }
+
+  // ---- grid, headers, IVRP strip
+  g.font = '11px ui-monospace,monospace';
+  cols.forEach((c, j) => {
+    const x0 = j * cw;
+    g.strokeStyle = '#30363d'; g.lineWidth = 1; g.beginPath(); g.moveTo(x0 + .5, 0); g.lineTo(x0 + .5, H); g.stroke();
+    const narrow = cw < 70;
+    g.save(); g.beginPath(); g.rect(x0, 0, cw - 2, TOP); g.clip();          // headers stay inside their column
+    g.fillStyle = c.dte === 0 ? '#a371f7' : '#8b949e';
+    g.fillText(narrow ? c.e.slice(5) : `${dlab(c.e)} · ${c.dte}D`, x0 + 3, 13);
+    g.fillStyle = '#6e7681'; g.font = '10px ui-monospace,monospace';
+    if (!narrow) g.fillText(`ΔOI ${fmtN(c.d_oi)}`, x0 + 3, 25);
+    g.restore(); g.font = '11px ui-monospace,monospace';
+    // IVRP bar: centre of the column, ±12 vol points across the half width
+    const cx = x0 + cw / 2, v = c.ivrp;
+    g.strokeStyle = '#30363d'; g.beginPath(); g.moveTo(cx, 32); g.lineTo(cx, 50); g.stroke();
+    if (v != null){
+      const w = Math.max(-1, Math.min(1, v / 12)) * (cw / 2 - 3);
+      g.fillStyle = v >= 0 ? '#a371f7' : '#39c5cf'; g.fillRect(Math.min(cx, cx + w), 36, Math.abs(w), 10);
+      if (!narrow){ g.fillStyle = '#8b949e'; g.font = '10px ui-monospace,monospace';
+        g.fillText(`${v > 0 ? '+' : ''}${v.toFixed(1)}`, v >= 0 ? x0 + 3 : x0 + cw - 30, 60); g.font = '11px ui-monospace,monospace'; }
+    }
+  });
+  g.fillStyle = '#8b949e';
+  const raw = (hi - lo) / Math.max(4, Math.floor(ph / 40));
+  const st = [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50].find(s => s >= raw) || 100;
+  for (let p = Math.ceil(lo / st) * st; p <= hi; p += st){
+    g.fillText(p.toFixed(st < 1 ? 1 : 0), pw + 6, y(p) + 4);
+    g.strokeStyle = '#1c2128'; g.beginPath(); g.moveTo(0, y(p)); g.lineTo(pw, y(p)); g.stroke();
+  }
+  // ---- spot, last close, flip path
+  g.setLineDash([6, 4]); g.strokeStyle = '#e6edf3'; g.lineWidth = 1.2;
+  g.beginPath(); g.moveTo(0, y(S)); g.lineTo(pw, y(S)); g.stroke(); g.setLineDash([]);
+  if (doc.prev_close && doc.prev_close > lo && doc.prev_close < hi){
+    g.setLineDash([2, 4]); g.strokeStyle = '#8b949e'; g.beginPath(); g.moveTo(0, y(doc.prev_close)); g.lineTo(pw, y(doc.prev_close)); g.stroke(); g.setLineDash([]); }
+  g.fillStyle = '#e6edf3'; g.fillRect(pw, y(S) - 8, AX, 16); g.fillStyle = '#0d1117'; g.fillText(S.toFixed(2), pw + 4, y(S) + 4);
+  g.strokeStyle = C.flip; g.lineWidth = 2.5; g.beginPath(); let started = false;
+  cols.forEach((c, j) => { if (c.flip == null){ started = false; return; }
+    const X = j * cw + cw / 2, Y = y(Math.max(lo, Math.min(hi, c.flip)));
+    if (!started){ g.moveTo(X, Y); started = true; } else g.lineTo(X, Y); });
+  g.stroke();
+  cols.forEach((c, j) => { if (c.flip == null) return; const X = j * cw + cw / 2, Y = y(Math.max(lo, Math.min(hi, c.flip)));
+    g.fillStyle = C.flip; g.beginPath(); g.arc(X, Y, 3, 0, 7); g.fill();
+    if (c.flip < lo || c.flip > hi){ g.font = '10px ui-monospace,monospace'; g.fillText(c.flip > hi ? `▲${c.flip}` : `▼${c.flip}`, X - 18, Y + (c.flip > hi ? 12 : -6)); g.font = '11px ui-monospace,monospace'; } });
+  if (sel){ const j = cols.findIndex(c => c.i === sel.ei);
+    if (j >= 0){ g.strokeStyle = '#e6edf3'; g.lineWidth = 1.5; g.strokeRect(j * cw + 1, y(sel.k) - bh / 2 - 1, cw - 2, bh + 2); } }
+}
+
+/* ---- IVRP view: every changed contract, left (cheap) / right (rich) of 0 by its IV - realized vol */
+function drawBubbles(g, W, H, Lo){
+  const {cols, TOP, ph, lo, hi, AX, pw, y} = Lo, gp = $('#grp').value, D = doc.detail, dc = doc.detail_cols;
+  const ix = Object.fromEntries(dc.map((c, i) => [c, i]));
+  const keep = new Set(cols.map(c => c.e)), R = 15, x = v => pw / 2 + Math.max(-1, Math.min(1, v / R)) * (pw / 2 - 20);
+  const pts = [];
+  for (const [s, d] of Object.entries(D)){
+    if (!keep.has(d[ix.exp]) || d[ix.d_oi] === 0 || d[ix.ivrp] == null) continue;
+    const idx = /^SPX/.test(d[ix.root]) ? 1 : 0; if (mk === 'SP' && gp !== 'all' && idx !== +gp) continue;
+    if (d[ix.k_etf] < lo || d[ix.k_etf] > hi) continue;
+    pts.push({s, d, w: Math.abs(d[ix.d_oi]) * (idx ? doc.ratio : 1)});
+  }
+  const mx = Math.max(1, ...pts.map(p => p.w));
+  g.strokeStyle = '#30363d'; g.beginPath(); g.moveTo(pw / 2, TOP - 20); g.lineTo(pw / 2, H); g.stroke();
+  g.fillStyle = '#8b949e'; g.font = '11px ui-monospace,monospace';
+  for (const v of [-15, -10, -5, 0, 5, 10, 15]) g.fillText(`${v > 0 ? '+' : ''}${v}`, x(v) - 8, TOP - 26);
+  g.fillText('← IV below realized (cheap)', 8, TOP - 8); g.fillText('IV above realized (rich) →', pw - 200, TOP - 8);
+  pts.sort((a, b) => b.w - a.w);
+  Lo.pts = [];
+  for (const p of pts.slice(0, 400)){
+    const d = p.d, r = 3 + 22 * Math.sqrt(p.w / mx), X = x(d[ix.ivrp]), Y = y(d[ix.k_etf]);
+    const col = d[ix.side] > 0 ? C.b : d[ix.side] < 0 ? C.s : C.m;
+    g.beginPath(); g.arc(X, Y, r, 0, 7);
+    if (d[ix.d_oi] > 0){ g.fillStyle = rgba(col, 0.55); g.fill(); } else { g.strokeStyle = rgba(col, 0.9); g.lineWidth = 1.5; g.stroke(); }
+    Lo.pts.push({X, Y, r, s: p.s});
+  }
+  const raw = (hi - lo) / Math.max(4, Math.floor(ph / 40));
+  const st = [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50].find(s => s >= raw) || 100;
+  for (let q = Math.ceil(lo / st) * st; q <= hi; q += st) g.fillText(q.toFixed(0), pw + 6, y(q) + 4);
+  g.setLineDash([6, 4]); g.strokeStyle = '#e6edf3'; g.beginPath(); g.moveTo(0, y(doc.spot)); g.lineTo(pw, y(doc.spot)); g.stroke(); g.setLineDash([]);
+}
+
+/* ---- side panel: the clicked cell's contracts, their packages and prints */
+function sidePanel(){
+  const el = $('#side');
+  if (!doc){ el.innerHTML = ''; return; }
+  const ix = Object.fromEntries(doc.detail_cols.map((c, i) => [c, i])), D = doc.detail;
+  const pkgOf = s => doc.packages.find(p => p.legs.includes(s));
+  const sideTxt = d => d[ix.side] > 0 ? '<span class="b">bought</span>' : d[ix.side] < 0 ? '<span class="s">sold</span>' : '<span class="m">mid/mixed</span>';
+  let h = `<div class="note">${esc(doc.label)} · ${doc.phase === 'pre' ? 'pre-open' : 'at-open'} map built ${esc(doc.built_et.slice(11, 16))} ET` +
+    ` · spot ${doc.spot} (${esc(doc.spot_src)}) · last close ${doc.prev_close ?? '—'}` +
+    (doc.market === 'SP' ? ` · SPX÷SPY ${doc.ratio} (${esc(doc.ratio_src)})` : '') +
+    ` · RV21 ${doc.rv21 ?? '—'} · open-interest change from the ${esc(doc.oi_change_session || '?')} session</div>`;
+  if (sel){
+    const syms = (doc.cell_syms[sel.ei + '|' + sel.k] || []).filter(s => D[s]);
+    const e = doc.expiries[sel.ei];
+    h += `<h2>${esc(dlab(e.e))} · strike ${sel.k}</h2>`;
+    if (!syms.length) h += `<div class="note">no changed contracts in this cell</div>`;
+    else {
+      h += `<table><tr><th>contract</th><th>OI</th><th>ΔOI</th><th>side</th><th>mleg</th><th>prem</th><th>IVRP</th></tr>`;
+      for (const s of syms.sort((a, b) => Math.abs(D[b][ix.d_oi]) - Math.abs(D[a][ix.d_oi]))){
+        const d = D[s], p = pkgOf(s);
+        h += `<tr><td>${esc(d[ix.root])} ${d[ix.k]}${d[ix.cp]}${p ? ' <span class="pk">' + esc(p.kind) + '</span>' : ''}</td>` +
+          `<td>${fmtN(d[ix.oi])}</td><td>${sg(d[ix.d_oi])}</td><td>${sideTxt(d)} ${pct(d[ix.ask])}/${pct(d[ix.bid])}</td>` +
+          `<td>${pct(d[ix.mleg])}</td><td>$${fmtN(d[ix.prem])}</td><td>${d[ix.ivrp] ?? '—'}</td></tr>`;
+      }
+      h += `</table>`;
+      for (const s of syms){
+        const p = pkgOf(s); if (p){ const o = p.legs.find(x => x !== s), d = D[o];
+          if (d) h += `<div class="note"><span class="pk">${esc(p.kind)}</span> with ${esc(d[ix.root])} ${esc(d[ix.exp])} ${d[ix.k]}${d[ix.cp]} (${sg(d[ix.d_oi])}) — inferred from size + multi-leg share</div>`; }
+        const pr = doc.prints[s]; if (!pr) continue;
+        h += `<div class="note">largest prints in ${esc(s)}:</div><table><tr><th>ET</th><th>size</th><th>price</th><th>prem</th><th>side</th></tr>`;
+        for (const [t, sz, px, pm, sd, ml] of pr){
+          const et = new Date(t + 'Z').toLocaleTimeString('en-US', {timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false});
+          h += `<tr><td>${et}</td><td>${fmtN(sz)}</td><td>${px}</td><td>$${fmtN(pm)}</td><td class="${sd === 'ask' ? 'b' : sd === 'bid' ? 's' : 'm'}">${sd}${ml ? ' · ML' : ''}</td></tr>`;
+        }
+        h += `</table>`;
+      }
+    }
+  } else h += `<div class="note">click a cell for its contracts, how they were opened, and the biggest prints.</div>`;
+  h += `<h2>overnight packages (inferred)</h2>`;
+  for (const [n, p] of doc.packages.slice(0, 20).entries()){
+    const legs = p.legs.map(s => { const d = D[s]; return d ? `${d[ix.root]} ${d[ix.exp].slice(5)} ${d[ix.k]}${d[ix.cp]} ${sg(d[ix.d_oi])}` : s; });
+    h += `<div class="pkg" data-n="${n}"><span class="pk">${esc(p.kind)}</span> ~${fmtN(p.size)} · ${esc(legs.join('  /  '))}</div>`;
+  }
+  el.innerHTML = h;
+  for (const d of el.querySelectorAll('.pkg')) d.onclick = () => {
+    const p = doc.packages[+d.dataset.n]; hiLegs = hiLegs && hiLegs[0] === p.legs[0] ? null : p.legs; draw(); };
+}
+
+/* ---- hover + click */
+function cellAt(ev){
+  if (!layout) return null;
+  const r = $('#wrap').getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const {cols, cw, TOP, ph, lo, hi, pw} = layout;
+  if (mx > pw || my < TOP) return null;
+  if (layout.view === 'ivrp'){
+    const p = (layout.pts || []).find(p => Math.hypot(p.X - mx, p.Y - my) <= p.r + 2);
+    return p ? {sym: p.s, mx, my} : null;
+  }
+  const j = Math.floor(mx / cw); if (j < 0 || j >= cols.length) return null;
+  const k = Math.round(hi - (my - TOP) / ph * (hi - lo));
+  return {ei: cols[j].i, k, mx, my};
+}
+$('#wrap').addEventListener('mousemove', ev => {
+  const tip = $('#tip'), c = cellAt(ev);
+  if (!c){ tip.style.display = 'none'; return; }
+  let s;
+  if (c.sym){ const ix = Object.fromEntries(doc.detail_cols.map((x, i) => [x, i])), d = doc.detail[c.sym];
+    s = `${d[ix.root]} ${d[ix.exp]} ${d[ix.k]}${d[ix.cp]}\nOI ${fmtN(d[ix.oi])}  ΔOI ${sg(d[ix.d_oi])}\nask ${pct(d[ix.ask])} · bid ${pct(d[ix.bid])} · mleg ${pct(d[ix.mleg])}\nIV − RV ${d[ix.ivrp]} vol pts · prem $${fmtN(d[ix.prem])}`; }
+  else {
+    const z = layout.cells.get(c.ei + '|' + c.k), e = doc.expiries[c.ei];
+    s = `${dlab(e.e)} (${e.dte}D) · strike ${c.k}` + (doc.market === 'SP' ? ' (SPY units)' : '') +
+      `\nflip (cumulative) ${e.flip ?? '—'} · ATM IV ${e.atm_iv ?? '—'} · IVRP ${e.ivrp ?? '—'}`;
+    if (z){
+      if ($('#layer').value === 'today') s += `\ntoday: calls ${fmtN(z.vc)} (ask ${pct(z.c_ask)}/bid ${pct(z.c_bid)})  puts ${fmtN(z.vp)} (ask ${pct(z.p_ask)}/bid ${pct(z.p_bid)})`;
+      else s += `\nOI calls ${fmtN(z.oc)}  puts ${fmtN(z.op)}\nΔOI calls ${sg(z.dc)} (ask ${pct(z.c_ask)}/bid ${pct(z.c_bid)})\nΔOI puts  ${sg(z.dp)} (ask ${pct(z.p_ask)}/bid ${pct(z.p_bid)})` +
+        `\ndealer γ ${sg(z.g)} per 1% · overnight dealer Δγ ${sg(z.gd)}\nmulti-leg ${pct(z.mleg)} · premium $${fmtN(z.pr)} · IVRP ${z.ivrp != null ? z.ivrp.toFixed(1) : '—'}`;
+    } else s += '\n(empty cell)';
+  }
+  tip.textContent = s; tip.style.display = 'block';
+  const r = $('#wrap').getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+  tip.style.left = Math.min(c.mx + 14, r.width - tw - 4) + 'px'; tip.style.top = Math.min(c.my + 14, r.height - th - 4) + 'px';
+});
+$('#wrap').addEventListener('mouseleave', () => $('#tip').style.display = 'none');
+$('#wrap').addEventListener('click', ev => {
+  const c = cellAt(ev); if (!c) return;
+  if (c.sym){ const d = doc.detail[c.sym]; const ei = doc.expiries.findIndex(e => e.e === d[0]); sel = {ei, k: Math.round(d[3])}; }
+  else sel = {ei: c.ei, k: c.k};
+  sidePanel(); draw();
+});
+for (const id of ['#grp', '#layer', '#rng', '#zoom', '#view', '#scale'])
+  $(id).addEventListener('change', () => { localSet('pm' + id, $(id).value); draw(); sidePanel(); });
+// saved choices, then URL overrides (?layer=std&view=ivrp&rng=45&zoom=0.1&grp=1&sel=EI,K) -- shareable views
+for (const id of ['#grp', '#layer', '#rng', '#zoom', '#view', '#scale']){
+  const v = qs.get(id.slice(1)) || localGet('pm' + id);
+  if (v && [...$(id).options].some(o => o.value === v)) $(id).value = v; }
+if (qs.get('sel')){ const [e, k] = qs.get('sel').split(',').map(Number); if (isFinite(e) && isFinite(k)) sel = {ei: e, k}; }
+window.addEventListener('resize', draw);
+
+async function load(){
+  const base = DATE ? `live/posmap/archive/${DATE}/` : 'live/posmap/';
+  try { const r = await fetch(base + mk + '.json?t=' + Date.now()); doc = r.ok ? await r.json() : null; }
+  catch(e){ doc = null; }
+  try { const r = await fetch('live/posmap/' + mk + '_today.json?t=' + Date.now()); today = r.ok ? await r.json() : null; }
+  catch(e){ today = null; }
+  if (today && doc && today.date !== doc.date) today = null;
+  $('#info').textContent = doc ? `${doc.label} · ${doc.date} · ${doc.phase === 'pre' ? 'pre-open' : 'at open'} ${doc.built_et.slice(11, 16)} ET` +
+    (today ? ` · today's flow ${today.waiting ? 'waiting' : today.updated_et}` : '') : 'no map';
+  draw(); sidePanel();
+}
+drawTabs(); load();
+if (!DATE) setInterval(load, 60000);
+</script>
+</body>
+</html>

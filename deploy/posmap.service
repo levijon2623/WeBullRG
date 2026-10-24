@@ -1,0 +1,33 @@
+# /etc/systemd/system/cleanbot-posmap.service
+#
+# positioning_map.py: the daily positioning map (strike x expiry, 0-45 days,
+# S&P / QQQ / IWM) for positioning_map.html. Pre-open build once UW's
+# overnight open interest lands (from 06:35 ET), rebuild at ~09:32, today's
+# flow overlay every 5 min in the session. Its own process: it never touches
+# the bot, the viewer or Webull; UW REST only (~300 calls a morning, ~150
+# per intraday pass).
+#
+#   sudo cp deploy/posmap.service /etc/systemd/system/cleanbot-posmap.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cleanbot-posmap
+
+[Unit]
+Description=Cleanbot positioning map
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+# the venv, not the system python (no dotenv / scipy there)
+ExecStart=/root/bot_engine/venv/bin/python positioning_map.py
+Restart=on-failure
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-posmap
+
+[Install]
+WantedBy=multi-user.target
