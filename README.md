@@ -174,6 +174,88 @@ across the week.
 
 ![Weekly 0-4DTE GEX, QQQ](docs/images/weekly-gex-qqq.png)
 
+**Positioning map (`positioning_map.html`).** Where options positions sit and
+how they changed overnight: strike × expiry, 0–45 days out, for S&P (SPY +
+SPX/SPXW in SPY units, with a SPY-only / SPX-only toggle), QQQ and IWM.
+Built by `positioning_map.py` once UW's overnight open interest lands
+(~06:35 ET), rebuilt at the open, with today's prints overlaid every 5
+minutes. It draws the morning read of where protection was placed, rolled or
+closed, and by what kind of order. Context, not a signal: peak gamma does not
+pull price and hedge flows do not call direction in our tests
+(`check_peak_gamma.py`, `check_currents.py`).
+
+*Overnight change* splits each cell into calls (left) and puts (right):
+filled means open interest was added, outlined means closed, and the colour
+is how the volume that changed it traded (blue bought at the ask, red sold at
+the bid, grey mid or mixed). The yellow line is the cumulative zero-gamma
+(flip) level for everything expiring up to each date, and the strip above the
+columns is each expiry's IV minus 21-day realized vol. Hovering a cell gives
+its open interest, change and side split; clicking it lists the contracts
+behind it, and the panel keeps a running list of inferred packages and rolls
+matched by size and multi-leg share. The map below is Friday 2026-10-23's
+build: Tuesday 10/27 at 776 added calls sold at the bid (64%) on top of
+dealers already short gamma there, with the flip at 773.62.
+
+![Positioning map, S&P overnight change](docs/images/positioning-map-sp-change.png)
+
+*Standing gamma* is dealer gamma at spot by the usual convention (dealers
+long the calls, short the puts): green damps moves, red amplifies them. The
+selected cell is 10/30 at 766, where 135k puts closed overnight. The panel
+shows the SPXW 7650 put behind it (−14k, $157.9M, mostly multi-leg) and its
+largest prints: a 2.0k-lot at $66.21 at the ask at 12:42, the close-out of
+the 7750/7650 put spread.
+
+![Positioning map, S&P standing gamma with the prints behind a cell](docs/images/positioning-map-sp-gamma.png)
+
+*IVRP bubbles* places every changed position left (IV below realized,
+cheap) or right (rich) of zero at its strike, sized by the change, coloured
+by side, filled if added and outlined if closed. Each expiry draws its own
+diagonal, its volatility smile. Expired expiries drop out (their last IVs
+blow up into the close) and today's 0DTE is a toggle. Time is shown without
+3D: bubbles fade with days to expiry, and the slider / ▶ steps through one
+expiry at a time (here SPY only, Wed 11/04, 12 days out).
+
+![Positioning map, IVRP bubbles focused on one expiry](docs/images/positioning-map-ivrp-focus.png)
+
+**Intraday map (`intraday_map.html`).** A TRACE-style time × price map:
+09:30–16:00 across, the last close ±3% down, recomputed every 5 minutes for
+the rest of the day by `intraday_map.py` on the positioning map's pass.
+Columns left of the dashed line are what each pass computed at that moment,
+never redrawn with hindsight; columns to the right are the current
+projection. White is price, yellow the zero-gamma level over time, and down
+the left is dealer gamma by strike. Toggles cover positions (start-of-day
+open interest, or plus today's volume signed by side, an estimate since
+volume doesn't say opening vs closing) and expiries (0–1 or 0–7 DTE), and a
+replay slider steps through every pass of the day. These screenshots are
+Friday 2026-10-23's session replayed pass by pass; live, the map fills the
+same way every 5 minutes.
+
+The *gamma* lens is the one with support in our tests: S&P moved 39 bp on
+positive-gamma days against 68 bp on negative ones. Here (QQQ, with today's
+flow added) price spent the afternoon just above a zero-gamma level that
+climbed from 701 to 704, inside the damping (green) zone.
+
+![Intraday map, QQQ gamma lens](docs/images/intraday-map-qqq-gamma.png)
+
+The *delta pressure* lens shows the dollars dealers would trade if price
+moved from where it is now to that level at that time: blue means they would
+buy, red sell. In negative gamma the colours flip, so dealers buy rallies and
+sell drops, amplifying moves instead of capping them. QQQ at 13:15, with
+today's flow added: faint red just above price (positive gamma there, so
+dealers would sell a rally), blue between price and the zero-gamma level
+(they would buy a dip), and red again below that level, where gamma turns
+negative and they would sell into a drop.
+
+![Intraday map, QQQ delta pressure at 13:15](docs/images/intraday-map-qqq-delta-pressure.png)
+
+The *charm* lens is the dealer hedging forced by time passing alone, over
+the next 5 minutes, at each price (IWM at 11:45). It is drawn because it is
+the mechanism behind "afternoon drift" stories, and labelled as such: in
+`check_currents.py` charm flow did not predict the day's or the last hour's
+direction in any market.
+
+![Intraday map, IWM charm lens at 11:45](docs/images/intraday-map-iwm-charm.png)
+
 ## Quick start
 
 ```sh
