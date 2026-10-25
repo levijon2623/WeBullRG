@@ -49,8 +49,8 @@
     <span id="tks"></span>
     <label>lens <select id="lens">
       <option value="g">gamma</option><option value="dp">delta pressure</option><option value="ch">charm</option></select></label>
-    <label title="open interest = start-of-day positions, usual dealer convention; + today's flow = plus today's volume signed by side (an estimate: volume doesn't say opening vs closing)">positions <select id="mode">
-      <option value="oi">open interest</option><option value="adj">+ today's flow (est.)</option></select></label>
+    <label title="+ today's flow = start-of-day open interest plus today's single-leg volume signed by side (an estimate: volume doesn't say opening vs closing); the default because it sized the next 30 minutes' range better than open interest alone on S&amp;P (check_gamma_modes). open interest = start-of-day positions only, usual dealer convention">positions <select id="mode">
+      <option value="adj">+ today's flow (est.)</option><option value="oi">open interest only</option></select></label>
     <label>expiries <select id="scope"><option value="01">0–1 DTE</option><option value="07">0–7 DTE</option></select></label>
     <a href="positioning_map.html">positioning map</a> <a href="flow_viewer.html">flow viewer</a>
     <span id="info"></span>

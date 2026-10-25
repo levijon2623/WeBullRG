@@ -223,12 +223,22 @@ the rest of the day by `intraday_map.py` on the positioning map's pass.
 Columns left of the dashed line are what each pass computed at that moment,
 never redrawn with hindsight; columns to the right are the current
 projection. White is price, yellow the zero-gamma level over time, and down
-the left is dealer gamma by strike. Toggles cover positions (start-of-day
-open interest, or plus today's volume signed by side, an estimate since
-volume doesn't say opening vs closing) and expiries (0–1 or 0–7 DTE), and a
-replay slider steps through every pass of the day. These screenshots are
-Friday 2026-10-23's session replayed pass by pass; live, the map fills the
-same way every 5 minutes.
+the left is dealer gamma by strike. Toggles cover positions and expiries
+(0–1 or 0–7 DTE), and a replay slider steps through every pass of the day.
+These screenshots are Friday 2026-10-23's session replayed pass by pass;
+live, the map fills the same way every 5 minutes.
+
+Positions default to start-of-day open interest *plus today's single-leg
+volume signed by side*: bought at the ask leaves dealers shorter, sold at the
+bid longer, with multi-leg volume taken out at its measured bid lean. It is
+an estimate, since volume doesn't say opening vs closing, but in
+`check_gamma_modes.py` (0–1 DTE, 2024-08 to 2026-09, pre-registered) gamma
+at spot with today's flow sized the next 30 minutes' range better than open
+interest alone on S&P (rank correlation −0.207 vs −0.166, in both halves),
+weakly on QQQ and not at all on IWM. "Open interest only" stays as a toggle.
+The first replay of 10-23 wrongly gave every frame the whole day's volume; it
+was rebuilt from per-minute contract flow on 10-25, so the two flow-mode
+screenshots below predate that fix.
 
 The *gamma* lens is the one with support in our tests: S&P moved 39 bp on
 positive-gamma days against 68 bp on negative ones. Here (QQQ, with today's

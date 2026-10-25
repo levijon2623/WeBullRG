@@ -23,9 +23,16 @@ is never rewritten with hindsight)
 POSITIONS (toggle)
   oi    start-of-day open interest (positioning_map's morning build), usual
         dealer convention: dealers long the calls, short the puts.
-  adj   oi + today's volume signed by side: bought at the ask -> dealer
-        shorter, sold at the bid -> dealer longer. An ESTIMATE: volume does
-        not say whether a trade opened or closed a position.
+  adj   oi + today's SINGLE-LEG volume signed by side: bought at the ask ->
+        dealer shorter, sold at the bid -> dealer longer. Multi-leg volume
+        comes out at its measured lean (legs print 54% bid / 42% ask), since
+        UW gives each contract's multi-leg volume but not its side split:
+        net = ask - bid + 0.12 x multi-leg. An ESTIMATE: volume does not say
+        whether a trade opened or closed a position. The DEFAULT: in
+        check_gamma_modes.py (2024-08..2026-09) gamma at spot with today's
+        flow predicted the next 30 minutes' range better than open interest
+        alone on S&P (IC -0.207 vs -0.166, both halves, 10/12 quarters for
+        raw flow), weakly on QQQ, not on IWM; single-leg vs raw flow was a tie.
 EXPIRIES (toggle)  0-1 DTE (where the intraday charm and gamma live) / 0-7 DTE.
 
 Grid: price = the last close +-3% in 0.1% steps (fixed for the day so frames
@@ -52,6 +59,7 @@ BAND, STEP = 0.03, 0.001
 YEAR_MIN = 365.0 * 1440.0
 LENSES = ("g", "dp", "ch")
 COMBOS = [f"{lens}|{m}|{s}" for lens in LENSES for m in ("oi", "adj") for s in ("01", "07")]
+MULTI_LEAN = 0.54 - 0.42                         # multi-leg legs' bid - ask share (check_opra_multileg)
 
 
 def ndtr(x):
@@ -116,7 +124,10 @@ def trace_pass(uw, key, etf, day, now, rows):
     call = np.array([c[3] == "C" for c in C])
     dte = np.array([(dt.date.fromisoformat(c[2]) - day).days for c in C])
     close_min = np.array([(dt.date.fromisoformat(c[2]) - day).days * 1440 + (570 if c[1] == "SPX" else 960) for c in C], float)
-    net = np.array([((rows.get(c[0]) or [0, 0, 0])[1] - (rows.get(c[0]) or [0, 0, 0])[2]) for c in C], float)
+    def single_net(r):                                      # ask - bid, multi-leg out at its 54/42 bid lean
+        r = r or [0, 0, 0, 0]
+        return r[1] - r[2] + MULTI_LEAN * (r[3] or 0)
+    net = np.array([single_net(rows.get(c[0])) for c in C], float)
     conv = np.where(call, 1.0, -1.0) * OI                   # dealer position, usual convention
     W = {"oi": conv, "adj": conv - net}                     # customers bought at the ask -> dealers shorter
     M = {"01": dte <= 1, "07": dte <= 7}
