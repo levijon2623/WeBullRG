@@ -85,6 +85,11 @@
     <label>zoom <select id="zoom">
       <option value="0.03">±3%</option><option value="0.06" selected>±6%</option><option value="0.10">±10%</option></select></label>
     <label>view <select id="view"><option value="grid">grid</option><option value="ivrp">IVRP bubbles</option></select></label>
+    <span id="ivCtl" style="display:none">
+      <label title="today's expiring contracts: their IVs run wild near the close"><input type="checkbox" id="zd" checked> 0DTE</label>
+      <input type="range" id="focus" min="-1" max="0" value="-1" style="width:140px;vertical-align:middle" title="step through one expiry at a time (far left = all)">
+      <button id="play" title="play through the expiries">▶</button> <span id="focusL" style="color:var(--dim)"></span>
+    </span>
     <a href="flow_viewer.html">flow viewer</a> <a href="weekly_gex.html">weekly GEX</a>
     <span id="info"></span>
   </div>
@@ -205,6 +210,7 @@ function draw(){
   layout = {cols, cw, TOP, ph, lo, hi, AX, pw, y, cells, view};
   const bh = Math.max(2, Math.abs(y(0) - y(1)) * 0.9);
 
+  $('#ivCtl').style.display = view === 'ivrp' ? '' : 'none';
   if (view === 'ivrp') return drawBubbles(g, W, H, layout);
 
   // ---- cells
@@ -247,7 +253,7 @@ function draw(){
     const narrow = cw < 70;
     g.save(); g.beginPath(); g.rect(x0, 0, cw - 2, TOP); g.clip();          // headers stay inside their column
     g.fillStyle = c.dte === 0 ? '#a371f7' : '#8b949e';
-    g.fillText(narrow ? c.e.slice(5) : `${dlab(c.e)} · ${c.dte}D`, x0 + 3, 13);
+    g.fillText(narrow ? c.e.slice(5) : `${dlab(c.e)} · ${expired(c.e) ? 'expired' : c.dte + 'D'}`, x0 + 3, 13);
     g.fillStyle = '#6e7681'; g.font = '10px ui-monospace,monospace';
     if (!narrow) g.fillText(`ΔOI ${fmtN(c.d_oi)}`, x0 + 3, 25);
     g.restore(); g.font = '11px ui-monospace,monospace';
@@ -287,31 +293,66 @@ function draw(){
 }
 
 /* ---- IVRP view: every changed contract, left (cheap) / right (rich) of 0 by its IV - realized vol */
+/* ---- expiry state in ET: an expiry is gone once its session is over (16:15 ET on the day) */
+function etNow(){
+  const d = new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
+  const [h, m] = new Date().toLocaleTimeString('en-GB', {timeZone: 'America/New_York', hour12: false}).split(':');
+  return {d, mod: +h * 60 + +m};
+}
+const expired = e => { const n = etNow(); return e < n.d || (e === n.d && n.mod >= 975); };
+
+/* ---- IVRP view: every changed contract, left (cheap) / right (rich) of 0 by its IV - realized vol.
+   TIME without 3D: opacity fades with days to expiry (near = solid, far = faint) and the focus
+   slider / play button steps through one expiry at a time. Expired expiries are dropped (their
+   last IVs blow up into the close); today's 0DTE is a toggle. */
+let focusI = -1, playT = null;
+function bubbleCols(){
+  const n = etNow(), maxD = +$('#rng').value;
+  return doc.expiries.filter(e => e.dte <= maxD && !expired(e.e) && ($('#zd').checked || e.e !== n.d));
+}
 function drawBubbles(g, W, H, Lo){
-  const {cols, TOP, ph, lo, hi, AX, pw, y} = Lo, gp = $('#grp').value, D = doc.detail, dc = doc.detail_cols;
+  const {TOP, ph, lo, hi, AX, pw, y} = Lo, gp = $('#grp').value, D = doc.detail, dc = doc.detail_cols;
   const ix = Object.fromEntries(dc.map((c, i) => [c, i]));
-  const keep = new Set(cols.map(c => c.e)), R = 15, x = v => pw / 2 + Math.max(-1, Math.min(1, v / R)) * (pw / 2 - 20);
+  const bc = bubbleCols(), keep = new Map(bc.map((c, i) => [c.e, i]));
+  if (focusI >= bc.length) focusI = -1;
+  $('#focus').max = bc.length - 1; $('#focus').value = focusI;
+  $('#focusL').textContent = focusI < 0 ? 'all expiries' : `${dlab(bc[focusI].e)} · ${bc[focusI].dte}D`;
   const pts = [];
   for (const [s, d] of Object.entries(D)){
     if (!keep.has(d[ix.exp]) || d[ix.d_oi] === 0 || d[ix.ivrp] == null) continue;
     const idx = /^SPX/.test(d[ix.root]) ? 1 : 0; if (mk === 'SP' && gp !== 'all' && idx !== +gp) continue;
     if (d[ix.k_etf] < lo || d[ix.k_etf] > hi) continue;
-    pts.push({s, d, w: Math.abs(d[ix.d_oi]) * (idx ? doc.ratio : 1)});
+    pts.push({s, d, ci: keep.get(d[ix.exp]), w: Math.abs(d[ix.d_oi]) * (idx ? doc.ratio : 1)});
   }
+  // x range from the data: 98th percentile of |IVRP|, rounded up to 5, between ±10 and ±40
+  const av = pts.map(p => Math.abs(p.d[ix.ivrp])).sort((a, b) => a - b);
+  const q98 = av.length ? av[Math.min(av.length - 1, Math.floor(av.length * 0.98))] : 10;
+  const R = Math.max(10, Math.min(40, Math.ceil(q98 / 5) * 5));
+  const x = v => pw / 2 + Math.max(-1, Math.min(1, v / R)) * (pw / 2 - 20);
   const mx = Math.max(1, ...pts.map(p => p.w));
+  const dts = bc.map(c => c.dte), d0 = Math.min(...dts, 0), d1 = Math.max(...dts, 1);
   g.strokeStyle = '#30363d'; g.beginPath(); g.moveTo(pw / 2, TOP - 20); g.lineTo(pw / 2, H); g.stroke();
   g.fillStyle = '#8b949e'; g.font = '11px ui-monospace,monospace';
-  for (const v of [-15, -10, -5, 0, 5, 10, 15]) g.fillText(`${v > 0 ? '+' : ''}${v}`, x(v) - 8, TOP - 26);
+  const tk = R > 20 ? 10 : 5;
+  for (let v = -R; v <= R; v += tk) g.fillText(`${v > 0 ? '+' : ''}${v}`, x(v) - 8, TOP - 26);
   g.fillText('← IV below realized (cheap)', 8, TOP - 8); g.fillText('IV above realized (rich) →', pw - 200, TOP - 8);
-  pts.sort((a, b) => b.w - a.w);
+  g.fillText(focusI < 0 ? 'solid = nearest expiry · faint = furthest' : 'focus: one expiry (slider / ▶)', pw / 2 - 150, TOP - 8);
+  // far expiries first so the near ones sit on top; big under small within an expiry
+  pts.sort((a, b) => (b.d[ix.exp] > a.d[ix.exp] ? 1 : b.d[ix.exp] < a.d[ix.exp] ? -1 : b.w - a.w));
   Lo.pts = [];
-  for (const p of pts.slice(0, 400)){
+  let off = 0;
+  for (const p of pts.slice(0, 600)){
     const d = p.d, r = 3 + 22 * Math.sqrt(p.w / mx), X = x(d[ix.ivrp]), Y = y(d[ix.k_etf]);
+    if (Math.abs(d[ix.ivrp]) > R) off++;
+    const dte = bc[p.ci].dte;
+    const a = focusI >= 0 ? (p.ci === focusI ? 0.95 : 0.06) : 0.95 - 0.55 * Math.sqrt((dte - d0) / Math.max(1, d1 - d0));
     const col = d[ix.side] > 0 ? C.b : d[ix.side] < 0 ? C.s : C.m;
     g.beginPath(); g.arc(X, Y, r, 0, 7);
-    if (d[ix.d_oi] > 0){ g.fillStyle = rgba(col, 0.55); g.fill(); } else { g.strokeStyle = rgba(col, 0.9); g.lineWidth = 1.5; g.stroke(); }
-    Lo.pts.push({X, Y, r, s: p.s});
+    if (d[ix.d_oi] > 0){ g.fillStyle = rgba(col, a * 0.85); g.fill(); }
+    else { g.strokeStyle = rgba(col, Math.min(1, a * 1.1)); g.lineWidth = 1.5; g.stroke(); }
+    if (focusI < 0 || p.ci === focusI) Lo.pts.push({X, Y, r, s: p.s});
   }
+  if (off){ g.fillStyle = '#8b949e'; g.fillText(`${off} off-scale, pinned to the edge`, pw - 230, H - 10); }
   const raw = (hi - lo) / Math.max(4, Math.floor(ph / 40));
   const st = [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50].find(s => s >= raw) || 100;
   for (let q = Math.ceil(lo / st) * st; q <= hi; q += st) g.fillText(q.toFixed(0), pw + 6, y(q) + 4);
@@ -415,6 +456,14 @@ for (const id of ['#grp', '#layer', '#rng', '#zoom', '#view', '#scale']){
   if (v && [...$(id).options].some(o => o.value === v)) $(id).value = v; }
 if (qs.get('sel')){ const [e, k] = qs.get('sel').split(',').map(Number); if (isFinite(e) && isFinite(k)) sel = {ei: e, k}; }
 window.addEventListener('resize', draw);
+$('#zd').addEventListener('change', () => { focusI = -1; draw(); });
+$('#focus').addEventListener('input', () => { focusI = +$('#focus').value; draw(); });
+$('#play').addEventListener('click', () => {
+  if (playT){ clearInterval(playT); playT = null; $('#play').textContent = '▶'; return; }
+  $('#play').textContent = '■';
+  playT = setInterval(() => { const n = doc ? bubbleCols().length : 0;
+    focusI = focusI + 1 >= n ? -1 : focusI + 1; draw(); }, 1300);
+});
 
 async function load(){
   const base = DATE ? `live/posmap/archive/${DATE}/` : 'live/posmap/';
