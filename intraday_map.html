@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Intraday Map</title>
+<!--
+  Intraday dealer map, TRACE-style (user, 2026-10-25): time of day x price for
+  S&P (SPY + SPX/SPXW in SPY units), QQQ, IWM. Reads live/posmap/{SP,QQQ,IWM}
+  _trace.json, written every 5 min by positioning_map.py -> intraday_map.py.
+  Past columns are what each earlier pass computed for its own moment; columns
+  from "now" on are the current projection for the rest of the day. The replay
+  slider loads each pass's frame (archive/DATE/trace/{M}_HHMM.json.gz).
+  CONTEXT, NOT A SIGNAL: gamma sizes moves (tested); charm direction is not
+  supported by our tests (check_currents).
+-->
+<style>
+  :root{ --bg:#0d1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3; --dim:#8b949e; --accent:#a371f7; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  #app{display:flex;flex-direction:column;height:100vh}
+  #bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;
+    border-bottom:1px solid var(--line);background:var(--panel)}
+  #bar h1{font-size:13px;margin:0 8px 0 0;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  #bar a{color:var(--accent);text-decoration:none}
+  button,select{background:#0d1117;color:var(--fg);border:1px solid var(--line);
+    border-radius:6px;padding:4px 9px;font:inherit;cursor:pointer}
+  button.on{border-color:var(--accent);background:#241b33}
+  #info{margin-left:auto;color:var(--dim);font-size:11px}
+  #legend{display:flex;flex-wrap:wrap;gap:14px;padding:5px 12px;font-size:11px;
+    color:var(--dim);border-bottom:1px solid var(--line)}
+  #legend i{display:inline-block;width:14px;height:9px;margin-right:5px;vertical-align:middle}
+  #wrap{position:relative;flex:1;min-height:0}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #tip{position:absolute;pointer-events:none;background:#0b0f14ee;border:1px solid var(--line);
+    border-radius:6px;padding:6px 8px;font-size:11px;white-space:pre;display:none;z-index:5}
+  #empty{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    color:var(--dim);text-align:center;padding:16px}
+  #rep{display:flex;gap:8px;align-items:center;padding:5px 12px;border-top:1px solid var(--line);
+    background:var(--panel);font-size:11px;color:var(--dim)}
+  #rep input{flex:1}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="bar">
+    <h1>Intraday map</h1>
+    <span id="tks"></span>
+    <label>lens <select id="lens">
+      <option value="g">gamma</option><option value="dp">delta pressure</option><option value="ch">charm</option></select></label>
+    <label title="open interest = start-of-day positions, usual dealer convention; + today's flow = plus today's volume signed by side (an estimate: volume doesn't say opening vs closing)">positions <select id="mode">
+      <option value="oi">open interest</option><option value="adj">+ today's flow (est.)</option></select></label>
+    <label>expiries <select id="scope"><option value="01">0–1 DTE</option><option value="07">0–7 DTE</option></select></label>
+    <a href="positioning_map.html">positioning map</a> <a href="flow_viewer.html">flow viewer</a>
+    <span id="info"></span>
+  </div>
+  <div id="legend"></div>
+  <div id="wrap"><canvas id="cv"></canvas><div id="tip"></div><div id="empty"></div></div>
+  <div id="rep"><span>replay</span><input type="range" id="slide" min="0" max="0" value="0">
+    <button id="play">▶</button><span id="frameL">live</span></div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const MK = [['SP', 'S&P'], ['QQQ', 'QQQ'], ['IWM', 'IWM']];
+const qs = new URLSearchParams(location.search), DATE = qs.get('date');
+let mk = qs.get('m') || localGet('im_mk') || 'SP', live = null, doc = null, frameIdx = -1, playT = null, layout = null;
+function localGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function localSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+const fmt$ = v => { const a = Math.abs(v); return (v < 0 ? '−$' : '+$') + (a >= 1e9 ? (a/1e9).toFixed(2)+'B' : a >= 1e6 ? (a/1e6).toFixed(1)+'M' : (a/1e3).toFixed(0)+'k'); };
+const hm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+const LENS = {
+  g:  {name: 'gamma', pos: '#3fb950', neg: '#f85149', pl: 'dealer +γ: damps moves', nl: 'dealer −γ: amplifies moves',
+       unit: 'dealer $ delta per 1% move'},
+  dp: {name: 'delta pressure', pos: '#3987e5', neg: '#e66767', pl: 'dealers would BUY if price got here (support)',
+       nl: 'dealers would SELL if price got here', unit: '$ dealers trade if price moves here from now'},
+  ch: {name: 'charm', pos: '#3987e5', neg: '#e66767', pl: 'time decay makes dealers BUY', nl: 'time decay makes dealers SELL',
+       unit: '$ dealers trade over the next 5 min from time passing'},
+};
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a.toFixed(3)})`; };
+
+function drawTabs(){
+  $('#tks').innerHTML = MK.map(([k, l]) => `<button data-k="${k}" class="${k === mk ? 'on' : ''}">${l}</button>`).join(' ');
+  for (const b of document.querySelectorAll('#tks button'))
+    b.onclick = () => { mk = b.dataset.k; localSet('im_mk', mk); frameIdx = -1; drawTabs(); load(); };
+}
+function legend(){
+  const L = LENS[$('#lens').value];
+  $('#legend').innerHTML = `<span><i style="background:${L.pos}"></i>${L.pl}</span><span><i style="background:${L.neg}"></i>${L.nl}</span>` +
+    `<span><i style="background:#e6edf3;height:2px"></i>price</span><span><i style="background:#e3b341;height:2px"></i>zero gamma</span>` +
+    `<span>left of the dashed line: as computed at the time · right: projection from now</span>` +
+    `<span>${$('#lens').value === 'ch' ? 'charm direction is NOT supported by our tests · ' : ''}context, not a signal</span>`;
+}
+
+function draw(){
+  const cv = $('#cv'), wrap = $('#wrap'), dpr = window.devicePixelRatio || 1;
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#0d1117'; g.fillRect(0, 0, W, H);
+  legend();
+  if (!doc){ $('#empty').style.display = 'flex';
+    $('#empty').textContent = 'no intraday map yet — it is computed every 5 minutes from 09:35 ET on trading days.'; layout = null; return; }
+  $('#empty').style.display = 'none';
+  const lens = $('#lens').value, key = `${lens}|${$('#mode').value}|${$('#scope').value}`;
+  const grid = doc.grids[key], P = doc.prices, cols = doc.cols;
+  const SPW = Math.min(150, W * 0.14), AX = 56, TOP = 18, BOT = 22;
+  const x0 = SPW + 6, pw = W - x0 - AX, ph = H - TOP - BOT;
+  const lo = P[0], hi = P[P.length - 1], y = p => TOP + (hi - p) / (hi - lo) * ph;
+  const xt = m => x0 + (m - 570) / 390 * pw, cw = pw / (cols.length - 1), rh = ph / (P.length - 1);
+  layout = {x0, pw, TOP, ph, lo, hi, cw, key, grid, SPW};
+  const L = LENS[lens];
+  // ---- heat
+  grid.q.forEach((col, j) => col.forEach((v, i) => {
+    if (v === -999 || v === 0) return;
+    const a = Math.sqrt(Math.abs(v) / 100);
+    g.fillStyle = rgba(v > 0 ? L.pos : L.neg, 0.06 + 0.8 * a);
+    g.fillRect(xt(cols[j]) - cw / 2, y(P[i]) - rh / 2, cw + 0.5, rh + 0.5);
+  }));
+  // ---- now line, future shade
+  const nowX = xt(cols[doc.now_col]);
+  g.fillStyle = 'rgba(13,17,23,0.18)'; g.fillRect(nowX, TOP, x0 + pw - nowX, ph);
+  g.setLineDash([5, 4]); g.strokeStyle = '#8b949e'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(nowX, TOP); g.lineTo(nowX, TOP + ph); g.stroke(); g.setLineDash([]);
+  // ---- zero gamma over time (from the gamma grid of the same positions / expiries), nearest the price
+  const gg = doc.grids[`g|${$('#mode').value}|${$('#scope').value}`];
+  const ref = doc.path.length ? doc.path[doc.path.length - 1][1] : doc.spot;
+  g.strokeStyle = '#e3b341'; g.lineWidth = 2; g.beginPath(); let st = false; const zp = [];
+  gg.q.forEach((col, j) => {
+    let best = null;
+    for (let i = 0; i < col.length - 1; i++){
+      const a = col[i], b = col[i + 1];
+      if (a === -999 || b === -999 || a === 0 || Math.sign(a) === Math.sign(b)) continue;
+      const p = P[i] + (P[i + 1] - P[i]) * Math.abs(a) / (Math.abs(a) + Math.abs(b));
+      if (best === null || Math.abs(p - ref) < Math.abs(best - ref)) best = p;
+    }
+    if (best === null){ st = false; return; }
+    const X = xt(cols[j]), Y = y(best); zp.push([X, Y]);
+    if (!st){ g.moveTo(X, Y); st = true; } else g.lineTo(X, Y);
+  });
+  g.stroke();
+  g.fillStyle = '#e3b341'; for (const [X, Y] of zp){ g.beginPath(); g.arc(X, Y, 2.2, 0, 7); g.fill(); }
+  // ---- price path
+  g.strokeStyle = '#e6edf3'; g.lineWidth = 1.6; g.beginPath();
+  doc.path.forEach(([m, v], k) => { const X = xt(m), Y = y(v); if (k) g.lineTo(X, Y); else g.moveTo(X, Y); });
+  g.stroke();
+  if (doc.path.length){ const [m, v] = doc.path[doc.path.length - 1];
+    g.fillStyle = '#a371f7'; g.beginPath(); g.arc(xt(m), y(v), 3.5, 0, 7); g.fill();
+    g.fillRect(x0 + pw, y(v) - 8, AX, 16); g.fillStyle = '#0d1117'; g.font = '11px ui-monospace,monospace'; g.fillText(v.toFixed(2), x0 + pw + 4, y(v) + 4); }
+  // ---- axes
+  g.fillStyle = '#8b949e'; g.font = '11px ui-monospace,monospace';
+  const raw = (hi - lo) / Math.max(4, Math.floor(ph / 40));
+  const stp = [0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100].find(s => s >= raw) || 200;
+  for (let p = Math.ceil(lo / stp) * stp; p <= hi; p += stp) g.fillText(p.toFixed(stp < 1 ? 2 : 0), x0 + pw + 4, y(p) + 4);
+  for (let m = 600; m <= 960; m += 30) g.fillText(hm(m), xt(m) - 16, H - 6);
+  // ---- strike plot (dealer gamma by strike at spot), left
+  const si = doc.strike_cols.indexOf(`${$('#mode').value}|${$('#scope').value}`);
+  const mx = Math.max(1, ...doc.strikes.map(r => Math.abs(r[1 + si])));
+  g.strokeStyle = '#30363d'; g.beginPath(); g.moveTo(SPW / 2, TOP); g.lineTo(SPW / 2, TOP + ph); g.stroke();
+  for (const r of doc.strikes){
+    const k = r[0], v = r[1 + si]; if (k < lo || k > hi || !v) continue;
+    const w = v / mx * (SPW / 2 - 4);
+    g.fillStyle = v > 0 ? '#3fb950' : '#f85149'; g.fillRect(SPW / 2 + Math.min(0, w), y(k) - 1.5, Math.abs(w), 3);
+  }
+  g.fillStyle = '#8b949e'; g.font = '10px ui-monospace,monospace'; g.fillText('γ by strike', 4, TOP + 10);
+}
+
+$('#wrap').addEventListener('mousemove', ev => {
+  const tip = $('#tip'); if (!layout || !doc){ tip.style.display = 'none'; return; }
+  const r = ev.currentTarget.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const {x0, pw, TOP, ph, lo, hi, grid} = layout;
+  if (mx < x0 || mx > x0 + pw || my < TOP || my > TOP + ph){ tip.style.display = 'none'; return; }
+  const m = 570 + (mx - x0) / pw * 390, p = hi - (my - TOP) / ph * (hi - lo);
+  const j = Math.round((m - 570) / 5), i = Math.round((p - lo) / (hi - lo) * (doc.prices.length - 1));
+  const v = grid.q[j] && grid.q[j][i];
+  const L = LENS[$('#lens').value];
+  let s = `${hm(doc.cols[j])} ET · price ${doc.prices[i].toFixed(2)}${j < doc.now_col ? '  (as computed then)' : '  (projection)'}`;
+  s += v == null || v === -999 ? '\nno value' : `\n${L.name}: ${fmt$(v / 100 * grid.scale)}${Math.abs(v) === 100 ? ' or more' : ''}\n${L.unit}`;
+  const pt = doc.path.find(q => q[0] === doc.cols[j]); if (pt) s += `\nprice at ${hm(pt[0])}: ${pt[1]}`;
+  tip.textContent = s; tip.style.display = 'block';
+  tip.style.left = Math.min(mx + 14, r.width - tip.offsetWidth - 4) + 'px'; tip.style.top = Math.min(my + 14, r.height - tip.offsetHeight - 4) + 'px';
+});
+$('#wrap').addEventListener('mouseleave', () => $('#tip').style.display = 'none');
+for (const id of ['#lens', '#mode', '#scope']){
+  const v = qs.get(id.slice(1)) || localGet('im' + id); if (v && [...$(id).options].some(o => o.value === v)) $(id).value = v;
+  $(id).addEventListener('change', () => { localSet('im' + id, $(id).value); draw(); });
+}
+window.addEventListener('resize', draw);
+
+/* ---- replay: each pass's own frame, gzipped on the box */
+async function frame(i){
+  const f = live.frames[i], d = live.date;
+  try {
+    const r = await fetch(`live/posmap/archive/${d}/trace/${mk}_${f}.json.gz`);
+    if (!r.ok) throw 0;
+    const buf = new Uint8Array(await r.arrayBuffer());
+    // gzip magic -> inflate here; otherwise the server already decoded it (Content-Encoding)
+    const txt = buf[0] === 0x1f && buf[1] === 0x8b
+      ? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
+      : new TextDecoder().decode(buf);
+    doc = JSON.parse(txt);
+  } catch(e){ doc = live; }
+  $('#frameL').textContent = `${f.slice(0, 2)}:${f.slice(2)} ET`; draw();
+}
+$('#slide').addEventListener('input', () => {
+  const i = +$('#slide').value, n = (live && live.frames || []).length;
+  if (!live || i >= n - 1){ frameIdx = -1; doc = live; $('#frameL').textContent = 'live'; draw(); return; }
+  frameIdx = i; frame(i);
+});
+$('#play').addEventListener('click', () => {
+  if (playT){ clearInterval(playT); playT = null; $('#play').textContent = '▶'; return; }
+  $('#play').textContent = '■';
+  if (frameIdx < 0) frameIdx = 0;
+  playT = setInterval(() => {
+    const n = (live && live.frames || []).length; if (!n) return;
+    frameIdx = frameIdx + 1 >= n ? 0 : frameIdx + 1; $('#slide').value = frameIdx; frame(frameIdx);
+  }, 900);
+});
+
+async function load(){
+  const path = DATE ? null : `live/posmap/${mk}_trace.json`;
+  try { const r = await fetch(path + '?t=' + Date.now()); live = r.ok ? await r.json() : null; } catch(e){ live = null; }
+  const n = live && live.frames ? live.frames.length : 0;
+  $('#slide').max = Math.max(0, n - 1);
+  if (frameIdx < 0){ doc = live; $('#slide').value = Math.max(0, n - 1); $('#frameL').textContent = 'live'; }
+  $('#info').textContent = live ? `${mk === 'SP' ? 'S&P (SPY units)' : mk} · ${live.date} · updated ${live.updated_et} ET · ${live.n_contracts} contracts` : 'no map';
+  draw();
+}
+drawTabs(); load();
+setInterval(() => { if (frameIdx < 0) load(); }, 60000);
+</script>
+</body>
+</html>

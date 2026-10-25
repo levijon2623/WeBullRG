@@ -42,7 +42,9 @@ TIMING (box clock is ET; UW open interest turns over ~06:15-06:30 ET)
   at open    rebuilt at ~09:32 with the opening price and live IVs.
   intraday   every 5 min (0-14 DTE) / 30 min (15-45 DTE), 09:35-16:05: today's
              volume by contract and side -> {market}_today.json overlay;
-             tomorrow's open interest says what stuck.
+             tomorrow's open interest says what stuck. Each pass also runs
+             intraday_map.trace_pass (the TRACE-style time x price map) on the
+             same pull: {market}_trace.json + replay frames.
 
 OUTPUT (live/, gitignored)
   live/posmap/{SP,QQQ,IWM}.json         latest map
@@ -284,8 +286,9 @@ def build_market(uw, key, day, now, phase):
         if is_index:
             # the chain's greeks are as of the last session's close -> divide by the ETF's last close
             F, fe = implied_spot(rows, day)
-            ok = F and prev_close and 9.0 < F / prev_close < 11.0
-            r_tk = F / prev_close if ok else 10.04
+            base = prev_close if phase == "pre" else S       # pre-open: last close's greeks; at open: live
+            ok = F and base and 9.0 < F / base < 11.0
+            r_tk = F / base if ok else 10.04
             ratio, ratio_src = round(r_tk, 4), (f"chain-implied {fe}" if ok else "default 10.04")
             s_tk = S * r_tk
         for sym, x in rows.items():
@@ -451,6 +454,8 @@ def build_market(uw, key, day, now, phase):
             detail[c["sym"]] = [c["exp"].isoformat(), c["cp"], c["k"], round(c["ku"], 2), c["oi"], c["d"], c["side"],
                                 c["ask"], c["bid"], round(c["vol"]), c["mleg"], round(c["prem"]), c["ivrp"],
                                 round(c["gd"]), round(c["g"]), c["root"]]
+    pos_c = [[c["sym"], c["root"], c["exp"].isoformat(), c["cp"], c["k"], round(c["r"], 5), c["oi"], round(c["iv"], 4)]
+             for c in contracts if (c["exp"] - day).days <= 7 and c["oi"] > 0 and abs(c["ku"] / S - 1) <= 0.08]
     cell_syms = {}
     for (ei, ku, grp), z in cells.items():
         cell_syms.setdefault(f"{ei}|{ku}", []).extend(z["n"])
@@ -463,7 +468,8 @@ def build_market(uw, key, day, now, phase):
                cells=cell_rows, cell_syms=cell_syms,
                detail_cols=["exp", "cp", "k", "k_etf", "oi", "d_oi", "side", "ask", "bid", "vol", "mleg", "prem",
                             "ivrp", "dealer_dg", "dealer_g", "root"],
-               detail=detail, packages=packages, prints=prints, uw_calls=uw.calls)
+               detail=detail, packages=packages, prints=prints, uw_calls=uw.calls,
+               _pos=dict(date=day.isoformat(), prev_close=prev_close, spot=round(S, 3), ratio=ratio, c=pos_c))
     return doc, None
 
 
@@ -488,6 +494,7 @@ def build_all(uw, day, now, phase):
             print(f"  🗺️ [POSMAP] {key} {phase}: {err}", flush=True)
             ok = False
             continue
+        write(f"{key}_pos.json", doc.pop("_pos"))
         write(f"{key}.json", doc, day.isoformat() + ("" if phase == "pre" else "_open"))
         e0 = doc["expiries"][0] if doc["expiries"] else {}
         print(f"  🗺️ [POSMAP] {key} {phase}: spot {doc['spot']} ({doc['spot_src']}), {len(doc['cells'])} cells, "
@@ -499,6 +506,7 @@ def build_all(uw, day, now, phase):
 
 # ------------------------------------------------------------------ intraday overlay
 _last_slow = {}
+_said = set()
 
 
 def today_pass(uw, day, now):
@@ -536,7 +544,8 @@ def today_pass(uw, day, now):
                         v = num(x.get("volume")) or 0
                         if v:
                             fresh[s] = [int(v), int(num(x.get("ask_volume")) or 0), int(num(x.get("bid_volume")) or 0),
-                                        int(num(x.get("multi_leg_volume")) or 0), round(num(x.get("total_premium")) or 0)]
+                                        int(num(x.get("multi_leg_volume")) or 0), round(num(x.get("total_premium")) or 0),
+                                        num(x.get("implied_volatility"))]
         if hit + miss and hit < miss:
             prev.update(updated_et=now.strftime("%H:%M"), waiting="UW contract rows not rolled to today yet")
             write(f"{key}_today.json", prev)
@@ -547,6 +556,14 @@ def today_pass(uw, day, now):
             _last_slow[key] = mod
         prev.update(updated_et=now.strftime("%H:%M"), n=len(prev["rows"]))
         write(f"{key}_today.json", prev)
+        try:
+            import intraday_map
+            err = intraday_map.trace_pass(uw, key, etf, day, now, prev["rows"])
+            if err and (key, err) not in _said:
+                _said.add((key, err))
+                print(f"  🗺️ [TRACE] {key}: {err}", flush=True)
+        except Exception as e:                           # noqa: BLE001 -- never break the overlay
+            print(f"  🗺️ [TRACE] {key} error {type(e).__name__}: {str(e)[:160]}", flush=True)
 
 
 # ------------------------------------------------------------------ main
