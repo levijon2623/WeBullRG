@@ -8,7 +8,7 @@ in a few months: does a model's read of a headline say anything the keyword filt
 Reads live/news/DATE.jsonl (news_logger.py), takes the records the keyword filter marked
 relevant (non-empty `cats`), and scores them in small batches -- at most 20 headlines per
 request, one request per minute at most. Writes live/news/ai/DATE.jsonl, one line per headline:
-  key, feed, id, t (published), seen (first seen by the logger), scored_at, model, pv (prompt
+  key, feed, id, t (published), seen (first seen by the logger), scored_at (all UTC), model, pv (prompt
   version), relevance 0-3, direction -2..+2 (SPY), novelty new/update/rehash,
   horizon minutes/hours/days, tickers, why
 The model sees only the headline and its metadata, as of when it was first seen -- never prices.
@@ -92,6 +92,19 @@ def _read(p):
         return []
 
 
+def _utc(s):
+    """news_logger time string ("2026-10-26T15:27:09Z") -> aware UTC datetime"""
+    t = dt.datetime.fromisoformat(s)
+    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+
+
+def _et(s):
+    try:
+        return _utc(s).astimezone(L.NY).strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return None
+
+
 def _key(r):
     return f"{r.get('feed')}:{r.get('id')}"
 
@@ -114,7 +127,7 @@ def score_pass(day=None, max_batches=3):
         if not batch:
             break
         ids = {f"h{i}": r for i, r in enumerate(batch)}
-        items = [{"id": i, "first_seen_et": (r.get("seen") or "")[:19], "source": r.get("src"),
+        items = [{"id": i, "first_seen_et": _et(r.get("seen")), "source": r.get("src"),
                   "headline": r["title"], "tags": r.get("cats"), "tickers": r.get("tickers") or []}
                  for i, r in ids.items()]
         try:
@@ -122,7 +135,7 @@ def score_pass(day=None, max_batches=3):
                                      effort="low", max_tokens=8000)
         except L.LLMError as e:
             return n, str(e)
-        now = dt.datetime.now(L.NY)
+        now = dt.datetime.now(dt.timezone.utc)                  # news_logger's times are UTC ("...Z"): stay in UTC
         with open(out_p, "a", encoding="utf-8") as f:
             for s in obj.get("scores", []):
                 r = ids.get(s.get("id"))
@@ -130,11 +143,11 @@ def score_pass(day=None, max_batches=3):
                     continue
                 seen = r.get("seen") or ""
                 try:
-                    lag = (now.replace(tzinfo=None) - dt.datetime.fromisoformat(seen[:19])).total_seconds()
+                    lag = (now - _utc(seen)).total_seconds()
                 except ValueError:
                     lag = None
                 rec = {"key": _key(r), "feed": r.get("feed"), "id": r.get("id"), "t": r.get("t"), "seen": seen,
-                       "scored_at": now.strftime("%Y-%m-%dT%H:%M:%S"), "late": lag is None or lag > 300,
+                       "scored_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "late": lag is None or lag > 300,
                        "model": model, "pv": PV, **{k: s[k] for k in ("relevance", "direction", "novelty",
                                                                     "horizon", "tickers", "why")}}
                 f.write(json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n")

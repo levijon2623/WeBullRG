@@ -205,25 +205,31 @@ def premarket(etf, day, now, prev_close, band):
 
 
 def news(day, now):
+    """relevant headlines first seen between the previous session's 16:00 ET close and `now`.
+    news_logger's times are UTC ("...Z"); files are named by the ET date."""
     prev = day - dt.timedelta(days=3 if day.weekday() == 0 else 1)
-    since = f"{prev.isoformat()}T16:00"
+    since = dt.datetime(prev.year, prev.month, prev.day, 16, 0, tzinfo=L.NY)
     recs = []
-    for d in sorted({prev, day, *(prev + dt.timedelta(days=i) for i in range(1, (day - prev).days))}):
-        recs += _jsonl(os.path.join(LIVE, "news", f"{d}.jsonl"))
+    for i in range((day - prev).days + 1):
+        recs += _jsonl(os.path.join(LIVE, "news", f"{prev + dt.timedelta(days=i)}.jsonl"))
     ai = {}
-    for d in (prev, day):
-        ai.update({x["key"]: x for x in _jsonl(os.path.join(LIVE, "news", "ai", f"{d}.jsonl"))})
+    for i in range((day - prev).days + 1):
+        ai.update({x["key"]: x for x in _jsonl(os.path.join(LIVE, "news", "ai", f"{prev + dt.timedelta(days=i)}.jsonl"))})
     items = []
     for r in recs:
-        seen = r.get("seen") or ""
-        if not r.get("cats") or seen < since or seen > now.strftime("%Y-%m-%dT%H:%M"):
+        try:
+            seen = dt.datetime.fromisoformat(r.get("seen") or "")
+        except ValueError:
+            continue
+        seen = seen if seen.tzinfo else seen.replace(tzinfo=dt.timezone.utc)
+        if not r.get("cats") or not (since <= seen <= now):
             continue
         s = ai.get(f"{r.get('feed')}:{r.get('id')}")
-        items.append({"seen_et": seen[5:16].replace("T", " "), "source": r.get("src"), "headline": r.get("title"),
-                      "tags": r.get("cats"), "claude_relevance": s and s["relevance"], "claude_direction": s and s["direction"],
-                      "novelty": s and s["novelty"]})
-    # most relevant first (unscored after scored), then newest; cap the list
-    items.sort(key=lambda x: (-(x["claude_relevance"] if x["claude_relevance"] is not None else -1), x["seen_et"]), reverse=False)
+        items.append({"seen_et": seen.astimezone(L.NY).strftime("%m-%d %H:%M"), "source": r.get("src"),
+                      "headline": r.get("title"), "tags": r.get("cats"), "claude_relevance": s and s["relevance"],
+                      "claude_direction": s and s["direction"], "novelty": s and s["novelty"]})
+    # most relevant first (unscored last), then oldest first; cap the list
+    items.sort(key=lambda x: (-(x["claude_relevance"] if x["claude_relevance"] is not None else -1), x["seen_et"]))
     return items[:30], len(items)
 
 
