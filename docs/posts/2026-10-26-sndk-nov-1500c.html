@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080">
+<title>SNDK Nov 1500 Calls</title>
+<!-- A share card, rendered to PNG by render_post.py (1080x1350, 4:5).
+     Data: Unusual Whales API via `python probe_uoa.py SNDK --scan --start 2026-10-19 --end 2026-10-23`
+     and /option-contract/SNDK261120C01500000/historic (2026-10-26 pre-open). -->
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121820; --line:#232c38; --grid:#1b222c;
+    --ink:#eef1f5; --ink2:#b4bcc8; --muted:#7d8796;
+    --bought:#3987e5; --sold:#e66767;          /* diverging pair, validated on #0f1419 */
+    --s1:#9085e9;                               /* categorical, validated on #0f1419 */
+    --accent:#f0b35a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg)}
+  body{width:1080px;height:1350px;overflow:hidden;color:var(--ink);
+    font:16px/1.4 "Segoe UI",system-ui,-apple-system,sans-serif}
+  .num{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  .wrap{padding:40px 48px 0}
+  .kicker{font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  h1{margin:8px 0 6px;font-size:41px;line-height:1.1;font-weight:800;letter-spacing:-.01em}
+  .sub{font-size:19.5px;color:var(--ink2);max-width:980px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0 16px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .tile .v{font-size:29px;font-weight:800;line-height:1.1}
+  .tile .l{font-size:13.5px;color:var(--muted);margin-top:3px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 18px 10px;margin-bottom:13px}
+  .card h2{margin:0;font-size:19px;font-weight:700}
+  .card .h2s{font-size:14px;color:var(--muted);margin:2px 0 4px}
+  .legend{display:flex;gap:18px;font-size:13.5px;color:var(--ink2);margin:2px 0 2px;flex-wrap:wrap}
+  .sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:6px}
+  .ln{display:inline-block;width:18px;height:3px;border-radius:2px;vertical-align:4px;margin-right:6px}
+  svg text{font-family:"Segoe UI",system-ui,sans-serif}
+  table{width:100%;border-collapse:collapse;font-size:15px;margin-top:6px}
+  th{color:var(--muted);font-weight:600;font-size:13px;text-align:right;padding:4px 8px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child,th:last-child,td:last-child{text-align:left}
+  td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--grid);color:var(--ink2)}
+  td:first-child{color:var(--ink);font-weight:600}
+  tr.hit td{color:var(--ink)} tr.hit td:last-child{font-weight:700}
+  .scen{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:2px}
+  .scen div{border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:15px;color:var(--ink2);background:#0f141b}
+  .scen b{color:var(--ink);font-size:16px}
+  .ctx{font-size:14px;color:var(--muted);margin:10px 2px 0}
+  .foot{position:absolute;left:0;right:0;bottom:0;padding:13px 48px;border-top:1px solid var(--line);
+    background:#0e131a;display:flex;justify-content:space-between;align-items:center;font-size:13.5px;color:var(--muted)}
+  .foot b{color:var(--ink2);font-weight:600}
+  .foot .repo{color:var(--ink);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">SNDK options flow · Nov 20 $1500 calls · Oct 12–23, 2026</div>
+  <h1>Friday’s “bullish” SNDK call sweeps mostly closed positions</h1>
+  <div class="sub">2,861 Nov 20 $1500 calls traded Friday, 83% at the ask (~$8.5M). Monday's open interest
+    fell by 2,273. The likely reading: call writers buying back, not new buyers, three sessions before earnings.</div>
+
+  <div class="tiles">
+    <div class="tile"><div class="v num">−2,273</div><div class="l">open interest after Friday (4,409 → 2,136)</div></div>
+    <div class="tile"><div class="v num">≥1,774</div><div class="l">of 2,362 ask-side contracts were buy-to-close</div></div>
+    <div class="tile"><div class="v num">$57 → $30</div><div class="l">written 10/15 at ~$57 · Friday's avg $29.71</div></div>
+    <div class="tile"><div class="v num">$1,238</div><div class="l">SNDK close Fri (from $1,487 on 10/12)</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Volume by side, and the open interest each session left</h2>
+    <div class="h2s">Contracts · Nov 20 $1500 call · open interest = OCC count at the next session's start</div>
+    <svg id="ch" width="946" height="352" role="img" aria-label="Daily volume at the ask and bid, and open interest, Oct 9 to Oct 23"></svg>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--bought)"></span>traded at the ask (bought)</span>
+      <span><span class="sw" style="background:var(--sold)"></span>traded at the bid (sold)</span>
+      <span><span class="ln" style="background:var(--s1)"></span>open interest after the session</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>How it was built, and unwound</h2>
+    <table>
+      <tr><th>Session</th><th>Traded</th><th>Ask / bid</th><th>Avg price</th><th>OI change</th><th>SNDK</th><th>Read (inference)</th></tr>
+      <tr><td>Oct 15</td><td class="num">2,191</td><td class="num">652 / 1,418</td><td class="num">$57.16</td><td class="num">+1,794</td><td class="num">$1,395</td><td>mostly written (sold to open)</td></tr>
+      <tr><td>Oct 16–21</td><td class="num">1,381</td><td class="num">747 / 613</td><td class="num">~$69</td><td class="num">−53</td><td class="num">$1,299–1,378</td><td>quiet</td></tr>
+      <tr><td>Oct 22</td><td class="num">2,940</td><td class="num">1,679 / 1,239</td><td class="num">$39.70</td><td class="num">+2,140</td><td class="num">$1,261</td><td>mixed, mostly opened</td></tr>
+      <tr class="hit"><td>Oct 23</td><td class="num">2,861</td><td class="num">2,362 / 313</td><td class="num">$29.71</td><td class="num">−2,273</td><td class="num">$1,238</td><td>bought, but mostly to close</td></tr>
+    </table>
+  </div>
+
+  <div class="scen">
+    <div><b>Why at least 1,774 closed at the ask</b><br>Only 499 contracts traded at the bid or mid.
+      Even if every one closed a long, a 2,273 drop needs ≥1,774 ask-side buy-to-close trades.</div>
+    <div><b>What's left: 2,136 contracts</b><br>Earnings Thu Oct 29 after the close; the options imply ~9%.
+      Tuesday's open interest shows whether Monday added or kept closing.</div>
+  </div>
+  <div class="ctx">Side is read from ask/bid and open interest is net, so who bought back is an inference.
+    Our own tests: unusual activity whose open interest stuck predicted nothing over 1–5 days. Positioning, not a signal.</div>
+</div>
+
+<div class="foot">
+  <span>Data: Unusual Whales API · method: <b>probe_uoa.py</b> (open source) · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span>
+</div>
+
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, a, parent) => { const e = document.createElementNS(NS, tag);
+  for (const k in a) e.setAttribute(k, a[k]); if (parent) parent.appendChild(e); return e; };
+const txt = (parent, x, y, s, a = {}) => { const t = el('text', Object.assign({x, y, fill: '#b4bcc8', 'font-size': 14}, a), parent);
+  t.textContent = s; return t; };
+
+(() => {
+  const svg = document.getElementById('ch');
+  // session, ask, bid, OI after the session (= next row's start-of-day OI)
+  const D = [['10/9', 3, 9, 233], ['10/12', 260, 103, 427], ['10/13', 74, 94, 479], ['10/14', 46, 64, 528],
+             ['10/15', 652, 1418, 2322], ['10/16', 238, 119, 2285], ['10/19', 154, 143, 2280], ['10/20', 105, 285, 2251],
+             ['10/21', 250, 66, 2269], ['10/22', 1679, 1239, 4409], ['10/23', 2362, 313, 2136]];
+  const L = 58, R = 790, T = 22, B = 318, ymax = 5000;
+  const step = (R - L) / D.length, bw = Math.min(28, step * 0.32);
+  const X = i => L + step * (i + 0.5), Y = v => B - v / ymax * (B - T);
+  for (const v of [0, 1000, 2000, 3000, 4000, 5000]) {
+    el('line', {x1: L, x2: R, y1: Y(v), y2: Y(v), stroke: v ? '#1b222c' : '#3a4554', 'stroke-width': 1}, svg);
+    txt(svg, L - 8, Y(v) + 5, v ? `${v / 1000}k` : '0', {'text-anchor': 'end', fill: '#7d8796', 'font-size': 12.5, class: 'num'});
+  }
+  D.forEach(([d, a, b, oi], i) => {
+    const x = X(i);
+    // ask and bid side by side, 2px surface gap, rounded data-end
+    if (a) el('rect', {x: x - bw - 1, y: Y(a), width: bw, height: Math.max(B - Y(a), 1), rx: 3, fill: '#3987e5'}, svg);
+    if (b) el('rect', {x: x + 1, y: Y(b), width: bw, height: Math.max(B - Y(b), 1), rx: 3, fill: '#e66767'}, svg);
+    txt(svg, x, B + 20, d, {'text-anchor': 'middle', fill: i >= 9 ? '#eef1f5' : '#7d8796', 'font-size': 12.5, 'font-weight': i >= 9 ? 600 : 400});
+  });
+  // open interest line
+  el('path', {d: D.map((r, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(r[3]).toFixed(1)}`).join(' '),
+    fill: 'none', stroke: '#9085e9', 'stroke-width': 2.5, 'stroke-linejoin': 'round'}, svg);
+  D.forEach((r, i) => el('circle', {cx: X(i), cy: Y(r[3]), r: i >= 9 || i === 4 ? 5 : 3.5, fill: '#9085e9', stroke: '#121820', 'stroke-width': 2}, svg));
+  // direct labels on the points that matter
+  const lab = (i, v, s1, s2, dx, anchor) => {
+    txt(svg, X(i) + dx, Y(v) - 22, s1, {fill: '#eef1f5', 'font-size': 14, 'font-weight': 700, 'text-anchor': anchor, class: 'num'});
+    txt(svg, X(i) + dx, Y(v) - 6, s2, {fill: '#b4bcc8', 'font-size': 13, 'text-anchor': anchor});
+  };
+  lab(4, 2322, 'OI 2,322', '10/15: written @ $57', -10, 'end');
+  lab(9, 4409, 'OI 4,409', '10/22: +2,140', -12, 'end');
+  txt(svg, X(10) + bw + 10, Y(2136) + 2, 'OI 2,136', {fill: '#eef1f5', 'font-size': 14, 'font-weight': 700, class: 'num'});
+  txt(svg, X(10) + bw + 10, Y(2136) + 19, 'after Friday:', {fill: '#b4bcc8', 'font-size': 13});
+  txt(svg, X(10) + bw + 10, Y(2136) + 35, '−2,273', {fill: '#eef1f5', 'font-size': 13.5, 'font-weight': 700, class: 'num'});
+})();
+</script>
+</body>
+</html>
