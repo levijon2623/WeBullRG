@@ -59,11 +59,15 @@ RUN LOG
       * within-day (each day's mean removed) scored ICs: SP oi -0.023, raw -0.090, single -0.064; QQQ
         -0.021 / -0.101 / -0.067; IWM -0.005 / +0.028 / +0.046. Pre-sample within-day ~0 or wrong-signed.
     The map's gamma lens is context for move SIZE; nothing here is a direction or entry signal.
+  2026-10-25 (2)  rebuilt with a 4th mode, "fit" (check_flow_oi stage 2): the oi / raw / single numbers above
+    reproduce exactly. fit vs single: SP +0.047 [+0.021,+0.072], QQQ +0.032 [+0.001,+0.065], IWM -0.027
+    [-0.064,+0.008] -> FAIL, single stays the default (details in check_flow_oi.py).
 """
 from __future__ import annotations
 
 import datetime as dt
 import glob
+import json
 import math
 import os
 import sys
@@ -84,6 +88,12 @@ MODES = ("oi", "raw", "single")
 DEP_START, SPLIT = dt.date(2024, 8, 20), dt.date(2025, 8, 21)
 YEAR_MIN = 365.0 * 1440.0
 N_BOOT = 2000
+VOLS = ["ask_volume", "bid_volume", "multi_volume", "mid_volume", "no_side_volume"]
+VOLS_FIT = ["ask_volume", "bid_volume", "mid_volume", "no_side_volume", "multi_volume"]   # check_flow_oi's X order
+try:
+    FIT = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "_flowoi_cache", "coef.json")))["coef"]
+except (OSError, ValueError, KeyError):
+    FIT = {}
 rng = np.random.default_rng(20261025)
 
 
@@ -113,7 +123,8 @@ def build():
         d = (pl.scan_parquet(f).filter(pl.col("underlying_symbol").is_in(roots))
              .filter(pl.col("expiry") <= pl.lit(day + dt.timedelta(days=3)))
              .select("underlying_symbol", "option_chain_id", "option_type", "strike", "expiry", "minute_et",
-                     "open_interest", "iv_close", "underlying_close", "ask_volume", "bid_volume", "multi_volume")
+                     "open_interest", "iv_close", "underlying_close", "ask_volume", "bid_volume", "multi_volume",
+                     "mid_volume", "no_side_volume")
              .collect())
         if d.is_empty():
             continue
@@ -147,11 +158,11 @@ def build():
                 past = x[x["mod"] < t]
                 if past.empty:
                     continue
-                fl = past.groupby("option_chain_id")[["ask_volume", "bid_volume", "multi_volume"]].sum()
+                fl = past.groupby("option_chain_id")[VOLS].sum()
                 ivl = past.dropna(subset=["iv_close"]).sort_values("mod").groupby("option_chain_id")["iv_close"].last()
                 ul = past.dropna(subset=["underlying_close"]).groupby("underlying_symbol")["underlying_close"].apply(
                     lambda s: float(s.iloc[-20:].median()))
-                m = meta.join(fl, how="left").join(ivl.rename("iv"), how="left").fillna({"ask_volume": 0, "bid_volume": 0, "multi_volume": 0})
+                m = meta.join(fl, how="left").join(ivl.rename("iv"), how="left").fillna({v: 0 for v in VOLS})
                 m = m[(m["iv"] > 0.02) & (m["iv"] < 5)]
                 m["S"] = m["root"].map(ul)
                 m = m.dropna(subset=["S"])
@@ -164,13 +175,25 @@ def build():
                 conv = np.where(m["cp"] == "call", 1.0, -1.0) * m["oi"].to_numpy()
                 net = (m["ask_volume"] - m["bid_volume"]).to_numpy()
                 net1 = net + 0.12 * m["multi_volume"].to_numpy()
+                # stage 2 of check_flow_oi: convention applied to OI + the fitted next-day dOI of the flow so far
+                pred = np.zeros(len(m))
+                if FIT:
+                    bk = (mkt + "|" + m["cp"] + "|" + np.where(m["dte"] <= 7, np.where(m["dte"] <= 1, "1", "2-7"), "8-45")
+                          + "|" + np.where(np.abs(m["k"] / m["S"] - 1) <= 0.01, "atm",
+                                           np.where(np.abs(m["k"] / m["S"] - 1) <= 0.03, "near", "far"))).to_numpy()
+                    A = m[VOLS_FIT].to_numpy(float)
+                    for i, bkt in enumerate(bk):
+                        c = FIT.get(bkt)
+                        if c:
+                            pred[i] = A[i] @ c
+                conv_fit = np.where(m["cp"] == "call", 1.0, -1.0) * np.maximum(m["oi"].to_numpy() + pred, 0.0)
                 atm = m.iloc[np.argsort(np.abs(m["k"] / m["S"] - 1).to_numpy())[:6]]
                 iv_atm = float(atm["iv"].median())
                 Tn = max(float(atm["dte"].min()) * 1440 + 960 - t, 30.0)
                 rng_ = (w["high"].max() - w["low"].min()) / S_etf
                 implied = iv_atm * math.sqrt(30.0 / YEAR_MIN)
                 out.append(dict(day=day, mkt=mkt, t=t, g_oi=float(np.sum(conv * g1)), g_raw=float(np.sum((conv - net) * g1)),
-                                g_single=float(np.sum((conv - net1) * g1)), target=math.log(max(rng_, 1e-6) / implied),
+                                g_single=float(np.sum((conv - net1) * g1)), g_fit=float(np.sum(conv_fit * g1)), target=math.log(max(rng_, 1e-6) / implied),
                                 vol=float(m["ask_volume"].sum() + m["bid_volume"].sum()), oi=float(m["oi"].sum()),
                                 net=float(np.abs(net).sum())))
         if n % 50 == 0:
@@ -252,6 +275,34 @@ def main():
     print("\n  PRE-SAMPLE (labelled) ICs: " + "   ".join(
         f"{mkt} " + " ".join(f"{m} {spear(P[P.mkt == mkt][f'z_{m}'].to_numpy(float), P[P.mkt == mkt]['target'].to_numpy(float)):+.3f}" for m in MODES)
         for mkt in MARKETS))
+
+    if "g_fit" not in F:
+        return
+    # ---- STAGE 2 of check_flow_oi: fitted OI (convention) vs the current default, single-leg flow
+    try:
+        passed = json.load(open("_flowoi_cache/coef.json"))["passed"]
+    except (OSError, ValueError, KeyError):
+        passed = []
+    F = F.sort_values(["mkt", "t", "day"])
+    F["z_fit"] = F.groupby(["mkt", "t"])["g_fit"].transform(lambda s: s / s.abs().shift(1).rolling(20, min_periods=10).median())
+    S = F[F["day"] >= DEP_START]
+    print(f"\n  ======== STAGE 2 (check_flow_oi): fit vs single; stage 1 passed for {passed or 'none'} ========")
+    v2 = {}
+    for mkt in MARKETS:
+        s = S[S["mkt"] == mkt].dropna(subset=["z_fit", "z_single", "z_oi", "target"])
+        cols = ["z_fit", "z_single"]
+        ic = [spear(s[c].to_numpy(float), s["target"].to_numpy(float)) for c in cols]
+        B = boot_ic(s, cols)
+        lo, hi = np.nanquantile(B[:, 0] - B[:, 1], [0.025, 0.975])
+        dh = [spear(h["z_fit"].to_numpy(float), h["target"].to_numpy(float)) - spear(h["z_single"].to_numpy(float), h["target"].to_numpy(float))
+              for h in (s[s["day"] < SPLIT], s[s["day"] >= SPLIT])]
+        v2[mkt] = dict(d=ic[0] - ic[1], hi=hi, halves=dh)
+        print(f"     {mkt:4} fit IC {ic[0]:+.3f}  single {ic[1]:+.3f}   fit - single {ic[0] - ic[1]:+.3f} [{lo:+.3f}, {hi:+.3f}]"
+              f"   halves {dh[0]:+.3f} / {dh[1]:+.3f}   (oi {spear(s['z_oi'].to_numpy(float), s['target'].to_numpy(float)):+.3f})")
+    v = v2["SP"]
+    ok = ("SP" in passed and v["d"] < 0 and v["hi"] < 0 and all(x < 0 for x in v["halves"])
+          and any(v2[o]["d"] < 0 for o in ("QQQ", "IWM") if o in passed))
+    print(f"     VERDICT: fit {'REPLACES single as the default' if ok else 'does not replace single'}")
 
 
 if __name__ == "__main__":
