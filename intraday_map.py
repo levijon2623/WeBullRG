@@ -170,8 +170,17 @@ def trace_pass(uw, key, etf, day, now, rows):
     hist = _load(hist_p) or {}
     if hist.get("date") != day.isoformat() or hist.get("center") != center:
         hist = {"date": day.isoformat(), "center": center, "cols": {}}
+    # passes drift (300 s apart plus their own run time), so one can land past a whole column
+    # (10:05 -> 10:11 skips 10:10): a skipped column takes the previous pass's projection for it,
+    # which was computed then, so the past still carries no hindsight
+    for cmb, cols in (hist.get("proj") or {}).items():
+        for js, v in cols.items():
+            if int(js) < j0:
+                hist["cols"].setdefault(cmb, {}).setdefault(js, v)
     for cmb, cols in out_cols.items():
         hist["cols"].setdefault(cmb, {})[str(j0)] = [round(float(v), 1) for v in cols[j0]]
+    hist["proj"] = {cmb: {str(j): [round(float(v), 1) for v in cols[j]] for j in range(j0 + 1, min(j0 + 4, len(COLS)))}
+                    for cmb, cols in out_cols.items()}
     _write(hist_p, hist)
 
     grids = {}
