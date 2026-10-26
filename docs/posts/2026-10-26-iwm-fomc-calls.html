@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080">
+<title>IWM FOMC Calls</title>
+<!-- A share card, rendered to PNG by render_post.py (1080x1350, 4:5).
+     Data: Unusual Whales API, 2026-10-26 after the close: /stock/IWM/option-contracts?expiry=2026-10-28|29
+     (side-signed delta = (ask - bid volume) x delta x 100 x spot) and /option-contract/{occ}/historic. -->
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121820; --line:#232c38; --grid:#1b222c;
+    --ink:#eef1f5; --ink2:#b4bcc8; --muted:#7d8796;
+    --bought:#3987e5; --sold:#e66767;          /* diverging pair, validated on #0f1419 */
+    --accent:#f0b35a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg)}
+  body{width:1080px;height:1350px;overflow:hidden;color:var(--ink);
+    font:16px/1.4 "Segoe UI",system-ui,-apple-system,sans-serif}
+  .num{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  .wrap{padding:38px 48px 0}
+  .kicker{font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  h1{margin:8px 0 6px;font-size:40px;line-height:1.1;font-weight:800;letter-spacing:-.01em}
+  .sub{font-size:19px;color:var(--ink2);max-width:980px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0 14px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 14px}
+  .tile .v{font-size:28px;font-weight:800;line-height:1.1}
+  .tile .l{font-size:13.5px;color:var(--muted);margin-top:3px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px 10px;margin-bottom:12px}
+  .card h2{margin:0;font-size:19px;font-weight:700}
+  .card .h2s{font-size:14px;color:var(--muted);margin:2px 0 4px}
+  .legend{display:flex;gap:18px;font-size:13.5px;color:var(--ink2);margin:2px 0 2px;flex-wrap:wrap}
+  .sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:6px}
+  svg text{font-family:"Segoe UI",system-ui,sans-serif}
+  table{width:100%;border-collapse:collapse;font-size:15px;margin-top:4px}
+  th{color:var(--muted);font-weight:600;font-size:13px;text-align:right;padding:4px 8px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child,th:last-child,td:last-child{text-align:left}
+  td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--grid);color:var(--ink2)}
+  td:first-child{color:var(--ink);font-weight:600}
+  .scen{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:2px}
+  .scen div{border:1px solid var(--line);border-radius:10px;padding:9px 14px;font-size:15px;color:var(--ink2);background:#0f141b}
+  .scen b{color:var(--ink);font-size:16px}
+  .ctx{font-size:14px;color:var(--muted);margin:9px 2px 0}
+  .foot{position:absolute;left:0;right:0;bottom:0;padding:13px 48px;border-top:1px solid var(--line);
+    background:#0e131a;display:flex;justify-content:space-between;align-items:center;font-size:13.5px;color:var(--muted)}
+  .foot b{color:var(--ink2);font-weight:600}
+  .foot .repo{color:var(--ink);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">IWM options flow · Monday Oct 26, 2026 · Wed 10/28 &amp; Thu 10/29 expiries</div>
+  <h1>IWM’s bullish tilt into FOMC is mostly cheap lottery calls</h1>
+  <div class="sub">+$97M of side-signed delta in Wednesday’s expiry, but about half of it is ~$414k of $283/$284 calls,
+    2.2–2.5% out of the money, bought at the ask the same way as last Friday’s calls, which have since lost 80% or expired.</div>
+
+  <div class="tiles">
+    <div class="tile"><div class="v num">+$97M</div><div class="l">side-signed delta, Wed 10/28 expiry (Thu: +$21M)</div></div>
+    <div class="tile"><div class="v num">~$414k</div><div class="l">premium behind ~half of it ($283C + $284C)</div></div>
+    <div class="tile"><div class="v num" style="font-size:25px">$0.10 → $0.02</div><div class="l">Friday’s 10/27 $283C, bought the same way</div></div>
+    <div class="tile"><div class="v num">+2.2%</div><div class="l">IWM to $283 by Wed (closed $276.99)</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Where the bullish delta came from</h2>
+    <div class="h2s">Side-signed delta by contract, $M · at the ask = bought, at the bid = sold (inferred) · volume and premium at right</div>
+    <svg id="ch" width="946" height="398" role="img" aria-label="Side-signed delta by contract in the 10/28 and 10/29 expiries"></svg>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--bought)"></span>bullish delta (calls bought / puts sold)</span>
+      <span><span class="sw" style="background:var(--sold)"></span>bearish delta (calls sold / puts bought)</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Same style, three expiries in a row</h2>
+    <table>
+      <tr><th>Contract</th><th>Traded</th><th>Date</th><th>At the ask</th><th>Avg price</th><th>Since</th></tr>
+      <tr><td>10/26 $282C</td><td class="num">34,609</td><td>Fri 10/23</td><td class="num">89%</td><td class="num">$0.045</td><td>expired worthless Monday</td></tr>
+      <tr><td>10/27 $283C</td><td class="num">21,593</td><td>Fri 10/23</td><td class="num">99%</td><td class="num">$0.10</td><td>$0.02 at Monday’s close</td></tr>
+      <tr><td>10/28 $283C</td><td class="num">13,939</td><td>Mon 10/26</td><td class="num">96%</td><td class="num">$0.20</td><td>Tuesday’s open interest decides</td></tr>
+      <tr><td>10/28 $284C</td><td class="num">10,456</td><td>Mon 10/26</td><td class="num">93%</td><td class="num">$0.135</td><td>Tuesday’s open interest decides</td></tr>
+    </table>
+  </div>
+
+  <div class="scen">
+    <div><b>Same buyer rolling or adding</b> if Tuesday shows 10/27 $283C open interest down and 10/28 $283C / $284C
+      up by ~13k / ~10k (from 773 / 441).</div>
+    <div><b>Day trading</b> if 10/28 open interest barely moves.<br>
+      The FOMC decision lands Wednesday afternoon, inside the 10/28 expiry.</div>
+  </div>
+  <div class="ctx">Thursday’s tilt is mostly one trade: ~3.3k each of the $280C and $286C at the ask, mostly multi-leg, likely a call spread
+    (inference). Side is read from ask/bid; delta-weighting makes cheap out-of-the-money calls look bigger than the money behind them.
+    Our own tests: unusual activity whose open interest stuck predicted nothing over 1–5 days. Positioning, not a signal.</div>
+</div>
+
+<div class="foot">
+  <span>Data: Unusual Whales API · method: <b>probe_notable.py</b> (open source) · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span>
+</div>
+
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, a, parent) => { const e = document.createElementNS(NS, tag);
+  for (const k in a) e.setAttribute(k, a[k]); if (parent) parent.appendChild(e); return e; };
+const txt = (parent, x, y, s, a = {}) => { const t = el('text', Object.assign({x, y, fill: '#b4bcc8', 'font-size': 14}, a), parent);
+  t.textContent = s; return t; };
+
+(() => {
+  const svg = document.getElementById('ch');
+  // [group, contract, signed delta $M, note]
+  const R = [
+    ['Wed 10/28'],
+    ['$283C', 31.6, '13.9k calls at the ask · $273k'],
+    ['$278P', 31.6, '3.4k puts at the bid · $705k'],
+    ['$284C', 15.3, '10.5k calls at the ask · $141k'],
+    ['$276P', 7.2, 'puts, 59% at the bid · $388k'],
+    ['$277P', 5.2, 'puts, mixed · $665k'],
+    ['$280C', 4.7, 'calls, 55% at the ask · $432k'],
+    ['$276C', -4.1, 'calls, 60% at the bid · $268k'],
+    ['Thu 10/29'],
+    ['$280C', 19.7, '3.3k at the ask, 77% multi-leg · $388k'],
+    ['$286C', 4.4, '3.3k at the ask, 91% multi-leg · $44k'],
+  ];
+  const x0 = 210, k = 9.0, H = 24, gap = 33, xn = x0 + 31.6 * 9.0 + 96;   // notes in one column
+  el('line', {x1: x0, x2: x0, y1: 8, y2: 392, stroke: '#3a4554', 'stroke-width': 1.5}, svg);
+  let y = 22;
+  for (const r of R) {
+    if (r.length === 1) {
+      txt(svg, 4, y + 4, r[0], {fill: '#f0b35a', 'font-size': 14, 'font-weight': 700});
+      y += 26; continue;
+    }
+    const [c, v, note] = r, w = Math.abs(v) * k;
+    txt(svg, 64, y + 6, c, {fill: '#eef1f5', 'font-size': 17, 'font-weight': 700, class: 'num'});
+    if (v > 0) {
+      el('rect', {x: x0 + 1, y: y - H / 2, width: w, height: H, rx: 4, fill: '#3987e5'}, svg);
+      txt(svg, x0 + w + 10, y + 6, `+$${v.toFixed(1)}M`, {fill: '#eef1f5', 'font-size': 15, 'font-weight': 700, class: 'num'});
+      txt(svg, xn, y + 6, note, {fill: '#b4bcc8', 'font-size': 13.5});
+    } else {
+      el('rect', {x: x0 - w - 1, y: y - H / 2, width: w, height: H, rx: 4, fill: '#e66767'}, svg);
+      txt(svg, x0 + 10, y + 6, `−$${(-v).toFixed(1)}M`, {fill: '#eef1f5', 'font-size': 15, 'font-weight': 700, class: 'num'});
+      txt(svg, xn, y + 6, note, {fill: '#b4bcc8', 'font-size': 13.5});
+    }
+    y += gap;
+  }
+})();
+</script>
+</body>
+</html>
