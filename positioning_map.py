@@ -486,6 +486,13 @@ def write(name, doc, archive_day=None):
             json.dump(doc, f, separators=(",", ":"))
 
 
+def built(day, phase):
+    """did this phase's build already run today? (its archive holds every market) -- a restart mid-session
+    must pick up where the service was, not wait for a pre-open window that has passed"""
+    a = os.path.join(OUT, "archive", day.isoformat() + ("" if phase == "pre" else "_open"))
+    return all(os.path.exists(os.path.join(a, f"{key}.json")) for key in MARKETS)
+
+
 def build_all(uw, day, now, phase):
     ok = True
     for key in MARKETS:
@@ -589,7 +596,9 @@ def main():
     while True:
         now = dt.datetime.now(NY)
         day, mod = now.date(), now.hour * 60 + now.minute
-        st = done.setdefault(day, set())
+        if day not in done:
+            done[day] = {p for p in ("pre", "open") if built(day, p)}
+        st = done[day]
         if now.weekday() < 5:
             try:
                 if "pre" not in st and PRE_START <= mod < PRE_END:
