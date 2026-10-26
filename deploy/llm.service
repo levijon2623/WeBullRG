@@ -1,0 +1,37 @@
+# /etc/systemd/system/cleanbot-llm.service
+#
+# llm_service.py: Claude scores relevant headlines (news_score.py) and writes the
+# pre-open brief (morning_brief.py). Its own process AND its own venv
+# (venv-llm: anthropic + python-dotenv only), so the bot's environment is never
+# touched. It only reads live/ files and writes live/news/ai/, live/brief/,
+# live/llm/.
+#
+#   python3 -m venv /root/bot_engine/venv-llm
+#   /root/bot_engine/venv-llm/bin/pip install anthropic python-dotenv
+#   sudo cp deploy/llm.service /etc/systemd/system/cleanbot-llm.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cleanbot-llm
+#
+# Key: ANTHROPIC_API_KEY in .env (read with python-dotenv, never printed).
+# Spend: the Console spend limit, plus llm_common.DAILY_CALL_CAP; every call's
+# tokens go to live/llm/usage.jsonl.
+
+[Unit]
+Description=Cleanbot Claude jobs (headline scores, pre-open brief)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/bot_engine/venv-llm/bin/python llm_service.py
+Restart=on-failure
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-llm
+
+[Install]
+WantedBy=multi-user.target

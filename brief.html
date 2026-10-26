@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pre-open Brief</title>
+<!--
+  Pre-open brief (user, 2026-10-26): reads live/brief/DATE.json, written ~09:05 ET by
+  llm_service.py -> morning_brief.py. Claude writes the words; every number comes from
+  the digest our own code computed (shown under "digest"). Flags are computed in code.
+  CONTEXT, NOT A SIGNAL.
+-->
+<style>
+  :root{ --bg:#0d1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3; --dim:#8b949e; --accent:#a371f7; --warn:#e3b341; }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);
+    font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  #bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 16px;
+    border-bottom:1px solid var(--line);background:var(--panel)}
+  #bar h1{font-size:13px;margin:0 8px 0 0;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  #bar a{color:var(--accent);text-decoration:none}
+  button,input{background:#0d1117;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 9px;font:inherit}
+  button{cursor:pointer}
+  #info{margin-left:auto;color:var(--dim);font-size:11px}
+  main{max-width:900px;margin:0 auto;padding:18px 16px 40px}
+  h2.head{font-size:20px;line-height:1.3;margin:4px 0 8px}
+  .sum{color:var(--fg);margin:0 0 18px}
+  h3{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:20px 0 6px;
+    border-bottom:1px solid var(--line);padding-bottom:4px}
+  ul{margin:0;padding-left:18px} li{margin:4px 0}
+  .flag{border-left:3px solid var(--warn);background:var(--panel);padding:7px 10px;margin:6px 0;border-radius:0 6px 6px 0}
+  .flag b{color:var(--fg)} .flag span{color:var(--dim)}
+  details{margin-top:24px;color:var(--dim)} pre{white-space:pre-wrap;font-size:11.5px}
+  #empty{color:var(--dim);margin-top:30px}
+</style>
+</head>
+<body>
+<div id="bar">
+  <h1>Pre-open brief</h1>
+  <button id="prev">◀</button><input type="date" id="day"><button id="next">▶</button>
+  <a href="positioning_map.html">positioning map</a> <a href="intraday_map.html">intraday map</a> <a href="flow_viewer.html">flow viewer</a>
+  <span id="info"></span>
+</div>
+<main id="out"></main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const SECTIONS = [['premarket', 'Premarket'], ['overnight_positioning', 'Overnight positioning'], ['volatility', 'Volatility'],
+                  ['news', 'News'], ['watch_today', 'Watch today']];
+const ymd = d => d.toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
+
+async function load(day){
+  $('#day').value = day;
+  const out = $('#out');
+  let doc;
+  try {
+    const r = await fetch(`live/brief/${day}.json`, {cache: 'no-store'});
+    if (!r.ok) throw 0;
+    doc = await r.json();
+  } catch (e) {
+    out.innerHTML = `<div id="empty">No brief for ${esc(day)}. It is written on weekdays from about 09:05 ET.</div>`;
+    $('#info').textContent = '';
+    return;
+  }
+  const b = doc.brief;
+  let h = `<h2 class="head">${esc(b.headline)}</h2><p class="sum">${esc(b.summary)}</p>`;
+  if (b.anomalies && b.anomalies.length){
+    h += '<h3>Flags (computed in code)</h3>';
+    for (const a of b.anomalies) h += `<div class="flag"><b>${esc(a.what)}</b><br><span>${esc(a.why_it_matters)}</span></div>`;
+  }
+  for (const [k, title] of SECTIONS){
+    const xs = (b.sections || {})[k] || [];
+    if (!xs.length) continue;
+    h += `<h3>${title}</h3><ul>${xs.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
+  }
+  h += `<details><summary>digest (the numbers the brief was written from)</summary><pre>${esc(JSON.stringify(doc.digest, null, 1))}</pre></details>`;
+  out.innerHTML = h;
+  $('#info').textContent = `${doc.date} · written ${doc.made_et} ET · ${doc.model} · context, not a signal`;
+}
+const shift = n => { const d = new Date($('#day').value + 'T12:00:00'); d.setDate(d.getDate() + n); load(ymd(d)); };
+$('#prev').onclick = () => shift(-1);
+$('#next').onclick = () => shift(1);
+$('#day').onchange = () => load($('#day').value);
+load(new URLSearchParams(location.search).get('date') || ymd(new Date()));
+</script>
+</body>
+</html>
