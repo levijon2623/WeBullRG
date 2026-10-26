@@ -8,7 +8,7 @@ in a few months: does a model's read of a headline say anything the keyword filt
 Reads live/news/DATE.jsonl (news_logger.py), takes the records the keyword filter marked
 relevant (non-empty `cats`), and scores them in small batches -- at most 20 headlines per
 request, one request per minute at most. Writes live/news/ai/DATE.jsonl, one line per headline:
-  key, feed, id, t (published), seen (first seen by the logger), scored_at (all UTC), model, pv (prompt
+  key, feed, id, t (published), seen (first seen by the logger), scored_at (all UTC), title, model, pv (prompt
   version), relevance 0-3, direction -2..+2 (SPY), novelty new/update/rehash,
   horizon minutes/hours/days, tickers, why
 The model sees only the headline and its metadata, as of when it was first seen -- never prices.
@@ -147,6 +147,7 @@ def score_pass(day=None, max_batches=3):
                 except ValueError:
                     lag = None
                 rec = {"key": _key(r), "feed": r.get("feed"), "id": r.get("id"), "t": r.get("t"), "seen": seen,
+                       "title": r.get("title"),
                        "scored_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "late": lag is None or lag > 300,
                        "model": model, "pv": PV, **{k: s[k] for k in ("relevance", "direction", "novelty",
                                                                     "horizon", "tickers", "why")}}
