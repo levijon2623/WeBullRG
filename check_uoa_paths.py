@@ -60,6 +60,29 @@ PRE-REGISTERED (per group)
 
 Usage:  python check_uoa_paths.py --build    # pass 1 events + control pool, pass 2 paths
         python check_uoa_paths.py            # score from the cache
+        python check_uoa_paths.py --min-tdte 3 --variant print|open|1h|sd   # runs 2-4
+        python check_uoa_paths.py --forward --build --build-sameday --build-nextday   # forward build
+        python check_uoa_paths.py --forward --min-tdte 3 --variant sd                 # FORWARD PRIMARY
+
+FORWARD TEST (pre-registered 2026-10-31, BEFORE any day after IS_END was scored; the lake was
+extended to 2026-10-30 the same day and those days stay unscored until the run below)
+  WHY      nothing passed in-sample (runs 1-4). The forward test asks one question on data the
+           design never saw: does a big bought print pick a better contract than its unprinted
+           same-day twin, now that UOA flow may have changed?
+  DATA     silver days > IS_END (2026-09-21 ..), own cache _uoa_paths_cache/fwd.
+  EVENT    as above, >= 3 TRADING days to expiry at entry (user's rule), split guard on.
+  ENTRY    PRIMARY right after the print (--variant sd: same-day controls).
+           SECONDARY next open once OI confirms (--variant open, other-day controls).
+  CONTROL  PRIMARY same-day (run 4: other-day controls carry the day's market move -- bought calls
+           "beat" them only because call-buying days were up days; same-day twins erase that).
+  EXIT     PRIMARY TP +100% on the bid, else expiry. +50 / +150 / +200 / +300 / HOLD reported.
+  PASS     per group (ETFs; SECOND = 31 names), each its own verdict: mean event - control > 0,
+           day-block bootstrap 95% CI above 0, ETFs >= 2 of 3 tickers > 0 / SECOND >= 60% of
+           tickers with >= 10 events. No halves test (window too short). M1 must PASS, M0 FAIL.
+  WHEN     ONE scored run once >= 120 trading days after IS_END are in the lake (~2027-04-15).
+           Interim runs are allowed for data checks only -- read counts, not results.
+  POWER    in-sample same-day CI half-width ~1.5 pp (ETFs, 2,020 events / 2 yrs) and ~2.4 pp
+           (names, 1,165): six months should resolve an edge of ~3 pp (ETFs) / ~5 pp (names).
 
 RUN LOG
   2026-10-31 run 1: 32,932 events (32,442 with controls, 96,286 controls); M1 PASS, M0 FAIL (correct).
@@ -85,6 +108,28 @@ RUN LOG
       (CI touches 0, first half negative). All four exits +8..+10 pp; calls HOLD +32% vs +16%; prints
       -4% vs controls -12% per trade at TP+100. Pre-sample -0.9. Lives in the 2025-08..2026-09 half.
     Hour (>= 3 days): entry at median 0.47 of the range (controls 0.43); bid +60m -3% both.
+  2026-10-31 CORRECTION (same day): runs 1-2's SECOND numbers were inflated by a STOCK SPLIT. XLE split
+    2:1 on 2025-12-05; its old $87-89 puts kept their strikes while the close halved, so five events
+    "settled" +90x..+140x (hit rates were identical, the mean was not). drop_splits() now removes any
+    entry whose holding spans a split (24 entries, 7 events). M0 also fixed: it took the earliest-dated
+    control as the fake event (biased; it wrongly PASSED twice) -- now a random control vs the others.
+    Re-scored: run 1 ETFs -0.8 / SECOND -0.4 (was +3.8); run 2 ETFs +0.7 / SECOND +2.0, CI [-1.7, +5.7]
+    (was +8.9). All FAIL; M1 PASS, M0 FAIL everywhere. Run 2 + TP150 / TP300 (user): ETFs -0.3 / +2.4,
+    SECOND +2.6 / +2.6, all CIs across 0; hit rates print = control at every target (ETFs 36/27/20/13%
+    vs 36/26/20/12%, names 41/32/25/16% vs 41/31/24/16%).
+  2026-10-31 run 3 (user): enter the NEXT session once OI confirms (dOI >= 50% of the burst), at the
+    first quote 09:31-09:45 and 10:30-10:45; controls move to their own next session. 96% of events
+    stick by this rule, so the confirmation filters almost nothing. TP+100 event - control:
+    open ETFs +1.1 CI [-5.1, +7.6] / names +1.8 [-2.5, +6.0]; 1h ETFs +1.3 [-5.4, +8.1] / names
+    +1.0 [-3.4, +5.4]. All FAIL. Entry sits mid-range in the hour (0.54 open, 0.41 at 10:30) for both.
+    Every variant: bought CALLS beat their other-day matches (HOLD +29..+32% vs +7..+16%), bought
+    PUTS trail theirs -- the check_uoa_events drift signature.
+  2026-10-31 run 4: SAME-DAY controls (--build-sameday, --variant sd): same ticker/right/DTE/OTM/time/
+    price on the event's own day, no print (14,436 of 32,932 events have one). TP+100: ETFs -0.6 CI
+    [-2.1, +0.8], 0/3 tickers > 0; names +1.0 [-1.4, +3.3]. FAIL. The calls edge is the DAY: ETF calls
+    HOLD print +15% vs same-day twin +33% (other-day +2%); names +32% vs +30%. ETF prints trail their
+    same-day twins at every target (TP+150 / +300 / HOLD -1.7 / -1.7 / -1.3, CIs touching 0 from below)
+    -- in line with check_uoa_target's anti-predictive OTM-call UOA. Same-day CIs are 3x tighter.
   VERDICT: a big bought print adds nothing to the contract's path. Taking +100% (or +50 / +200) when
     it comes works exactly as often after a print as on the same contract profile with no print, and
     on average both lose ~20-25% per trade in ETFs after the spread.
@@ -117,7 +162,11 @@ DEP_START, SPLIT = dt.date(2024, 8, 20), dt.date(2025, 8, 21)
 MAX_DTE, MAX_OTM = 21, 0.10
 MIN_VOL, MIN_PREM, SIDE, MLEG, VOL_X_OI, MIN_ASK = 1000, 1e5, 0.70, 0.50, 1.0, 0.05
 M0, M1 = 9 * 60 + 31, 15 * 60 + 58
-TPS = (0.5, 1.0, 2.0)
+IS_END = dt.date(2026, 9, 18)          # in-sample ends here; later lake days are the forward test's
+TPS = (0.5, 1.0, 2.0)                  # flags the path walk keeps (any TP is bmax >= target anyway)
+EXIT_TPS = (0.5, 1.0, 1.5, 2.0, 3.0)   # run 3 adds +150 / +300 (user)
+STICK = 0.50                           # next-day entries: dOI >= 50% of the burst's volume
+OPEN_WIN, HOUR_WIN = (9 * 60 + 31, 9 * 60 + 45), (10 * 60 + 30, 10 * 60 + 45)
 PRIMARY = "tp100"
 N_CTRL, SEED, N_BOOT = 3, 20261031, 5000
 MNY_BIN, MOD_BIN, PX_BIN = 0.005, 30, 0.5
@@ -125,8 +174,9 @@ COLS = ["option_chain_id", "underlying_symbol", "option_type", "strike", "expiry
         "premium", "ask_volume", "multi_volume", "bid_close", "ask_close", "underlying_close", "open_interest"]
 
 
-def days():
-    return sorted(dt.date.fromisoformat(p.split("date=")[1][:10]) for p in glob.glob(f"{SILVER}/date=*"))
+def days(lo=None, hi=IS_END):
+    ds = sorted(dt.date.fromisoformat(p.split("date=")[1][:10]) for p in glob.glob(f"{SILVER}/date=*"))
+    return [d for d in ds if (lo is None or d >= lo) and (hi is None or d <= hi)]
 
 
 def load_day(d, ids=None):
@@ -188,12 +238,15 @@ def pass1(D):
     pl.concat(cl).write_parquet(f"{CACHE}/closes.parquet")
 
 
-def pick_controls():
+def pick_controls(same_day=False, dst="entries"):
+    """same_day (run 4): controls from the event's OWN day and time bin -- other contracts of the
+    same ticker / right / DTE / OTM / price with no print. Removes the day's market move, which the
+    other-day controls cannot: is the print's edge the contract, or the day it printed on?"""
     ev = bins(pl.read_parquet(f"{CACHE}/events.parquet")).with_row_index("ev")
     pool = bins(pl.read_parquet(f"{CACHE}/pool.parquet"))
     key = ["underlying_symbol", "option_type", "dte", "mb", "tb", "pb"]
     j = (ev.select(["ev", "date"] + key).join(pool.rename({"date": "cdate"}), on=key, how="inner")
-         .filter(pl.col("cdate") != pl.col("date")))
+         .filter((pl.col("cdate") == pl.col("date")) if same_day else (pl.col("cdate") != pl.col("date"))))
     rng = np.random.default_rng(SEED)
     j = (j.with_columns(r=pl.Series(rng.random(len(j))))
          .with_columns(k=pl.col("r").rank("ordinal").over("ev")).filter(pl.col("k") <= N_CTRL))
@@ -204,13 +257,65 @@ def pick_controls():
                  "underlying_symbol", "option_type", "strike", "expiry", "dte", "otm", pl.col("cdate").alias("date"),
                  "mod", "ask")
     out = pl.concat([E, C]).with_row_index("eid")
-    out.write_parquet(f"{CACHE}/entries.parquet")
+    out.write_parquet(f"{CACHE}/{dst}.parquet")
     return out
 
 
-def pass2(D):
-    """walk every entry's contract from its entry minute to expiry."""
+def nextday(D):
+    """the user's run-3 entries: the morning after the print, only once OI confirms it.
+
+    Every print entry (event and control) moves to its NEXT session, bought at the first
+    quote 09:31-09:45 ("open") and again at the first quote 10:30-10:45 ("1h"). Controls
+    move the same way, so both sides carry the overnight. Events are kept only if they
+    STUCK: start-of-day OI on d+1 minus OI on d >= 50% of the burst's volume.
+    """
     en = pl.read_parquet(f"{CACHE}/entries.parquet").to_pandas()
+    ev = pl.read_parquet(f"{CACHE}/events.parquet").with_row_index("ev").to_pandas()
+    en["date"] = pd.to_datetime(en["date"]).dt.date
+    Da = np.array(D)
+    i = np.searchsorted(Da, en["date"].to_numpy(), side="right")
+    en = en[i < len(Da)].copy()
+    en["d1"] = Da[i[i < len(Da)]]
+    got = []
+    for k, (d1, g) in enumerate(en.groupby("d1")):
+        rows = load_day(d1, g["option_chain_id"].unique().tolist())
+        if rows.is_empty():
+            continue
+        rows = rows.filter((pl.col("bid_close") > 0) & (pl.col("ask_close") >= pl.col("bid_close"))
+                           & (pl.col("ask_close") >= MIN_ASK)).sort("minute_et")
+        oi = rows.group_by("option_chain_id").agg(oi1=pl.col("open_interest").first())
+        for tag, (lo, hi) in (("open", OPEN_WIN), ("1h", HOUR_WIN)):
+            w = (rows.filter(pl.col("mod").is_between(lo, hi)).group_by("option_chain_id").first()
+                 .select("option_chain_id", pl.col("mod").alias("m1"), pl.col("ask_close").alias("a1"),
+                         pl.col("underlying_close").alias("s1"), "dte").join(oi, on="option_chain_id", how="left")
+                 .with_columns(tag=pl.lit(tag), d1=pl.lit(d1)))
+            got.append(w)
+        if k % 50 == 0:
+            print(f"  next-day {d1}", flush=True)
+    W = pl.concat(got).to_pandas()
+    W["d1"] = pd.to_datetime(W["d1"]).dt.date
+    x = en.merge(W, on=["option_chain_id", "d1"], how="inner")
+    x["otm"] = np.where(x["option_type"] == "call", x["strike"] / x["s1"] - 1, 1 - x["strike"] / x["s1"])
+    e0 = ev.set_index("ev")
+    x["oi0"] = x["parent"].map(e0["open_interest"]).fillna(0)
+    x["v5"] = x["parent"].map(e0["v5"])
+    x["stick"] = (x["oi1"] - x["oi0"]) >= STICK * x["v5"]
+    for tag in ("open", "1h"):
+        y = x[x["tag"] == tag]
+        out = (y.drop(columns=["eid", "date", "mod", "ask", "dte_x"], errors="ignore")
+               .rename(columns={"d1": "date", "m1": "mod", "a1": "ask", "dte_y": "dte"}))
+        out["stick"] = np.where(out["kind"] == "event", out["stick"], True)
+        out = out.reset_index(drop=True)
+        out.insert(0, "eid", np.arange(len(out)))
+        out[["eid", "parent", "kind", "option_chain_id", "underlying_symbol", "option_type", "strike", "expiry",
+             "dte", "otm", "date", "mod", "ask", "stick"]].to_parquet(f"{CACHE}/entries_{tag}.parquet")
+        n_ev = (out["kind"] == "event").sum()
+        print(f"  {tag}: {len(out):,} entries, {n_ev:,} events, {out.loc[out['kind'] == 'event', 'stick'].mean():.0%} stuck")
+
+
+def pass2(D, src="entries", dst="paths"):
+    """walk every entry's contract from its entry minute to expiry."""
+    en = pl.read_parquet(f"{CACHE}/{src}.parquet").to_pandas()
     en["date"] = pd.to_datetime(en["date"]).dt.date
     en["expiry"] = pd.to_datetime(en["expiry"]).dt.date
     Ds = np.array(D)
@@ -269,7 +374,7 @@ def pass2(D):
     S = np.array([cmap.get((t, d), np.nan) for t, d in zip(en["underlying_symbol"], en["settle"])])
     en["intrinsic"] = np.where(en["option_type"] == "call", np.maximum(S - en["strike"], 0),
                                np.maximum(en["strike"] - S, 0))
-    en.to_parquet(f"{CACHE}/paths.parquet")
+    en.to_parquet(f"{CACHE}/{dst}.parquet")
     print(f"  paths: {len(en):,} entries ({(en['kind'] == 'event').sum():,} events)")
 
 
@@ -277,7 +382,8 @@ def pass2(D):
 def returns(en):
     en = en.copy()
     en["hold"] = en["intrinsic"] / en["ask"] - 1
-    for x in TPS:
+    for x in EXIT_TPS:                      # a TP fires iff the best bid after entry reached it
+        en[f"hit{x}"] = en["bmax"].fillna(0) >= en["ask"] * (1 + x) - 1e-9
         en[f"tp{int(x * 100)}"] = np.where(en[f"hit{x}"], x, en["hold"])
     en["mfe"] = en["bmax"] / en["ask"] - 1
     en["r1h"] = en["b60"] / en["ask"] - 1
@@ -289,7 +395,34 @@ def returns(en):
     return en
 
 
-RULES = ("tp50", "tp100", "tp200", "hold")
+RULES = ("tp50", "tp100", "tp150", "tp200", "tp300", "hold")
+
+
+def split_days():
+    """{ticker: [days]} where the close jumped by a split ratio (1/k within 3%, k = 2..20).
+
+    Run 2's single-name +8.9 pp was partly this: XLE split 2:1 on 2025-12-05, its old
+    $87-89 puts kept their strikes in the data while the close halved, and five of them
+    "settled" +90x to +140x. Splits found: WMT 2024-02-26, NVDA 06-10, AVGO 07-15,
+    MSTR 08-08, NFLX 2025-11-17, XLE 12-05.
+    """
+    cl = pd.read_parquet(f"{CACHE}/closes.parquet").sort_values(["underlying_symbol", "date"])
+    cl["r"] = cl.groupby("underlying_symbol")["close"].pct_change() + 1
+    out = {}
+    for t, d, r in zip(cl["underlying_symbol"], pd.to_datetime(cl["date"]).dt.date, cl["r"]):
+        if r < 0.55 and any(abs(r * k - 1) < 0.03 for k in range(2, 21)):
+            out.setdefault(t, []).append(d)
+    return out
+
+
+def drop_splits(en):
+    sp = split_days()
+    settle = pd.to_datetime(en["settle"]).dt.date
+    bad = np.array([any(d < x <= s for x in sp.get(t, ())) for t, d, s in
+                    zip(en["underlying_symbol"], en["date"], settle)])
+    gone = set(en.loc[bad & (en["kind"] == "event"), "parent"])
+    print(f"split guard: {bad.sum():,} entries span a split ({len(gone):,} events, dropped with their controls)")
+    return en[~bad & ~en["parent"].isin(gone)]
 
 
 def paired(en):
@@ -310,7 +443,7 @@ def boot_ci(p, col, rng):
     return np.percentile(m, [2.5, 97.5])
 
 
-def verdict(p, tickers, need, rng, col=f"d_{PRIMARY}"):
+def verdict(p, tickers, need, rng, col=f"d_{PRIMARY}", halves=True):
     if len(p) < 30:
         return False, "too few"
     lo, hi = boot_ci(p, col, rng)
@@ -319,7 +452,7 @@ def verdict(p, tickers, need, rng, col=f"d_{PRIMARY}"):
     by = p.groupby("underlying_symbol")[col].agg(["mean", "count"])
     by = by[by["count"] >= (1 if tickers == ETFS else 10)]
     share = (by["mean"] > 0).mean() if len(by) else 0
-    ok = p[col].mean() > 0 and lo > 0 and h1 > 0 and h2 > 0 and share >= need
+    ok = p[col].mean() > 0 and lo > 0 and (not halves or (h1 > 0 and h2 > 0)) and share >= need
     return ok, (f"mean {p[col].mean():+.1%}  CI [{lo:+.1%}, {hi:+.1%}]  halves {h1:+.1%} / {h2:+.1%}  "
                 f"tickers > 0: {share:.0%} of {len(by)}")
 
@@ -331,7 +464,7 @@ def describe(en, label):
             continue
         print(f"   {label:14} {kind:7} n={len(x):6,}  "
               + "  ".join(f"{r} {x[r].mean():+.0%}" for r in RULES)
-              + f"  hit+100 {x['hit1.0'].mean():.0%}  hit+200 {x['hit2.0'].mean():.0%}"
+              + "  hit " + "/".join(f"{x[f'hit{t}'].mean():.0%}" for t in (1.0, 1.5, 2.0, 3.0)) + " (+100/150/200/300)"
               + f"  MFE med {x['mfe'].median():+.0%} p75 {x['mfe'].quantile(.75):+.0%}"
               + f"  worthless {(x['intrinsic'] <= 0).mean():.0%}")
 
@@ -351,17 +484,40 @@ def hour(en, label):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", action="store_true")
+    ap.add_argument("--build-nextday", action="store_true", help="run 3: next-session entries + their paths")
+    ap.add_argument("--build-sameday", action="store_true", help="run 4: same-day controls + paths")
+    ap.add_argument("--variant", choices=("print", "open", "1h", "sd"), default="print",
+                    help="entry: right after the print / next open once OI confirms / an hour into it")
     ap.add_argument("--min-tdte", type=int, default=0,
-                    help="keep events with at least this many TRADING days to expiry (run 2: 3)")
+                    help="keep events with at least this many TRADING days to expiry at ENTRY (run 2+: 3)")
+    ap.add_argument("--forward", action="store_true", help="the pre-registered forward window (days > IS_END)")
     a = ap.parse_args()
+    global CACHE
     D = days()
+    if a.forward:
+        CACHE = f"{CACHE}/fwd"
+        D = days(lo=IS_END + dt.timedelta(days=1), hi=None)
+        print(f"FORWARD window: {len(D)} days {D[0] if D else '-'} .. {D[-1] if D else '-'}  cache {CACHE}")
     if a.build:
         print(f"pass 1 over {len(D)} days ({D[0]} .. {D[-1]})")
         pass1(D)
         pick_controls()
         pass2(D)
-    en = returns(pd.read_parquet(f"{CACHE}/paths.parquet"))
+    if a.build_sameday:
+        pick_controls(same_day=True, dst="entries_sd")
+        pass2(D, "entries_sd", "paths_sd")
+    if a.build_nextday:
+        nextday(D)
+        for tag in ("open", "1h"):
+            pass2(D, f"entries_{tag}", f"paths_{tag}")
+    en = returns(pd.read_parquet(f"{CACHE}/{'paths' if a.variant == 'print' else 'paths_' + a.variant}.parquet"))
     en["date"] = pd.to_datetime(en["date"]).dt.date
+    en = drop_splits(en)
+    if a.variant in ("open", "1h"):
+        unstuck = set(en.loc[(en["kind"] == "event") & ~en["stick"].astype(bool), "parent"])
+        en = en[~en["parent"].isin(unstuck)]
+        print(f"entry: {a.variant} of the next session, events whose OI stuck only "
+              f"({len(unstuck):,} unstuck events dropped with their controls)")
     en["grp"] = np.where(en["underlying_symbol"].isin(ETFS), "ETFs", "SECOND")
     Da = np.array(D)
     en["tdte"] = np.searchsorted(Da, pd.to_datetime(en["expiry"]).dt.date.to_numpy(), side="right") \
@@ -379,18 +535,25 @@ def main():
         pre = x[x["date"] < DEP_START]
         p = paired(sc)
         print(f"\n== {g}  scored events with controls {len(p):,} on {p['date'].nunique()} days")
-        ok, txt = verdict(p, tks, need, rng)
+        ok, txt = verdict(p, tks, need, rng, halves=not a.forward)
         print(f"   PRIMARY TP+100% event - control: {txt}  ->  {'PASS' if ok else 'FAIL'}")
         for r in RULES:
             if r != PRIMARY:
-                print(f"   {r:6} event - control mean {p[f'd_{r}'].mean():+.1%}")
+                lo_, hi_ = boot_ci(p, f"d_{r}", rng)
+                print(f"   {r:6} event - control mean {p[f'd_{r}'].mean():+.1%}  CI [{lo_:+.1%}, {hi_:+.1%}]  "
+                      f"(event {p[r].mean():+.0%} / control {p[f'{r}_c'].mean():+.0%} per trade)")
         pm = p.copy()
         pm[f"d_{PRIMARY}"] += 0.25
-        print(f"   M1 (+25 pp planted): {'PASS' if verdict(pm, tks, need, rng)[0] else 'FAIL'}  (must PASS)")
-        ct = sc[sc["kind"] == "control"].groupby("parent").first()
+        print(f"   M1 (+25 pp planted): {'PASS' if verdict(pm, tks, need, rng, halves=not a.forward)[0] else 'FAIL'}  (must PASS)")
+        # one RANDOM control per event plays the event, vs the mean of the OTHER controls
+        # (run 1-2 used the first row = the earliest-dated control, a biased pick)
+        cc = sc[sc["kind"] == "control"].assign(r=lambda z: rng.random(len(z)))
+        cc = cc.sort_values("r")
+        fake = cc.groupby("parent").first()[PRIMARY]
+        rest = cc[~cc.index.isin(cc.groupby("parent").head(1).index)].groupby("parent")[PRIMARY].mean()
         pz = p.copy()
-        pz[f"d_{PRIMARY}"] = ct.reindex(pz.index)[PRIMARY].to_numpy() - pz[f"{PRIMARY}_c"]
-        print(f"   M0 (control as event): {'PASS' if verdict(pz.dropna(subset=[f'd_{PRIMARY}']), tks, need, rng)[0] else 'FAIL'}  (must FAIL)")
+        pz[f"d_{PRIMARY}"] = fake.reindex(pz.index).to_numpy() - rest.reindex(pz.index).to_numpy()
+        print(f"   M0 (control as event): {'PASS' if verdict(pz.dropna(subset=[f'd_{PRIMARY}']), tks, need, rng, halves=not a.forward)[0] else 'FAIL'}  (must FAIL)")
         describe(sc, "all")
         for cp in ("call", "put"):
             describe(sc[sc["option_type"] == cp], cp + "s")
