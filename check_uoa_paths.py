@@ -75,8 +75,9 @@ RUN LOG
       0DTE -30% before / -39% after, best in hour +28%, worst -54%. Prints don't time the low.
     Pre-sample (labelled): ETFs +0.1%, SECOND -2.6%.
   2026-10-31 run 2 (user, after run 1: drop everything with <= 2 TRADING days to expiry; --min-tdte 3,
-    same events/controls/bar, chosen after seeing run 1 -- so the 6-21 DTE lead below is the SAME data,
-    not a replication):
+    same events/controls/bar. The user's reason: a design correction, not a pick from run 1 -- UOA needs
+    time to play out, so <= 2 days should never have been in; run 1's ETF 6-21 bucket looked no better
+    than the rest. Still run after run 1 on the same data, so it is not a replication):
     ETFs (3,412): TP+100 +0.7%, CI [-4.7%, +6.1%], halves -1.3 / +2.2 -> FAIL. M0 PASSED here (a
       control posing as the event cleared the bar) -- the ETF comparison is noise-level at this n.
       hit +100% 36/36, +200% 20/19; TP+100 -24% / -25% per trade.
