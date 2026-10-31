@@ -491,6 +491,7 @@ def main():
     ap.add_argument("--min-tdte", type=int, default=0,
                     help="keep events with at least this many TRADING days to expiry at ENTRY (run 2+: 3)")
     ap.add_argument("--forward", action="store_true", help="the pre-registered forward window (days > IS_END)")
+    ap.add_argument("--no-score", action="store_true", help="build only; print nothing about results (forward interim)")
     a = ap.parse_args()
     global CACHE
     D = days()
@@ -510,6 +511,8 @@ def main():
         nextday(D)
         for tag in ("open", "1h"):
             pass2(D, f"entries_{tag}", f"paths_{tag}")
+    if a.no_score:
+        return
     en = returns(pd.read_parquet(f"{CACHE}/{'paths' if a.variant == 'print' else 'paths_' + a.variant}.parquet"))
     en["date"] = pd.to_datetime(en["date"]).dt.date
     en = drop_splits(en)
