@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080">
+<title>TLT 11/9 Calls</title>
+<!-- A share card, rendered to PNG by render_post.py (1080x1350, 4:5).
+     Data: Unusual Whales API, 2026-10-30/31: UOA flags (uoa_flags.py, live 5-min bursts + EOD market scan),
+     /option-contract/{occ}/historic and /intraday, /stock/TLT/options-volume.
+     Event dates: Treasury refunding statement (Wed 11/4), BLS schedule (October payrolls Fri 11/6 08:30 ET). -->
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121820; --line:#232c38; --grid:#1b222c;
+    --ink:#eef1f5; --ink2:#b4bcc8; --muted:#7d8796;
+    --bought:#3987e5; --sold:#e66767;          /* diverging pair, validated on #0f1419 */
+    --accent:#f0b35a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg)}
+  body{width:1080px;height:1350px;overflow:hidden;color:var(--ink);
+    font:16px/1.4 "Segoe UI",system-ui,-apple-system,sans-serif}
+  .num{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  .wrap{padding:38px 48px 0}
+  .kicker{font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  h1{margin:8px 0 6px;font-size:40px;line-height:1.1;font-weight:800;letter-spacing:-.01em}
+  .sub{font-size:19px;color:var(--ink2);max-width:980px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0 14px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 14px}
+  .tile .v{font-size:28px;font-weight:800;line-height:1.1}
+  .tile .l{font-size:13.5px;color:var(--muted);margin-top:3px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px 10px;margin-bottom:12px}
+  .card h2{margin:0;font-size:19px;font-weight:700}
+  .card .h2s{font-size:14px;color:var(--muted);margin:2px 0 4px}
+  svg text{font-family:"Segoe UI",system-ui,sans-serif}
+  table{width:100%;border-collapse:collapse;font-size:15px;margin-top:4px}
+  th{color:var(--muted);font-weight:600;font-size:13px;text-align:right;padding:4px 8px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child,th:last-child,td:last-child{text-align:left}
+  td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--grid);color:var(--ink2)}
+  td:first-child{color:var(--ink);font-weight:600}
+  .scen{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:2px}
+  .scen div{border:1px solid var(--line);border-radius:10px;padding:9px 14px;font-size:15px;color:var(--ink2);background:#0f141b}
+  .scen b{color:var(--ink);font-size:16px}
+  .ctx{font-size:14px;color:var(--muted);margin:9px 2px 0}
+  .foot{position:absolute;left:0;right:0;bottom:0;padding:13px 48px;border-top:1px solid var(--line);
+    background:#0e131a;display:flex;justify-content:space-between;align-items:center;font-size:13.5px;color:var(--muted)}
+  .foot b{color:var(--ink2);font-weight:600}
+  .foot .repo{color:var(--ink);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">TLT options flow · Fri Oct 30, 2026 · Mon 11/9 expiry</div>
+  <h1>~270k TLT calls in two minutes: a cheap bet, or a hedge, on a bond rally</h1>
+  <div class="sub">At 13:16–13:17 ET one order bought ~167k 11/9 $84 calls at $0.09 and ~100k $85 calls at $0.05,
+    all at the ask, on strikes that started the day with 82 and 402 contracts of open interest.</div>
+
+  <div class="tiles">
+    <div class="tile"><div class="v num">~270k</div><div class="l">calls in two minutes, ~28% of TLT's call volume that day</div></div>
+    <div class="tile"><div class="v num">~$2.0M</div><div class="l">premium paid</div></div>
+    <div class="tile"><div class="v num">~$2.2B</div><div class="l">of TLT the contracts cover (at $81.56)</div></div>
+    <div class="tile"><div class="v num">+3% / +4%</div><div class="l">TLT needed by Mon 11/9 to break even ($84C / $85C)</div></div>
+  </div>
+
+  <div class="card">
+    <h2>What the order needs: TLT by Monday 11/9</h2>
+    <div class="h2s">Breakeven at expiry (strike + price paid) vs TLT's typical 6-session range, priced at ~14% implied volatility</div>
+    <svg id="ch" width="946" height="294" role="img" aria-label="TLT price ladder with the breakevens of the 11/9 calls and the 1 and 2 sigma ranges"></svg>
+  </div>
+
+  <div class="card">
+    <h2>Upside TLT calls bought into early November</h2>
+    <table>
+      <tr><th>Contract</th><th>Day</th><th>Traded</th><th>At the ask</th><th>Avg price</th><th>Open interest next day</th></tr>
+      <tr><td>11/6 $83C</td><td>Fri 10/23</td><td class="num">10,382</td><td class="num">98%</td><td class="num">$0.35</td><td>+9.2k (opened)</td></tr>
+      <tr><td>11/9 $83C</td><td>Thu 10/29</td><td class="num">11,530</td><td class="num">97%</td><td class="num">$0.17</td><td>+11.3k (opened)</td></tr>
+      <tr><td>11/9 $84C</td><td>Fri 10/30</td><td class="num">178,866</td><td class="num">98%</td><td class="num">$0.09</td><td>Monday’s open interest decides</td></tr>
+      <tr><td>11/9 $85C</td><td>Fri 10/30</td><td class="num">105,656</td><td class="num">99%</td><td class="num">$0.05</td><td>Monday’s open interest decides</td></tr>
+    </table>
+  </div>
+
+  <div class="scen">
+    <div><b>A bet on bonds ripping</b>: Treasury’s refunding plan lands Wed 11/4 and October payrolls Fri 11/6
+      (8:30 ET), both before expiry. A weak jobs number could move long yields that far.</div>
+    <div><b>Or cheap insurance</b>: ~$2M to cap a large short-bond position through two event risks.
+      Options data can’t see the other side; a hedge would likely ride to expiry rather than be sold into a rally.</div>
+  </div>
+  <div class="ctx">Single-leg, no sweeps: one account working one order (inference). Side is read from ask/bid; open interest
+    confirms only the next morning. TLT also saw put buying and heavy call writing in the same weeks. Our tests: unusual
+    activity like this reached +100–300% no more often than unprinted contracts of the same profile. Positioning, not a signal.</div>
+</div>
+
+<div class="foot">
+  <span>Data: Unusual Whales API · method: <b>uoa_flags.py</b> (open source) · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span>
+</div>
+
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, a, parent) => { const e = document.createElementNS(NS, tag);
+  for (const k in a) e.setAttribute(k, a[k]); if (parent) parent.appendChild(e); return e; };
+const txt = (parent, x, y, s, a = {}) => { const t = el('text', Object.assign({x, y, fill: '#b4bcc8', 'font-size': 14}, a), parent);
+  t.textContent = s; return t; };
+
+(() => {
+  const svg = document.getElementById('ch');
+  const lo = 78.5, hi = 86, x0 = 20, x1 = 926;
+  const X = p => x0 + (p - lo) / (hi - lo) * (x1 - x0);
+  const S = 81.56, s1lo = 79.83, s1hi = 83.29, s2hi = 85.02;
+  const yb = 150;                                     // axis baseline
+  const B_AT = [83.17, 84.09, 85.05];
+  // ranges: 2 sigma (lighter) then 1 sigma
+  el('rect', {x: X(lo), y: yb - 40, width: X(s2hi) - X(lo), height: 40, fill: '#1a222d'}, svg);
+  el('rect', {x: X(s1lo), y: yb - 40, width: X(s1hi) - X(s1lo), height: 40, fill: '#26303d'}, svg);
+  txt(svg, X(s1lo) + 10, yb - 15, '±1σ  79.8 – 83.3', {fill: '#b4bcc8', 'font-size': 13.5});
+  txt(svg, X(s1hi) + 8, yb - 15, '1σ–2σ', {fill: '#7d8796', 'font-size': 13});
+  // axis
+  el('line', {x1: x0, x2: x1, y1: yb, y2: yb, stroke: '#3a4554', 'stroke-width': 1.5}, svg);
+  for (let p = 79; p <= 86; p++) {
+    if (B_AT.some(b => Math.abs(b - p) < 0.2)) {                   // keep the axis label clear of a breakeven line
+      el('line', {x1: X(p), x2: X(p), y1: yb, y2: yb + 6, stroke: '#3a4554'}, svg);
+      txt(svg, X(p) - 6, yb + 22, `$${p}`, {'text-anchor': 'end', fill: '#7d8796', 'font-size': 13, class: 'num'});
+      continue;
+    }
+    el('line', {x1: X(p), x2: X(p), y1: yb, y2: yb + 6, stroke: '#3a4554'}, svg);
+    txt(svg, X(p), yb + 22, `$${p}`, {'text-anchor': 'middle', fill: '#7d8796', 'font-size': 13, class: 'num'});
+  }
+  // TLT at the print
+  el('line', {x1: X(S), x2: X(S), y1: yb - 62, y2: yb + 6, stroke: '#eef1f5', 'stroke-width': 2}, svg);
+  txt(svg, X(S), yb - 68, 'TLT at the print $81.56', {'text-anchor': 'middle', fill: '#eef1f5', 'font-size': 14, 'font-weight': 700});
+  // breakevens: markers sized by contracts
+  const B = [
+    [83.17, '11/9 $83C (Thu)', '11.5k · +2.0%', 11.5],
+    [84.09, '11/9 $84C', '~167k · +3.1%', 167],
+    [85.05, '11/9 $85C', '~100k · +4.3%', 100],
+  ];
+  for (const [p, name, note, k] of B) {
+    const r = 4 + Math.sqrt(k) * 0.95;
+    const cy = yb + 70;
+    // dashed breakeven: through the bands to the axis, then again below the price labels
+    el('line', {x1: X(p), x2: X(p), y1: yb - 40, y2: yb, stroke: '#3987e5', 'stroke-width': 2, 'stroke-dasharray': '4 3'}, svg);
+    el('line', {x1: X(p), x2: X(p), y1: yb + 30, y2: cy - r, stroke: '#3987e5', 'stroke-width': 2, 'stroke-dasharray': '4 3'}, svg);
+    el('circle', {cx: X(p), cy, r, fill: '#3987e5', 'fill-opacity': .85, stroke: '#121820', 'stroke-width': 2}, svg);
+    txt(svg, X(p), cy + r + 18, name, {'text-anchor': 'middle', fill: '#eef1f5', 'font-size': 14, 'font-weight': 700});
+    txt(svg, X(p), cy + r + 35, note, {'text-anchor': 'middle', fill: '#b4bcc8', 'font-size': 13, class: 'num'});
+  }
+  txt(svg, x0, 18, 'Dot size = contracts bought · dashed line = breakeven at expiry', {fill: '#7d8796', 'font-size': 13});
+})();
+</script>
+</body>
+</html>
