@@ -1,0 +1,32 @@
+# /etc/systemd/system/cleanbot-uoa.service
+#
+# uoa_flags.py: the UOA flags page (uoa.html) and the brief's `uoa` digest. Every 5 min
+# 09:35-16:05 ET it diffs UW's contract rows for SPY QQQ IWM + 31 names and records big
+# one-sided bursts; 06:45-09:25 ET it fills the next session's open interest and each flag's
+# price since. Its own process: it never touches the bot, the viewer or Webull; UW REST only
+# (~70 calls a pass, ~1,000 history calls a morning).
+#
+#   sudo cp deploy/uoa.service /etc/systemd/system/cleanbot-uoa.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cleanbot-uoa
+
+[Unit]
+Description=Cleanbot UOA flags
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+# the bot's venv (requests, numpy, dotenv); positioning_map supplies the UW client
+ExecStart=/root/bot_engine/venv/bin/python uoa_flags.py
+Restart=on-failure
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-uoa
+
+[Install]
+WantedBy=multi-user.target

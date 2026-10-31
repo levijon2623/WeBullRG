@@ -31,6 +31,7 @@ import urllib.parse
 import urllib.request
 
 import llm_common as L
+import market_calendar as MC
 
 LIVE = os.path.join(L.ROOT, "live")
 MARKETS = {"SP": "SPY", "QQQ": "QQQ", "IWM": "IWM"}
@@ -38,6 +39,11 @@ UW_API = "https://api.unusualwhales.com/api"
 SIDE_MIN = 0.60                                   # as positioning_map: share of side-known volume
 PACKAGE_FLAG = {"SP": 20000, "QQQ": 10000, "IWM": 5000}
 NEW_FLAG = {"SP": 50000, "QQQ": 15000, "IWM": 10000}   # contracts: a fresh position this size gets a flag
+# the UOA page's universe (uoa_flags.UNIVERSE -- not imported: this venv has no numpy/requests)
+UOA_UNIVERSE = ("SPY", "QQQ", "IWM", "META", "NVDA", "MSFT", "AVGO", "SMH", "GLD",
+                "TSLA", "AAPL", "ORCL", "TLT", "PLTR", "AMZN", "IBIT", "AMD", "SLV", "MU", "MSTR", "INTC", "GOOGL",
+                "HOOD", "XLF", "PCG", "GME", "USO", "COIN", "NFLX", "TSM", "XLE", "WMT", "MRVL", "BE")
+UOA_FLAG_MAX = 2                                  # at most this many UOA items join `flags`
 
 HOUSE = [
     "Dealer gamma sizes moves, it doesn't call direction: S&P moved 39 bp on positive-gamma days vs 68 bp on "
@@ -49,6 +55,9 @@ HOUSE = [
     "The implied-move band (q x ATM straddle) is calibrated: ~65% / ~90% of sessions stay inside (check_implied_move).",
     "Opening range breakouts: drift only, no edge (check_orb).",
     "Headline categories alone showed no tradeable price reaction (check_news_reaction).",
+    "Big one-sided option bursts (the UOA flags) reached +100..+300% exactly as often as unprinted contracts "
+    "of the same profile, bought right after the print or the next morning once open interest confirmed, and "
+    "slightly less often than unprinted same-day twins (check_uoa_paths, 2023-10..2026-09).",
     "Open interest is net and published start-of-day: side (ask = bought, bid = sold) is an inference, and "
     "one session's volume is only judged by the next session's open interest.",
 ]
@@ -65,6 +74,11 @@ Rules:
 - S&P strikes are in SPY units unless the digest names an SPX strike. Times are ET.
 - Plain, compact language. No hype, no advice, no price targets.
 - If a part of the digest is missing, say so in one short line rather than guessing; otherwise don't mention it.
+- `uoa` lists yesterday's UOA flags (big one-sided bursts on single contracts) and whether this morning's open
+  interest confirmed them. Put them in overnight_positioning: the biggest few, who was on which side, and what
+  stuck. A flag spanning an earnings report (`er`) is mostly an event bet -- say so. Never suggest following them.
+- `analysts` lists overnight rating changes on the tickers we follow: mention upgrades / downgrades / initiations
+  in the news section as plain facts.
 
 Shape: it is read in two minutes before the open.
 - headline: at most 14 words. summary: at most 3 sentences.
@@ -248,8 +262,79 @@ def digest(day, now):
         g["markets"][key] = m
         g["flags"] += fl + fl2
     g["news"], g["news_total"] = news(day, now)
+    g["uoa"], fl3 = uoa(day)
+    g["flags"] += fl3
+    g["analysts"] = analysts(day, now)
     g["house_findings"] = HOUSE
     return g
+
+
+def _money(v):
+    return f"${v / 1e6:.1f}M" if v >= 1e6 else f"${v / 1e3:.0f}k"
+
+
+def uoa(day):
+    """yesterday's UOA flags (uoa_flags.py) with this morning's OI confirmation. Returns (digest part, flags)."""
+    prev = MC.previous_trading_day(day - dt.timedelta(days=1))      # "on or before" -> strictly before
+    doc = _load(os.path.join(LIVE, "uoa", f"{prev}.json"))
+    if not doc or not doc.get("flags"):
+        return {"date": prev.isoformat(), "missing": "no UOA file for the last session"}, []
+    fl = [f for f in doc["flags"] if f.get("tdte", 0) >= 3]          # the user's rule: UOA needs time
+    by = {}
+    for f in fl:
+        b = by.setdefault(f["tk"], {"flags": 0, "bought_calls": 0, "bought_puts": 0, "sold_calls": 0, "sold_puts": 0})
+        b["flags"] += 1
+        b[f"{f['side']}_{'calls' if f['cp'] == 'C' else 'puts'}"] += f["prem"]
+    status = {}
+    for f in fl:
+        status[f.get("status") or "pending"] = status.get(f.get("status") or "pending", 0) + 1
+
+    def row(f):
+        return {"when": f["t"], "contract": f"{f['tk']} {f['exp'][5:].replace('-', '/')} {f['k']:g}{f['cp']}",
+                "side": f["side"], "contracts": f["vol"], "premium": _money(f["prem"]), "avg_price": f["px"],
+                "otm_pct": round(f["otm"] * 100, 1), "trading_days_left": f["tdte"],
+                "next_day_oi_change": f.get("doi"), "verdict": f.get("status") or "OI not posted yet",
+                **({"earnings": f["er"]} if f.get("er") else {})}
+    top = sorted(fl, key=lambda f: -f["prem"])[:10]
+    out = {"date": prev.isoformat(), "flags": len(fl), "short_dated_left_out": len(doc["flags"]) - len(fl),
+           "bought_premium": _money(sum(f["prem"] for f in fl if f["side"] == "bought")),
+           "sold_premium": _money(sum(f["prem"] for f in fl if f["side"] == "sold")),
+           "verdicts": status,
+           "by_ticker": {t: {k: (_money(v) if k != "flags" and v else v) for k, v in b.items() if v}
+                         for t, b in sorted(by.items(), key=lambda kv: -sum(x for k, x in kv[1].items() if k != "flags"))[:8]},
+           "largest": [row(f) for f in top],
+           "definition": "one contract, ~5 min: >= 1,000 contracts and >= $100k, >= 70% at the ask (bought) or bid "
+                         "(sold), mostly single-leg, >= the day's starting OI, 0-10% OTM; >= 3 trading days left"}
+    flags = [f"UOA {r['contract']}: {r['contracts']:,} {r['side']} at {r['when']} ({r['premium']}), "
+             f"next-day OI {r['next_day_oi_change']:+,} ({r['verdict']})"
+             for r in out["largest"] if r["verdict"] in ("opened", "written")][:UOA_FLAG_MAX]
+    return out, flags
+
+
+def analysts(day, now):
+    """overnight analyst actions on the UOA universe (UW /screener/analysts, since the last close)."""
+    since = dt.datetime.combine(MC.previous_trading_day(day - dt.timedelta(days=1)), dt.time(16, 0), tzinfo=L.NY).astimezone(dt.timezone.utc)
+    rows, older = [], None
+    for _ in range(4):                                   # 500 a page; earnings season fills a page in ~13 h
+        params = {"limit": 500, "newer_than": since.strftime("%Y-%m-%dT%H:%M:%SZ")}
+        if older:
+            params["older_than"] = older
+        page = (_uw("/screener/analysts", **params) or {}).get("data") or []
+        rows += page
+        if len(page) < 500:
+            break
+        older = min(x["timestamp"] for x in page)
+    keep, other = [], {}
+    for x in rows:
+        if x.get("ticker") not in UOA_UNIVERSE or x.get("timestamp", "") < since.strftime("%Y-%m-%dT%H:%M:%S"):
+            continue
+        if x.get("action") in ("upgraded", "downgraded", "initiated"):
+            keep.append({"ticker": x["ticker"], "action": x["action"], "firm": x.get("firm"),
+                         "rating": x.get("recommendation"), "target": x.get("target")})
+        else:
+            other[x["ticker"]] = other.get(x["ticker"], 0) + 1
+    return {"since_et": since.astimezone(L.NY).strftime("%m-%d %H:%M"), "changes": keep[:15],
+            "maintained_or_target_only": other}
 
 
 def to_markdown(day, brief):

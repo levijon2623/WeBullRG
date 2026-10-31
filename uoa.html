@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UOA Flags</title>
+<!--
+  UOA flags (user, 2026-10-31): reads live/uoa/DATE.json + index.json, written by uoa_flags.py
+  (cleanbot-uoa): every big one-sided burst on one contract (the check_uoa_paths EVENT), the next
+  morning's open interest, and the contract's price since. CONTEXT, NOT A SIGNAL -- see the footer.
+-->
+<style>
+  :root{ --bg:#0d1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3; --dim:#8b949e; --accent:#a371f7;
+         --buy:#58a6ff; --sell:#f0883e; --ok:#3fb950; --warn:#e3b341; --bad:#f85149; }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);
+    font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  #bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 16px;
+    border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:2}
+  #bar h1{font-size:13px;margin:0 8px 0 0;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  #bar a{color:var(--accent);text-decoration:none}
+  button,input,select{background:#0d1117;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font:inherit}
+  button{cursor:pointer}
+  label{color:var(--dim);display:inline-flex;gap:4px;align-items:center}
+  #info{margin-left:auto;color:var(--dim);font-size:11px}
+  main{padding:12px 16px 40px}
+  #sum{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 12px}
+  .tile b{display:block;font-size:16px} .tile span{color:var(--dim);font-size:11px}
+  #by{border-collapse:collapse;margin:0 0 14px} #by td,#by th{padding:2px 10px;text-align:right;border-bottom:1px solid var(--line)}
+  #by th{color:var(--dim);font-weight:normal} #by td:first-child,#by th:first-child{text-align:left}
+  .wrap{overflow-x:auto}
+  table.f{border-collapse:collapse;width:100%;min-width:1100px}
+  table.f th{color:var(--dim);font-weight:normal;text-align:right;padding:4px 7px;border-bottom:1px solid var(--line);
+    cursor:pointer;white-space:nowrap}
+  table.f td{padding:3px 7px;text-align:right;border-bottom:1px solid #21262d;white-space:nowrap}
+  table.f th:nth-child(-n+3),table.f td:nth-child(-n+3){text-align:left}
+  table.f tr:hover td{background:#1c2128}
+  .bought{color:var(--buy)} .sold{color:var(--sell)} .dim{color:var(--dim)}
+  .chip{border-radius:4px;padding:0 5px;font-size:11px;border:1px solid var(--line)}
+  .s-opened,.s-written{color:var(--ok);border-color:#2ea04366} .s-partly{color:var(--warn);border-color:#e3b34166}
+  .s-closing{color:var(--bad);border-color:#f8514966} .s-pend{color:var(--dim)}
+  .up{color:var(--ok)} .dn{color:var(--bad)} .er{color:var(--accent);border-color:#a371f766}
+  #empty{color:var(--dim);margin-top:30px}
+  footer{color:var(--dim);font-size:11.5px;max-width:1000px;margin-top:18px;line-height:1.6}
+</style>
+</head>
+<body>
+<div id="bar">
+  <h1>UOA flags</h1>
+  <button id="prev">◀</button><select id="day"></select><button id="next">▶</button>
+  <select id="grp"><option value="">all</option><option value="etf">ETFs</option><option value="name">stocks</option></select>
+  <select id="tk"><option value="">every ticker</option></select>
+  <select id="side"><option value="">both sides</option><option value="bought">bought</option><option value="sold">sold</option></select>
+  <select id="cp"><option value="">calls + puts</option><option value="C">calls</option><option value="P">puts</option></select>
+  <select id="minp"><option value="0">≥ $100k</option><option value="250000">≥ $250k</option><option value="500000">≥ $500k</option><option value="1000000">≥ $1M</option></select>
+  <label><input type="checkbox" id="long" checked> ≥ 3 trading days</label>
+  <a href="flow_viewer.html">flow viewer</a> <a href="positioning_map.html">positioning map</a> <a href="brief.html">pre-open brief</a>
+  <span id="info"></span>
+</div>
+<main>
+  <div id="sum"></div>
+  <table id="by"></table>
+  <div class="wrap"><table class="f" id="tab"></table></div>
+  <div id="empty"></div>
+  <footer>
+    <b>Context, not a signal.</b> A flag is one contract's burst within ~5 minutes: ≥ 1,000 contracts and ≥ $100k,
+    ≥ 70% at the ask (bought) or the bid (sold), mostly single-leg, at least the size of the open interest it started
+    the day with, 0-10% out of the money, ≤ 21 days. Side and opening/closing are inferred from where trades printed.
+    <b>Next-day OI</b> is the next session's start-of-day open interest minus the flag day's, against all the
+    contract's flagged volume that day: opened / written ≥ 50%, partly 10-50%, didn't stick, closing ≤ −10%.
+    <b>Since</b>: from the flag's average price, the best price since for the flag's side (the high for a buyer,
+    the low for a writer; green = in that side's favour) and the latest price. <b>ER</b>: an earnings report falls
+    before the expiry -- the premium is largely the event.<br>
+    Our tests (check_uoa_paths, 2023-10..2026-09, 16k ETF and 9k stock flags): bought right after the burst, at the next
+    open once OI confirmed, or an hour in, these contracts reached +100 / +150 / +200 / +300% exactly as often as
+    unprinted contracts of the same profile, and slightly less often than their same-day unprinted twins; stuck prints
+    predicted nothing over 1-5 days (check_uoa_events). A forward test on new data is scheduled for ~2027-04.
+    Live flags diff UW's contract rows between passes; backfilled days use the lake's minute bars in the same 5-minute buckets.
+  </footer>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const ETFS = new Set(['SPY', 'QQQ', 'IWM']);
+const money = v => v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : `$${Math.round(v / 1e3)}k`;
+const pct = (v, d = 0) => v == null ? '' : `${(v * 100).toFixed(d)}%`;
+const md = s => s ? `${+s.slice(5, 7)}/${+s.slice(8, 10)}` : '';
+let doc = null, sortKey = 't', sortDir = 1, dates = [];
+
+const COLS = [
+  ['t', 'time'], ['tk', 'ticker'], ['sym', 'contract'], ['tdte', 'days'], ['otm', 'OTM'], ['side', 'side'],
+  ['vol', 'size'], ['prem', 'premium'], ['px', 'avg px'], ['ask', 'ask / bid'], ['mleg', 'multi-leg'],
+  ['voi', 'vol / OI'], ['doi', 'next-day OI'], ['best', 'since: best for the side · last'],
+];
+
+function rowsFiltered(){
+  if (!doc) return [];
+  const g = $('#grp').value, tk = $('#tk').value, side = $('#side').value, cp = $('#cp').value,
+        minp = +$('#minp').value, long = $('#long').checked;
+  return doc.flags.filter(f => (!g || (g === 'etf') === ETFS.has(f.tk)) && (!tk || f.tk === tk)
+    && (!side || f.side === side) && (!cp || f.cp === cp) && f.prem >= minp && (!long || f.tdte >= 3));
+}
+
+function statusChip(f){
+  if (f.status === 'expired') return '<span class="chip s-pend">expired same day</span>';
+  if (f.doi == null) return '<span class="chip s-pend">pending</span>';
+  const cls = {opened: 's-opened', written: 's-written', partly: 's-partly', closing: 's-closing'}[f.status] || 's-pend';
+  const sign = f.doi >= 0 ? '+' : '';
+  return `${sign}${f.doi.toLocaleString()} <span class="chip ${cls}">${esc(f.status)}</span>`;
+}
+
+function since(f){
+  if (f.hi_since == null && f.last_px == null) return '<span class="dim">–</span>';
+  // best FOR THE FLAG'S SIDE: the high for a buyer, the low for a writer; green = good for that side
+  const sold = f.side === 'sold';
+  const ext = sold ? f.lo_since : f.hi_since;
+  const best = ext != null ? ext / f.px - 1 : null;
+  const last = f.last_px != null ? f.last_px / f.px - 1 : null;
+  const c = v => v == null ? '' : `<span class="${(v >= 0) !== sold ? 'up' : 'dn'}">${v >= 0 ? '+' : ''}${Math.round(v * 100)}%</span>`;
+  return `${c(best)} · ${c(last)}${f.last_date ? ` <span class="dim">${md(f.last_date)}</span>` : ''}`;
+}
+
+function render(){
+  const xs = rowsFiltered();
+  const key = f => sortKey === 'best' ? (f.side === 'sold' ? (f.lo_since != null ? 2 - f.lo_since / f.px : -1) : (f.hi_since != null ? f.hi_since / f.px : -1)) : (sortKey === 'doi' ? (f.doi ?? -1e12) : f[sortKey]);
+  xs.sort((a, b) => { const x = key(a), y = key(b); return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
+  const bp = xs.filter(f => f.side === 'bought').reduce((s, f) => s + f.prem, 0);
+  const sp = xs.filter(f => f.side === 'sold').reduce((s, f) => s + f.prem, 0);
+  const conf = xs.filter(f => f.doi != null);
+  const stuck = conf.filter(f => f.status === 'opened' || f.status === 'written').length;
+  $('#sum').innerHTML = [
+    [xs.length, 'flags shown'], [money(bp), 'bought premium'], [money(sp), 'sold premium'],
+    [conf.length ? `${stuck} / ${conf.length}` : '–', 'stuck next morning'],
+  ].map(([v, l]) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`).join('');
+  const by = {};
+  for (const f of xs){
+    const b = by[f.tk] ||= {n: 0, bc: 0, bp: 0, sc: 0, sp: 0};
+    b.n++; b[(f.side === 'bought' ? 'b' : 's') + (f.cp === 'C' ? 'c' : 'p')] += f.prem;
+  }
+  const top = Object.entries(by).sort((a, b) => (b[1].bc + b[1].bp + b[1].sc + b[1].sp) - (a[1].bc + a[1].bp + a[1].sc + a[1].sp)).slice(0, 12);
+  $('#by').innerHTML = top.length ? '<tr><th>ticker</th><th>flags</th><th class="bought">bought calls</th><th class="bought">bought puts</th>'
+    + '<th class="sold">sold calls</th><th class="sold">sold puts</th></tr>'
+    + top.map(([t, b]) => `<tr><td>${esc(t)}</td><td>${b.n}</td><td>${b.bc ? money(b.bc) : ''}</td><td>${b.bp ? money(b.bp) : ''}</td>`
+      + `<td>${b.sc ? money(b.sc) : ''}</td><td>${b.sp ? money(b.sp) : ''}</td></tr>`).join('') : '';
+  $('#tab').innerHTML = '<tr>' + COLS.map(([k, l]) => `<th data-k="${k}">${l}${k === sortKey ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('') + '</tr>'
+    + xs.map(f => `<tr>
+      <td>${esc(f.t)}${f.burst > 1 ? ` <span class="dim">#${f.burst}</span>` : ''}</td><td>${esc(f.tk)}</td>
+      <td>${md(f.exp)} $${f.k}${f.cp}${f.er ? ` <span class="chip er" title="earnings ${esc(f.er)} -- before this expiry">ER ${md(f.er)}${f.er.length > 10 ? ' ' + esc(f.er.slice(11)) : ''}</span>` : ''}${f.approx ? ' <span class="dim" title="entered UW\'s top-500 list this pass: size approximate">≈</span>' : ''}</td>
+      <td>${f.tdte}</td><td>${pct(f.otm, 1)}</td><td class="${f.side}">${f.side}</td>
+      <td>${f.vol.toLocaleString()}</td><td>${money(f.prem)}</td><td>$${f.px.toFixed(2)}</td>
+      <td>${pct(f.ask)} / ${pct(f.bid)}</td><td>${pct(f.mleg)}</td><td>${f.voi == null ? 'new' : f.voi + '×'}</td>
+      <td>${statusChip(f)}</td><td>${since(f)}</td></tr>`).join('');
+  $('#empty').textContent = xs.length ? '' : (doc.flags.length ? 'No flags match the filters.' : 'No flags yet today.');
+  for (const th of document.querySelectorAll('#tab th')) th.onclick = () => {
+    const k = th.dataset.k; sortDir = k === sortKey ? -sortDir : (k === 't' || k === 'tk' ? 1 : -1); sortKey = k; render();
+  };
+}
+
+async function load(day){
+  try {
+    const r = await fetch(`live/uoa/${day}.json`, {cache: 'no-store'});
+    if (!r.ok) throw 0;
+    doc = await r.json();
+  } catch (e) { doc = {flags: []}; }
+  $('#day').value = day;
+  const tks = [...new Set(doc.flags.map(f => f.tk))].sort(), cur = $('#tk').value;
+  $('#tk').innerHTML = '<option value="">every ticker</option>' + tks.map(t => `<option${t === cur ? ' selected' : ''}>${t}</option>`).join('');
+  $('#info').textContent = doc.date ? `${doc.date} · ${doc.source || ''} · updated ${doc.updated_et || '–'} ET`
+    + (doc.confirmed_et ? ` · OI checked ${doc.confirmed_et.slice(5)}` : '') + ' · context, not a signal' : '';
+  render();
+}
+
+async function init(){
+  try { dates = (await (await fetch('live/uoa/index.json', {cache: 'no-store'})).json()).dates || []; } catch (e) { dates = []; }
+  $('#day').innerHTML = dates.map(d => `<option>${d}</option>`).join('');
+  const want = new URLSearchParams(location.search).get('date');
+  if (dates.length) load(want && dates.includes(want) ? want : dates[0]);
+  else $('#empty').textContent = 'No UOA files yet.';
+}
+const step = n => { const i = dates.indexOf($('#day').value); const j = i - n; if (j >= 0 && j < dates.length) load(dates[j]); };
+$('#prev').onclick = () => step(-1);
+$('#next').onclick = () => step(1);
+$('#day').onchange = () => load($('#day').value);
+for (const id of ['grp', 'tk', 'side', 'cp', 'minp', 'long']) $('#' + id).onchange = render;
+setInterval(() => { if (dates.length && $('#day').value === dates[0]) load(dates[0]); }, 60000);
+init();
+</script>
+</body>
+</html>
