@@ -74,6 +74,16 @@ RUN LOG
       options decay through the hour (mid -7% the hour before, bid -11% median the hour after);
       0DTE -30% before / -39% after, best in hour +28%, worst -54%. Prints don't time the low.
     Pre-sample (labelled): ETFs +0.1%, SECOND -2.6%.
+  2026-10-31 run 2 (user, after run 1: drop everything with <= 2 TRADING days to expiry; --min-tdte 3,
+    same events/controls/bar, chosen after seeing run 1 -- so the 6-21 DTE lead below is the SAME data,
+    not a replication):
+    ETFs (3,412): TP+100 +0.7%, CI [-4.7%, +6.1%], halves -1.3 / +2.2 -> FAIL. M0 PASSED here (a
+      control posing as the event cleared the bar) -- the ETF comparison is noise-level at this n.
+      hit +100% 36/36, +200% 20/19; TP+100 -24% / -25% per trade.
+    SECOND (5,520): TP+100 +8.9%, CI [-0.6%, +20.2%], halves -2.9 / +15.6, 67% of 30 tickers > 0 -> FAIL
+      (CI touches 0, first half negative). All four exits +8..+10 pp; calls HOLD +32% vs +16%; prints
+      -4% vs controls -12% per trade at TP+100. Pre-sample -0.9. Lives in the 2025-08..2026-09 half.
+    Hour (>= 3 days): entry at median 0.47 of the range (controls 0.43); bid +60m -3% both.
   VERDICT: a big bought print adds nothing to the contract's path. Taking +100% (or +50 / +200) when
     it comes works exactly as often after a print as on the same contract profile with no print, and
     on average both lose ~20-25% per trade in ETFs after the spread.
@@ -340,6 +350,8 @@ def hour(en, label):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", action="store_true")
+    ap.add_argument("--min-tdte", type=int, default=0,
+                    help="keep events with at least this many TRADING days to expiry (run 2: 3)")
     a = ap.parse_args()
     D = days()
     if a.build:
@@ -350,6 +362,13 @@ def main():
     en = returns(pd.read_parquet(f"{CACHE}/paths.parquet"))
     en["date"] = pd.to_datetime(en["date"]).dt.date
     en["grp"] = np.where(en["underlying_symbol"].isin(ETFS), "ETFs", "SECOND")
+    Da = np.array(D)
+    en["tdte"] = np.searchsorted(Da, pd.to_datetime(en["expiry"]).dt.date.to_numpy(), side="right") \
+        - np.searchsorted(Da, en["date"].to_numpy(), side="right")
+    if a.min_tdte:
+        keep = set(en.loc[(en["kind"] == "event") & (en["tdte"] >= a.min_tdte), "parent"])
+        en = en[en["parent"].isin(keep)]
+        print(f"run with events >= {a.min_tdte} trading days to expiry (controls follow their event)")
     en["dteb"] = pd.cut(en["dte"], [-1, 0, 5, 21], labels=["0DTE", "1-5", "6-21"])
     rng = np.random.default_rng(SEED)
     print(f"entries {len(en):,}  events {(en['kind'] == 'event').sum():,}")
