@@ -48,6 +48,8 @@
 <body>
 <div id="bar">
   <h1>UOA flags</h1>
+  <select id="src" title="our 34 tickers, 5-minute bursts live -- or the whole market, whole-day totals after the close">
+    <option value="">our 34 · 5-min bursts</option><option value="eod">whole market · EOD</option></select>
   <button id="prev">◀</button><select id="day"></select><button id="next">▶</button>
   <select id="grp"><option value="">all</option><option value="etf">ETFs</option><option value="name">stocks</option></select>
   <select id="tk"><option value="">every ticker</option></select>
@@ -76,7 +78,11 @@
     open once OI confirmed, or an hour in, these contracts reached +100 / +150 / +200 / +300% exactly as often as
     unprinted contracts of the same profile, and slightly less often than their same-day unprinted twins; stuck prints
     predicted nothing over 1-5 days (check_uoa_events). A forward test on new data is scheduled for ~2027-04.
-    Live flags diff UW's contract rows between passes; backfilled days use the lake's minute bars in the same 5-minute buckets.
+    Live flags diff UW's contract rows between passes; backfilled days use the lake's minute bars in the same 5-minute buckets.<br>
+    <b>Whole market · EOD</b>: once after the close, UW's hottest-chains screener with the whole-day version of the
+    flag (day volume ≥ 1,000 and above the day's starting open interest, ≥ $100k, ≥ 70% one side, mostly single-leg,
+    0-10% out of the money, ≤ 21 days) across every optionable US ticker. Whole-day totals, not a 5-minute burst,
+    so it is looser and slower than the live flags. On backfilled days only the NEXT earnings date was known.
   </footer>
 </main>
 <script>
@@ -98,7 +104,8 @@ function rowsFiltered(){
   if (!doc) return [];
   const g = $('#grp').value, tk = $('#tk').value, side = $('#side').value, cp = $('#cp').value,
         minp = +$('#minp').value, long = $('#long').checked;
-  return doc.flags.filter(f => (!g || (g === 'etf') === ETFS.has(f.tk)) && (!tk || f.tk === tk)
+  const isEtf = f => f.issue ? f.issue === 'ETF' : ETFS.has(f.tk);
+  return doc.flags.filter(f => (!g || (g === 'etf') === isEtf(f)) && (!tk || f.tk === tk)
     && (!side || f.side === side) && (!cp || f.cp === cp) && f.prem >= minp && (!long || f.tdte >= 3));
 }
 
@@ -159,7 +166,7 @@ function render(){
 
 async function load(day){
   try {
-    const r = await fetch(`live/uoa/${day}.json`, {cache: 'no-store'});
+    const r = await fetch(`${base()}${day}.json`, {cache: 'no-store'});
     if (!r.ok) throw 0;
     doc = await r.json();
   } catch (e) { doc = {flags: []}; }
@@ -171,8 +178,9 @@ async function load(day){
   render();
 }
 
+const base = () => $('#src').value ? 'live/uoa/eod/' : 'live/uoa/';
 async function init(){
-  try { dates = (await (await fetch('live/uoa/index.json', {cache: 'no-store'})).json()).dates || []; } catch (e) { dates = []; }
+  try { dates = (await (await fetch(`${base()}index.json`, {cache: 'no-store'})).json()).dates || []; } catch (e) { dates = []; }
   $('#day').innerHTML = dates.map(d => `<option>${d}</option>`).join('');
   const want = new URLSearchParams(location.search).get('date');
   if (dates.length) load(want && dates.includes(want) ? want : dates[0]);
@@ -183,6 +191,8 @@ $('#prev').onclick = () => step(-1);
 $('#next').onclick = () => step(1);
 $('#day').onchange = () => load($('#day').value);
 for (const id of ['grp', 'tk', 'side', 'cp', 'minp', 'long']) $('#' + id).onchange = render;
+$('#src').onchange = () => { $('#tk').value = ''; init(); };
+if (new URLSearchParams(location.search).get('src') === 'eod') $('#src').value = 'eod';   // linkable: uoa.html?src=eod
 setInterval(() => { if (dates.length && $('#day').value === dates[0]) load(dates[0]); }, 60000);
 init();
 </script>

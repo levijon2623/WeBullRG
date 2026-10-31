@@ -22,6 +22,13 @@ FLAG (the check_uoa_paths EVENT, so the page and the forward test agree):
   Live = the change between two passes of UW's contract rows. Backfill = the
   lake's minute bars summed into the same 5-minute buckets (--backfill).
 UNIVERSE  SPY QQQ IWM + the 31 names of check_uoa_paths (no index roots).
+EOD MARKET SCAN (user, 2026-10-31) once after the close, the whole market in ONE call:
+  UW /screener/option-contracts (hottest chains) with the DAILY-TOTAL version of the flag --
+  day volume >= 1,000 and > start-of-day OI, premium >= $100k, >= 70% one side (min_skew_perc),
+  multi-leg < 50%, OTM; then 0-10% OTM and <= 21 days to expiry client-side (the server's
+  max_dte counts from TODAY on past dates, and it has no OTM cap). ~150-300 contracts a day.
+  Whole-day totals, not a 5-minute burst: a looser, slower cousin of the live flag.
+  -> live/uoa/eod/DATE.json, same flag schema (t = "EOD"), same morning confirm.
 CONFIRM   each morning from 06:45 ET: /option-contract/{occ}/historic -> the
   next session's start-of-day OI (what the flag day left behind) and the
   contract's price path since (best high, last), for flags of the last 10
@@ -39,11 +46,13 @@ OUTPUT (live/, gitignored)
   live/uoa/DATE.json     {date, updated_et, source, flags: [...]}
   live/uoa/index.json    dates with a file, newest first
   live/uoa/state.json    the last pass's rows (restart-safe diffing)
+  live/uoa/eod/DATE.json + eod/index.json   the EOD market scan
 
     python uoa_flags.py                              # service loop (cleanbot-uoa)
     python uoa_flags.py --pass                       # one live pass now
     python uoa_flags.py --confirm [--date D]         # one confirm pass (D = as-of morning)
     python uoa_flags.py --backfill 2026-10-19 2026-10-30   # from the local lake (PC only, polars)
+    python uoa_flags.py --eod [--date D | --eod-range D1 D2]  # the EOD market scan (D = a past session)
 """
 from __future__ import annotations
 
@@ -73,6 +82,8 @@ MIN_VOL, MIN_PREM, SIDE, MLEG, VOL_X_OI, MAX_OTM, MAX_DTE = 1000, 1e5, 0.70, 0.5
 START, END = 9 * 60 + 35, 16 * 60 + 5            # pass window (ET minutes)
 CONFIRM_START, CONFIRM_END = 6 * 60 + 45, 9 * 60 + 25
 LOOKBACK = 10                                    # sessions of flags kept current each morning
+EOD_RUN, EOD_LOOKBACK = 16 * 60 + 30, 5          # market scan after the close; ~200/day -> fewer sessions refreshed
+EOD = "eod"
 CAP = 500                                        # UW's row cap per contract-list call
 
 
@@ -86,16 +97,17 @@ def _load(p, default=None):
 
 
 def _write(name, doc):
-    os.makedirs(OUT, exist_ok=True)
     p = os.path.join(OUT, name)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p + ".tmp", "w", encoding="utf-8") as f:
         json.dump(doc, f, separators=(",", ":"))
     os.replace(p + ".tmp", p)
 
 
-def _index():
-    ds = sorted((f[:10] for f in os.listdir(OUT) if f[:4].isdigit() and f.endswith(".json")), reverse=True)
-    _write("index.json", {"dates": ds})
+def _index(sub=""):
+    d = os.path.join(OUT, sub)
+    ds = sorted((f[:10] for f in os.listdir(d) if f[:4].isdigit() and f.endswith(".json")), reverse=True)
+    _write(os.path.join(sub, "index.json"), {"dates": ds})
 
 
 def tdte(day, exp):
@@ -272,15 +284,16 @@ def verdict(side, doi, vol):
     return "closing"
 
 
-def confirm_pass(uw, today):
-    """fill next-session OI and the price path for the last LOOKBACK sessions' flags. Returns (done, pending)."""
-    if not os.path.isdir(OUT):
+def confirm_pass(uw, today, sub="", lookback=LOOKBACK):
+    """fill next-session OI and the price path for the last `lookback` sessions' flags. Returns (done, pending)."""
+    base = os.path.join(OUT, sub)
+    if not os.path.isdir(base):
         return 0, 0
-    days = sorted(f[:10] for f in os.listdir(OUT) if f[:4].isdigit() and f.endswith(".json"))
-    days = [d for d in days if d < today.isoformat()][-LOOKBACK:]
+    days = sorted(f[:10] for f in os.listdir(base) if f[:4].isdigit() and f.endswith(".json"))
+    days = [d for d in days if d < today.isoformat()][-lookback:]
     done = pending = 0
     for dstr in days:
-        path = os.path.join(OUT, f"{dstr}.json")
+        path = os.path.join(base, f"{dstr}.json")
         doc = _load(path)
         if not doc or not doc.get("flags"):
             continue
@@ -327,8 +340,59 @@ def confirm_pass(uw, today):
                 f["flag_vol_day"] = tot[f["sym"]]
                 f["status"] = verdict(f["side"], f["doi"], tot[f["sym"]])
         doc["confirmed_et"] = dt.datetime.now(NY).strftime("%Y-%m-%d %H:%M")
-        _write(f"{dstr}.json", doc)
+        _write(os.path.join(sub, f"{dstr}.json"), doc)
     return done, pending
+
+
+# ------------------------------------------------------------------ EOD market scan
+EOD_PARAMS = dict(max_dte=MAX_DTE, min_volume=MIN_VOL, min_premium=int(MIN_PREM), vol_greater_oi="true",
+                  max_multileg_volume_ratio=str(MLEG), min_skew_perc=str(SIDE), exclude_itm="true",
+                  order="premium", order_direction="desc", limit=500)
+
+
+def eod_scan(uw, day):
+    """the whole market's daily-total flags for `day` (a finished session). Returns the flag count."""
+    rows = []
+    for page in range(8):
+        x = uw.get("/screener/option-contracts", date=day.isoformat(), page=page, **EOD_PARAMS).get("data") or []
+        rows += x
+        if len(x) < 500:
+            break
+    n, flags = P.num, []
+    for r in rows:
+        try:
+            exp = dt.date.fromisoformat((r.get("expiry") or "")[:10])
+        except ValueError:
+            continue
+        v, s, k = n(r.get("volume")) or 0, n(r.get("stock_price")), n(r.get("strike"))
+        if not v or not s or not k:
+            continue
+        cp = "C" if r.get("option_type") == "call" else "P"
+        otm = (k / s - 1) if cp == "C" else (1 - k / s)
+        dte = (exp - day).days
+        a, b = n(r.get("ask_side_volume")) or 0, n(r.get("bid_side_volume")) or 0
+        side = "bought" if a >= SIDE * v else "sold" if b >= SIDE * v else None
+        if side is None or not (0 < otm <= MAX_OTM) or not (0 <= dte <= MAX_DTE):
+            continue
+        oi = int(n(r.get("open_interest")) or 0)
+        prem = n(r.get("premium")) or 0
+        f = {"id": f"{r['option_symbol']}@EOD", "t": "EOD", "tk": r.get("ticker_symbol"), "sym": r["option_symbol"],
+             "cp": cp, "k": k, "exp": exp.isoformat(), "dte": dte, "tdte": tdte(day, exp), "spot": round(s, 2),
+             "otm": round(otm, 4), "side": side, "vol": int(v), "ask": round(a / v, 3), "bid": round(b / v, 3),
+             "mleg": round((n(r.get("multileg_volume")) or 0) / v, 3), "prem": round(prem),
+             "px": round(n(r.get("avg_price")) or prem / v / 100, 3), "oi": oi, "voi": round(v / oi, 1) if oi else None,
+             "day_vol": int(v), "win": None, "src": "eod", "issue": r.get("issue_type"), "sector": r.get("sector"),
+             "sweep": round((n(r.get("sweep_volume")) or 0) / v, 3), "is_new": bool(r.get("is_new")),
+             "days_oi_up": r.get("days_of_oi_increases"), "days_vol_gt_oi": r.get("days_of_vol_greater_than_oi")}
+        er = (r.get("next_earnings_date") or "")[:10]
+        if er and day.isoformat() <= er <= f["exp"]:
+            f["er"] = er + {"premarket": " pre", "afterhours": " post", "postmarket": " post"}.get(r.get("er_time") or "", "")
+        flags.append(f)
+    _write(os.path.join(EOD, f"{day}.json"), {
+        "date": day.isoformat(), "updated_et": dt.datetime.now(NY).strftime("%H:%M"), "flags": flags,
+        "source": "EOD market scan (UW hottest chains, whole-day totals)", "screened": len(rows)})
+    _index(EOD)
+    return len(flags)
 
 
 # ------------------------------------------------------------------ backfill (PC, local lake)
@@ -379,6 +443,8 @@ def main():
     ap.add_argument("--confirm", action="store_true")
     ap.add_argument("--date")
     ap.add_argument("--backfill", nargs=2, metavar=("FROM", "TO"))
+    ap.add_argument("--eod", action="store_true")
+    ap.add_argument("--eod-range", nargs=2, metavar=("FROM", "TO"))
     a = ap.parse_args()
     if a.backfill:
         backfill(dt.date.fromisoformat(a.backfill[0]), dt.date.fromisoformat(a.backfill[1]))
@@ -388,11 +454,18 @@ def main():
     if a.one:
         print(live_pass(uw, now.date(), now))
         return
+    if a.eod or a.eod_range:
+        days = (MC.trading_days(*map(dt.date.fromisoformat, a.eod_range)) if a.eod_range
+                else [dt.date.fromisoformat(a.date) if a.date else now.date()])
+        for d in days:
+            print(d, eod_scan(uw, d))
+        return
     if a.confirm:
-        print(confirm_pass(uw, dt.date.fromisoformat(a.date) if a.date else now.date()))
+        d = dt.date.fromisoformat(a.date) if a.date else now.date()
+        print(confirm_pass(uw, d), confirm_pass(uw, d, EOD, EOD_LOOKBACK))
         return
     print("  🚩 [UOA] service up (confirm 06:45-09:25 ET, passes every 5 min 09:35-16:05)", flush=True)
-    last_pass, confirmed = 0.0, {}
+    last_pass, confirmed, eod_done = 0.0, {}, set()
     while True:
         now = dt.datetime.now(NY)
         day, mod = now.date(), now.hour * 60 + now.minute
@@ -401,6 +474,8 @@ def main():
                     and time.time() - confirmed.get((day, "t"), 0) >= 600:
                 try:
                     d, pnd = confirm_pass(uw, day)
+                    d2, pnd2 = confirm_pass(uw, day, EOD, EOD_LOOKBACK)
+                    d, pnd = d + d2, pnd + pnd2
                     confirmed[(day, "t")] = time.time()
                     print(f"  🚩 [UOA] confirm {now:%H:%M}: {d} filled, {pnd} pending", flush=True)
                     if pnd == 0:
@@ -415,6 +490,12 @@ def main():
                         print(f"  🚩 [UOA] {now:%H:%M} +{n} flag(s) ({ok} tickers)", flush=True)
                 except Exception as e:                     # noqa: BLE001
                     print(f"  🚩 [UOA] pass error {type(e).__name__}: {str(e)[:160]}", flush=True)
+            if mod >= EOD_RUN and day not in eod_done:
+                eod_done.add(day)
+                try:
+                    print(f"  🚩 [UOA] EOD market scan: {eod_scan(uw, day)} flag(s)", flush=True)
+                except Exception as e:                     # noqa: BLE001
+                    print(f"  🚩 [UOA] EOD scan error {type(e).__name__}: {str(e)[:160]}", flush=True)
         time.sleep(20)
 
 

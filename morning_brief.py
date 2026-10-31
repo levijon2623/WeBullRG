@@ -77,6 +77,8 @@ Rules:
 - `uoa` lists yesterday's UOA flags (big one-sided bursts on single contracts) and whether this morning's open
   interest confirmed them. Put them in overnight_positioning: the biggest few, who was on which side, and what
   stuck. A flag spanning an earnings report (`er`) is mostly an event bet -- say so. Never suggest following them.
+  `uoa.market_eod` is a whole-market version (whole-day totals): mention at most two names outside our tickers,
+  only if large.
 - `analysts` lists overnight rating changes on the tickers we follow: mention upgrades / downgrades / initiations
   in the news section as plain facts.
 
@@ -305,6 +307,18 @@ def uoa(day):
            "largest": [row(f) for f in top],
            "definition": "one contract, ~5 min: >= 1,000 contracts and >= $100k, >= 70% at the ask (bought) or bid "
                          "(sold), mostly single-leg, >= the day's starting OI, 0-10% OTM; >= 3 trading days left"}
+    m = _load(os.path.join(LIVE, "uoa", "eod", f"{prev}.json"))
+    if m and m.get("flags"):
+        mf = [f for f in m["flags"] if f.get("tdte", 0) >= 3]
+        tot = {}
+        for f in mf:
+            tot[f["tk"]] = tot.get(f["tk"], 0) + f["prem"]
+        out["market_eod"] = {
+            "what": "whole-market scan after the close (UW hottest chains): whole-day volume > starting OI, "
+                    ">= 70% one side, >= $100k, 0-10% OTM, >= 3 trading days left -- looser than the 5-min flags",
+            "flags": len(mf), "outside_our_tickers": sum(f["tk"] not in UOA_UNIVERSE for f in mf),
+            "top_tickers_by_premium": {t: _money(v) for t, v in sorted(tot.items(), key=lambda kv: -kv[1])[:8]},
+            "largest": [dict(row(f), when="EOD") for f in sorted(mf, key=lambda f: -f["prem"])[:8]]}
     flags = [f"UOA {r['contract']}: {r['contracts']:,} {r['side']} at {r['when']} ({r['premium']}), "
              f"next-day OI {r['next_day_oi_change']:+,} ({r['verdict']})"
              for r in out["largest"] if r["verdict"] in ("opened", "written")][:UOA_FLAG_MAX]
