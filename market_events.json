@@ -1,0 +1,30 @@
+{
+  "_about": "Curated market events for the positioning map's column headers (user, 2026-11-01). positioning_map.py merges these with UW's /market/economic-calendar (current week only, US data releases) and market_calendar holidays into live/posmap/events.json. Times ET. kind: fed | election | data | treasury | market. tier 1 = shown in the header, 2 = tooltip only. Sources: federalreserve.gov/monetarypolicy/fomccalendars.htm (dates tentative until the meeting before confirms them; * = SEP), bls.gov/schedule/2026/11_sched_list.htm + 12_sched_list.htm (as of 2026-11-01). Add new months as the agencies publish them.",
+  "events": [
+    {"d": "2026-11-03", "t": "",      "name": "US midterm elections (results after the close)", "short": "ELECT", "kind": "election", "tier": 1},
+    {"d": "2026-11-03", "t": "10:00", "name": "JOLTS (Sep)", "short": "JOLTS", "kind": "data", "tier": 2},
+    {"d": "2026-11-04", "t": "08:30", "name": "Treasury quarterly refunding statement", "short": "REFUND", "kind": "treasury", "tier": 1},
+    {"d": "2026-11-05", "t": "08:30", "name": "Productivity & costs (Q3 prelim)", "short": "PROD", "kind": "data", "tier": 2},
+    {"d": "2026-11-06", "t": "08:30", "name": "Employment report (Oct)", "short": "NFP", "kind": "data", "tier": 1},
+    {"d": "2026-11-10", "t": "08:30", "name": "CPI (Oct)", "short": "CPI", "kind": "data", "tier": 1},
+    {"d": "2026-11-11", "t": "",      "name": "Veterans Day: bond market closed, stocks open", "short": "VETS", "kind": "market", "tier": 2},
+    {"d": "2026-11-13", "t": "08:30", "name": "PPI (Oct)", "short": "PPI", "kind": "data", "tier": 1},
+    {"d": "2026-11-20", "t": "",      "name": "Monthly options expiration (SPX AM settlement at the open)", "short": "OPEX", "kind": "market", "tier": 1},
+    {"d": "2026-11-27", "t": "13:00", "name": "Early close (stocks 13:00, options 13:15)", "short": "EARLY", "kind": "market", "tier": 1},
+    {"d": "2026-12-01", "t": "10:00", "name": "JOLTS (Oct)", "short": "JOLTS", "kind": "data", "tier": 2},
+    {"d": "2026-12-04", "t": "08:30", "name": "Employment report (Nov)", "short": "NFP", "kind": "data", "tier": 1},
+    {"d": "2026-12-09", "t": "14:00", "name": "FOMC decision + SEP, press conference 14:30", "short": "FOMC", "kind": "fed", "tier": 1},
+    {"d": "2026-12-10", "t": "08:30", "name": "CPI (Nov)", "short": "CPI", "kind": "data", "tier": 1},
+    {"d": "2026-12-15", "t": "08:30", "name": "PPI (Nov)", "short": "PPI", "kind": "data", "tier": 1},
+    {"d": "2026-12-18", "t": "",      "name": "Quarterly options expiration (quad witching; SPX AM settlement)", "short": "OPEX", "kind": "market", "tier": 1},
+    {"d": "2026-12-24", "t": "13:00", "name": "Early close (stocks 13:00, options 13:15)", "short": "EARLY", "kind": "market", "tier": 1},
+    {"d": "2027-01-27", "t": "14:00", "name": "FOMC decision, press conference 14:30", "short": "FOMC", "kind": "fed", "tier": 1},
+    {"d": "2027-03-17", "t": "14:00", "name": "FOMC decision + SEP, press conference 14:30", "short": "FOMC", "kind": "fed", "tier": 1},
+    {"d": "2027-04-28", "t": "14:00", "name": "FOMC decision, press conference 14:30", "short": "FOMC", "kind": "fed", "tier": 1},
+    {"d": "2027-06-09", "t": "14:00", "name": "FOMC decision + SEP, press conference 14:30", "short": "FOMC", "kind": "fed", "tier": 1},
+    {"d": "2027-07-28", "t": "14:00", "name": "FOMC decision, press conference 14:30", "short": "FOMC", "kind": "fed", "tier": 1},
+    {"d": "2027-09-15", "t": "14:00", "name": "FOMC decision + SEP, press conference 14:30", "short": "FOMC", "kind": "fed", "tier": 1},
+    {"d": "2027-10-27", "t": "14:00", "name": "FOMC decision, press conference 14:30", "short": "FOMC", "kind": "fed", "tier": 1},
+    {"d": "2027-12-08", "t": "14:00", "name": "FOMC decision + SEP, press conference 14:30", "short": "FOMC", "kind": "fed", "tier": 1}
+  ]
+}

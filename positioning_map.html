@@ -23,6 +23,10 @@
   LINES  yellow = cumulative zero-gamma (flip) level per expiry; white dashed
          = spot; dotted = last close. Strip above the columns = IV - realized
          vol (IVRP), left of centre cheap, right rich.
+  EVENTS (user, 2026-11-01) second header row of each column: the major events
+         on or before that expiry since the previous column (‹ = an earlier
+         day), coloured by kind; hover the header for all of them with times.
+         live/posmap/events.json (positioning_map.py events_update).
   CONTEXT, NOT A SIGNAL: see positioning_map.py.
 -->
 <style>
@@ -103,7 +107,13 @@
 const $ = s => document.querySelector(s);
 const MK = [['SP', 'S&P'], ['QQQ', 'QQQ'], ['IWM', 'IWM']];
 const qs = new URLSearchParams(location.search), DATE = qs.get('date');
-let mk = qs.get('m') || localGet('pm_mk') || 'SP', doc = null, today = null, layout = null, sel = null, hiLegs = null;
+let mk = qs.get('m') || localGet('pm_mk') || 'SP', doc = null, today = null, layout = null, sel = null, hiLegs = null, EV = [];
+const EVC = {fed: '#d2a8ff', election: '#ff7b72', data: '#79c0ff', treasury: '#7ee787', market: '#c9d1d9'};
+/* events for column j: after the previous column's date (or the map's date) up to and including this expiry */
+function colEvents(cols, j){
+  const from = j ? cols[j - 1].e : (doc.date || cols[0].e), to = cols[j].e;
+  return EV.filter(v => (j ? v.d > from : v.d >= from) && v.d <= to);
+}
 function localGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
 function localSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -138,6 +148,8 @@ function legend(){
       : `<span><i style="background:${C[k]}"></i>${t}</span>`).join('') +
     `<span>cell: calls left · puts right</span><span><i style="background:${C.flip};height:2px"></i>zero-gamma (flip), cumulative</span>` +
     `<span><i style="background:#e6edf3;height:2px"></i>spot</span><span>top strip: IV − realized (IVRP)</span>` +
+    `<span>events: ${Object.entries({fed: 'Fed', election: 'election', data: 'data', treasury: 'Treasury', market: 'market'})
+      .map(([k, t]) => `<b style="color:${EVC[k]};font-weight:400">${t}</b>`).join(' · ')} (hover a header)</span>` +
     `<span>context, not a signal</span>`;
 }
 
@@ -202,7 +214,7 @@ function draw(){
   const maxD = +$('#rng').value, zoom = +$('#zoom').value, S = doc.spot;
   const cols = doc.expiries.map((e, i) => ({...e, i})).filter(e => e.dte <= maxD);
   const lo = S * (1 - zoom), hi = S * (1 + zoom);
-  const AX = 58, TOP = 64, BOT = 6, pw = W - AX, ph = H - TOP - BOT;
+  const AX = 58, TOP = 78, BOT = 6, pw = W - AX, ph = H - TOP - BOT;
   const y = p => TOP + (hi - p) / (hi - lo) * ph;
   const cw = pw / Math.max(cols.length, 1);
   const cells = cellsFor(), L = $('#layer').value, view = $('#view').value;
@@ -254,17 +266,27 @@ function draw(){
     g.save(); g.beginPath(); g.rect(x0, 0, cw - 2, TOP); g.clip();          // headers stay inside their column
     g.fillStyle = c.dte === 0 ? '#a371f7' : '#8b949e';
     g.fillText(narrow ? c.e.slice(5) : `${dlab(c.e)} · ${expired(c.e) ? 'expired' : c.dte + 'D'}`, x0 + 3, 13);
+    // events row: tier-1 labels in their kind's colour (‹ = before the expiry day), a top tick in the first one's colour
+    const evs = colEvents(cols, j), ev1 = evs.filter(v => v.tier === 1);
+    if (ev1.length){
+      g.fillStyle = EVC[ev1[0].kind] || '#c9d1d9'; g.fillRect(x0 + 1, 0, cw - 2, 2);
+      g.font = 'bold 10px ui-monospace,monospace'; let ex = x0 + 3;
+      for (const v of ev1.filter((v, i, a) => a.findIndex(w => w.short === v.short && w.d === v.d) === i)){
+        const s = (v.d < c.e ? '‹' : '') + v.short;
+        g.fillStyle = EVC[v.kind] || '#c9d1d9'; g.fillText(s, ex, 26); ex += g.measureText(s).width + 6;
+      }
+    } else if (evs.length && !narrow){ g.fillStyle = '#6e7681'; g.font = '10px ui-monospace,monospace'; g.fillText(`${evs.length} minor`, x0 + 3, 26); }
     g.fillStyle = '#6e7681'; g.font = '10px ui-monospace,monospace';
-    if (!narrow) g.fillText(`ΔOI ${fmtN(c.d_oi)}`, x0 + 3, 25);
+    if (!narrow) g.fillText(`ΔOI ${fmtN(c.d_oi)}`, x0 + 3, 39);
     g.restore(); g.font = '11px ui-monospace,monospace';
     // IVRP bar: centre of the column, ±12 vol points across the half width
     const cx = x0 + cw / 2, v = c.ivrp;
-    g.strokeStyle = '#30363d'; g.beginPath(); g.moveTo(cx, 32); g.lineTo(cx, 50); g.stroke();
+    g.strokeStyle = '#30363d'; g.beginPath(); g.moveTo(cx, 45); g.lineTo(cx, 63); g.stroke();
     if (v != null){
       const w = Math.max(-1, Math.min(1, v / 12)) * (cw / 2 - 3);
-      g.fillStyle = v >= 0 ? '#a371f7' : '#39c5cf'; g.fillRect(Math.min(cx, cx + w), 36, Math.abs(w), 10);
+      g.fillStyle = v >= 0 ? '#a371f7' : '#39c5cf'; g.fillRect(Math.min(cx, cx + w), 49, Math.abs(w), 10);
       if (!narrow){ g.fillStyle = '#8b949e'; g.font = '10px ui-monospace,monospace';
-        g.fillText(`${v > 0 ? '+' : ''}${v.toFixed(1)}`, v >= 0 ? x0 + 3 : x0 + cw - 30, 60); g.font = '11px ui-monospace,monospace'; }
+        g.fillText(`${v > 0 ? '+' : ''}${v.toFixed(1)}`, v >= 0 ? x0 + 3 : x0 + cw - 30, 74); g.font = '11px ui-monospace,monospace'; }
     }
   });
   g.fillStyle = '#8b949e';
@@ -421,11 +443,24 @@ function cellAt(ev){
   const k = Math.round(hi - (my - TOP) / ph * (hi - lo));
   return {ei: cols[j].i, k, mx, my};
 }
+/* header hover: that column's events with times */
+function headerAt(ev){
+  if (!layout || layout.view === 'ivrp') return null;
+  const r = $('#wrap').getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  if (my >= layout.TOP || mx > layout.pw) return null;
+  const j = Math.floor(mx / layout.cw); if (j < 0 || j >= layout.cols.length) return null;
+  const evs = colEvents(layout.cols, j);
+  return {mx, my, s: `${dlab(layout.cols[j].e)} expiry — events since the previous column\n` + (evs.length
+    ? evs.map(v => `${dlab(v.d)} ${v.t || '     '}  ${v.tier === 1 ? '●' : '·'} ${v.name}` +
+        (v.prev != null && v.prev !== '' ? `  (prev ${v.prev}${v.forecast != null ? ', fcst ' + v.forecast : ''})` : '')).join('\n')
+    : '(none on file)')};
+}
 $('#wrap').addEventListener('mousemove', ev => {
-  const tip = $('#tip'), c = cellAt(ev);
+  const tip = $('#tip'), hd = headerAt(ev), c = hd || cellAt(ev);
   if (!c){ tip.style.display = 'none'; return; }
   let s;
-  if (c.sym){ const ix = Object.fromEntries(doc.detail_cols.map((x, i) => [x, i])), d = doc.detail[c.sym];
+  if (hd) s = hd.s;
+  else if (c.sym){ const ix = Object.fromEntries(doc.detail_cols.map((x, i) => [x, i])), d = doc.detail[c.sym];
     s = `${d[ix.root]} ${d[ix.exp]} ${d[ix.k]}${d[ix.cp]}\nOI ${fmtN(d[ix.oi])}  ΔOI ${sg(d[ix.d_oi])}\nask ${pct(d[ix.ask])} · bid ${pct(d[ix.bid])} · mleg ${pct(d[ix.mleg])}\nIV − RV ${d[ix.ivrp]} vol pts · prem $${fmtN(d[ix.prem])}`; }
   else {
     const z = layout.cells.get(c.ei + '|' + c.k), e = doc.expiries[c.ei];
@@ -472,6 +507,8 @@ async function load(){
   try { const r = await fetch('live/posmap/' + mk + '_today.json?t=' + Date.now()); today = r.ok ? await r.json() : null; }
   catch(e){ today = null; }
   if (today && doc && today.date !== doc.date) today = null;
+  try { const r = await fetch('live/posmap/events.json?t=' + Date.now()); EV = r.ok ? ((await r.json()).events || []) : []; }
+  catch(e){ EV = []; }
   $('#info').textContent = doc ? `${doc.label} · ${doc.date} · ${doc.phase === 'pre' ? 'pre-open' : 'at open'} ${doc.built_et.slice(11, 16)} ET` +
     (today ? ` · today's flow ${today.waiting ? 'waiting' : today.updated_et}` : '') : 'no map';
   draw(); sidePanel();

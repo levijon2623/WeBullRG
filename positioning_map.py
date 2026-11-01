@@ -54,6 +54,11 @@ OUTPUT (live/, gitignored)
     python positioning_map.py                       # service loop (cleanbot-posmap)
     python positioning_map.py --build [--date D]    # one build now (D = as-of date)
     python positioning_map.py --today               # one intraday overlay pass
+    python positioning_map.py --events             # refresh live/posmap/events.json only
+
+EVENTS (user, 2026-11-01) live/posmap/events.json, refreshed with every build: UW's economic calendar
+  (this week's US releases) + market_events.json (curated: Fed, elections, refunding, BLS months ahead,
+  OPEX, early closes) + market_calendar holidays. The page puts them at the top of each date column.
 """
 from __future__ import annotations
 
@@ -486,6 +491,68 @@ def write(name, doc, archive_day=None):
             json.dump(doc, f, separators=(",", ":"))
 
 
+# ------------------------------------------------------------------ events (column headers, user 2026-11-01)
+# UW's economic calendar = the CURRENT week's US releases only (it ignores date=); merged with the curated
+# market_events.json (Fed, elections, refunding, BLS months ahead, OPEX, early closes) and market_calendar
+# holidays. UW rows are kept once seen, so past weeks stay on archived maps.
+UW_EVENTS = [                       # (regex on UW's event name, short label, tier) -- first match wins
+    (r"^Employment Report", "NFP", 1), (r"Unemployment Rate|Avg Hourly Earnings", "NFP", 2),
+    (r"\bCPI\b|Consumer Price", "CPI", 1), (r"\bPPI\b|Producer Price", "PPI", 1),
+    (r"\bPCE\b|Personal (Income|Spending)", "PCE", 1), (r"\bGDP\b", "GDP", 1),
+    (r"Retail Sales", "RETAIL", 1), (r"FOMC|Fed(eral Reserve)? (Rate|Interest)", "FOMC", 1),
+    (r"^ISM .*Manufacturing", "ISM-M", 1), (r"^ISM .*Services", "ISM-S", 1),
+    (r"Job Openings", "JOLTS", 2), (r"^ADP", "ADP", 2), (r"Jobless Claims", "CLAIMS", 2),
+    (r"Michigan", "UMICH", 2),
+]
+
+
+def events_update(uw, day):
+    path = os.path.join(OUT, "events.json")
+    try:
+        old = json.load(open(path, encoding="utf-8")).get("events", [])
+    except (OSError, ValueError):
+        old = []
+    seen = {(e["d"], e["t"], e["name"]): e for e in old if e.get("src") == "uw"}
+    rows = []
+    for r in uw.get("/market/economic-calendar").get("data") or []:
+        try:
+            rows.append((dt.datetime.fromisoformat(r["time"].replace("Z", "+00:00")), r))
+        except (KeyError, ValueError, AttributeError):
+            continue
+    # UW's "Z" times kept the EDT offset after the clocks changed (11-01: payrolls 12:30Z = 07:30 EST, really
+    # 08:30). Anchor the offset on releases that are always 08:30 ET (claims come out every week); else trust it.
+    fix = None
+    for u, r in rows:
+        if re.search(r"^Employment Report|Jobless Claims|\bCPI\b|\bPPI\b|Retail Sales", r.get("event") or ""):
+            et = u.astimezone(NY)
+            fix = dt.timedelta(minutes=8 * 60 + 30 - (et.hour * 60 + et.minute))
+            break
+    for u, r in rows:
+        t = u.astimezone(NY) + (fix or dt.timedelta(0))
+        name = (r.get("event") or "").strip()
+        short, tier = next(((s, k) for rx, s, k in UW_EVENTS if re.search(rx, name)), (None, 2))
+        per = r.get("reported_period")
+        seen[(t.date().isoformat(), t.strftime("%H:%M"), name)] = dict(
+            d=t.date().isoformat(), t=t.strftime("%H:%M"), name=name + (f" ({per})" if per else ""),
+            short=short or name[:8], kind="fed" if short == "FOMC" else "data", tier=tier, src="uw",
+            prev=r.get("prev"), forecast=r.get("forecast"))
+    try:
+        cur = json.load(open(os.path.join(ROOT, "market_events.json"), encoding="utf-8")).get("events", [])
+    except (OSError, ValueError):
+        cur = []
+    uw_keys = {(e["d"], e["short"]) for e in seen.values()}
+    ev = list(seen.values()) + [dict(e, src="curated") for e in cur if (e["d"], e["short"]) not in uw_keys]
+    import market_calendar as MC
+    for i in range(MAX_DAYS + 1):
+        d = day + dt.timedelta(days=i)
+        if d.weekday() < 5 and not MC.is_trading_day(d):
+            ev.append(dict(d=d.isoformat(), t="", name="Market closed (holiday)", short="CLOSED", kind="market",
+                           tier=1, src="calendar"))
+    ev.sort(key=lambda e: (e["d"], e["t"] or "99", e["tier"]))
+    write("events.json", {"updated_et": dt.datetime.now(NY).strftime("%Y-%m-%d %H:%M"), "events": ev})
+    return len(ev)
+
+
 def built(day, phase):
     """did this phase's build already run today? (its archive holds every market) -- a restart mid-session
     must pick up where the service was, not wait for a pre-open window that has passed"""
@@ -495,6 +562,10 @@ def built(day, phase):
 
 def build_all(uw, day, now, phase):
     ok = True
+    try:
+        print(f"  🗺️ [POSMAP] events: {events_update(uw, day)}", flush=True)
+    except Exception as e:                               # noqa: BLE001 -- events never block the map
+        print(f"  🗺️ [POSMAP] events error {type(e).__name__}: {str(e)[:160]}", flush=True)
     for key in MARKETS:
         doc, err = build_market(uw, key, day, now, phase)
         if doc is None:
@@ -578,11 +649,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", action="store_true")
     ap.add_argument("--today", action="store_true")
+    ap.add_argument("--events", action="store_true")
     ap.add_argument("--date")
     ap.add_argument("--phase", default="pre")
     a = ap.parse_args()
     uw = UW()
     now = dt.datetime.now(NY)
+    if a.events:
+        print(events_update(uw, now.date()))
+        return
     if a.build:
         day = dt.date.fromisoformat(a.date) if a.date else now.date()
         build_all(uw, day, now if not a.date else dt.datetime(day.year, day.month, day.day, 7, 35, tzinfo=NY), a.phase)
