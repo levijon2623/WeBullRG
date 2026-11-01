@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1080">
+<title>Event Week Positioning</title>
+<!-- Share card (README.md). Numbers: probe_event_window.py --asof 2026-10-30 (UW option-contracts, greek-flow,
+     oi-per-expiry; positioning_map.py zero-gamma; events: Fed / BLS calendars + UW economic calendar);
+     cards: make_event_cards.py. -->
+<link rel="stylesheet" href="card.css">
+<style>
+  .tbl{width:100%;border-collapse:collapse;font-size:14.5px}
+  .tbl th{color:var(--muted);font-weight:600;font-size:12.5px;text-align:right;padding:4px 7px;border-bottom:1px solid var(--line)}
+  .tbl td{padding:6px 7px;text-align:right;border-bottom:1px solid var(--grid);color:var(--ink2);white-space:nowrap}
+  .tbl th:first-child,.tbl td:first-child{text-align:left}
+  .tbl td:first-child{color:var(--ink);font-weight:700}
+  .tbl .ev{text-align:left;color:var(--accent);font-size:13px;white-space:normal}
+  .tbl th.ev{color:var(--muted)}
+</style></head><body>
+<div class="wrap">
+  <div class="kicker">Options positioning · event week Mon 11/2 – Fri 11/6 · as of the Fri 10/30 close</div>
+  <h1>Hedged into election week: every day is priced like an event day</h1>
+  <div class="sub">Midterms Tuesday night, payrolls Friday, ISM and Treasury refunding in between. After Friday's drop (QQQ −3.4%, SPY −1.6%), all three sit below their zero-gamma levels, and S&P and Nasdaq books lean hard to puts.</div>
+  <div class="tiles">
+    <div class="tile"><div class="v num">±2.1%</div><div class="l">QQQ's Wed 11/4 priced move (SPY ±1.1%, IWM ±1.5%)</div></div>
+    <div class="tile"><div class="v num">1.8×</div><div class="l">SPY's Wednesday vs its typical day lately (±0.62%)</div></div>
+    <div class="tile"><div class="v num">2.2× · 6.3×</div><div class="l">puts per call near the money: S&P · Nasdaq</div></div>
+    <div class="tile"><div class="v num">3 of 3</div><div class="l">below their zero-gamma level: dealer hedging adds to moves</div></div>
+  </div>
+  <div class="card">
+    <h2>What each day is priced to move</h2>
+    <div class="h2s">1-σ close-to-close move from each daily expiry's implied volatility · tick = typical day lately (21-day realized)</div>
+    <svg id="mv" width="946" height="372" role="img" aria-label="Priced daily moves for SPY, QQQ and IWM, Monday to Friday, with the week's events"></svg>
+  </div>
+  <div class="card">
+    <h2>How each book is positioned</h2>
+    <div class="h2s">Near the money = within ±4% of the close, expiries Mon 11/2 – Fri 11/6, in ETF-contract units</div>
+    <table class="tbl"><tr><th>family</th><th>close vs zero-gamma</th><th>puts per call</th><th>index share of puts</th>
+      <th>delta bought, ETF / index ($B, 5 days)</th><th>added this week: puts / calls</th></tr><tr><td>S&P 500</td><td class='num'>756.72 vs ~768 (-1.5%)</td><td class='num'>2.2×</td><td class='num'>88%</td><td class='num'>+2.0 / -1.7</td><td class='num'>+2.6M / +1.4M</td></tr><tr><td>Nasdaq-100</td><td class='num'>691.16 vs ~715 (-3.5%)</td><td class='num'>6.3×</td><td class='num'>18%</td><td class='num'>+1.0 / +0.8</td><td class='num'>+374k / +212k</td></tr><tr><td>Russell 2000</td><td class='num'>279.69 vs ~281 (-0.6%)</td><td class='num'>0.8×</td><td class='num'>43%</td><td class='num'>+0.1 / +0.1</td><td class='num'>+169k / +126k</td></tr></table>
+  </div>
+  <div class="read"><b>What would change the read:</b> a quiet election lets hedgers sell Wednesday's puts and implied volatility drop, a setup that often helps a bounce. A surprise result hits markets where dealer hedging adds to moves. <span class='mon'>Positioning is context, not a call: our own tests found it sizes moves but doesn't predict direction. Monday's open interest adds Friday's trading.</span></div>
+</div>
+<div class="foot">
+  <span>Data: Unusual Whales API · method: <b>probe_event_window.py</b> · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span>
+</div>
+<script src="card.js"></script>
+<script>
+const MV = {"SP": [["2026-11-02", 1.12], ["2026-11-03", 0.99], ["2026-11-04", 1.12], ["2026-11-05", 0.99], ["2026-11-06", 1.01]], "QQQ": [["2026-11-02", 1.85], ["2026-11-03", 1.79], ["2026-11-04", 2.07], ["2026-11-05", 1.58], ["2026-11-06", 1.72]], "IWM": [["2026-11-02", 1.4], ["2026-11-03", 1.19], ["2026-11-04", 1.52], ["2026-11-05", 1.15], ["2026-11-06", 1.45]]}, TYP = {"SP": 0.62112161731183, "QQQ": 1.2416132938353115, "IWM": 0.9499507088298578}, EV = {"2026-11-02": ["ISM mfg 10:00"], "2026-11-03": ["Election (results after the close)"], "2026-11-04": ["Treasury refunding 8:30", "ISM services 10:00"], "2026-11-05": [], "2026-11-06": ["Payrolls 8:30"]}, EXPS = ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"], EVD = '2026-11-04';
+(() => {
+  const svg = document.getElementById('mv'), W = 946, L = 70, top = 64, rowH = 100, cw = (W - L) / EXPS.length;
+  const mx = Math.max(...Object.values(MV).flat().map(p => p[1])) * 1.08, k = (cw - 34) / mx;
+  const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  EXPS.forEach((e, j) => {
+    const x = L + j * cw, d = new Date(e + 'T12:00:00');
+    txt(svg, x + 8, 16, `${DOW[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`, {fill: '#eef1f5', 'font-size': 15, 'font-weight': 700});
+    (EV[e] || []).slice(0, 2).forEach((s, i) => txt(svg, x + 8, 34 + i * 15, s, {fill: '#f0b35a', 'font-size': 12.5}));
+    if (j) el('line', {x1: x, x2: x, y1: 4, y2: top + 3 * rowH - 6, stroke: '#232c38'}, svg);
+  });
+  [['SP', 'SPY'], ['QQQ', 'QQQ'], ['IWM', 'IWM']].forEach(([key, name], i) => {
+    const y = top + i * rowH;
+    txt(svg, 0, y + rowH / 2, name, {fill: '#eef1f5', 'font-size': 17, 'font-weight': 800});
+    MV[key].forEach(([e, v], j) => {
+      const x = L + j * cw + 8, w = v * k, peak = e === EVD;
+      el('rect', {x, y: y + 26, width: w, height: 26, rx: 4, fill: '#9085e9', 'fill-opacity': peak ? 1 : 0.5}, svg);
+      txt(svg, x, y + 74, `±${v.toFixed(2)}%`, {fill: peak ? '#eef1f5' : '#b4bcc8', 'font-size': 14, 'font-weight': peak ? 800 : 600, class: 'num'});
+      const tx = x + TYP[key] * k;
+      el('line', {x1: tx, x2: tx, y1: y + 20, y2: y + 58, stroke: '#eef1f5', 'stroke-width': 2}, svg);
+    });
+    txt(svg, W - 4, y + 92, `typical day ±${TYP[key].toFixed(2)}%`, {'text-anchor': 'end', fill: '#7d8796', 'font-size': 12.5});
+  });
+})();
+</script>
+</body></html>

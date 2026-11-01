@@ -29,15 +29,13 @@ CANDIDATES = [
 ]
 
 
-def browser():
-    for p in CANDIDATES:
-        if os.path.exists(p):
-            return p
-    for name in ("msedge", "google-chrome", "chromium", "chromium-browser", "chrome"):
-        p = shutil.which(name)
-        if p:
-            return p
-    sys.exit("no Edge/Chrome found -- install one or add it to CANDIDATES")
+def browsers():
+    found = [p for p in CANDIDATES if os.path.exists(p)]
+    found += [p for p in (shutil.which(x) for x in ("msedge", "google-chrome", "chromium", "chromium-browser", "chrome"))
+              if p and p not in found]
+    if not found:
+        sys.exit("no Edge/Chrome found -- install one or add it to CANDIDATES")
+    return found
 
 
 def main():
@@ -52,22 +50,26 @@ def main():
     w, h = (int(v) for v in a.size.lower().split("x"))
     if out.exists():
         out.unlink()
-    prof = tempfile.mkdtemp(prefix="render_post_")
-    cmd = [browser(), "--headless=new", "--disable-gpu", "--hide-scrollbars",
-           f"--user-data-dir={prof}", f"--window-size={w},{h}",
-           f"--force-device-scale-factor={a.scale}", "--virtual-time-budget=5000",
-           f"--screenshot={out}", src.as_uri()]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90)
-    # 🚨 Edge on Windows returns from its launcher at once and writes the PNG a
-    # few seconds later from a child process: wait for the file to settle.
-    last, t0 = -1, time.time()
-    while time.time() - t0 < 60:
-        size = out.stat().st_size if out.exists() else -1
-        if size > 0 and size == last:
+    # 🚨 2026-11-01: Edge updated mid-session and then wrote NO screenshot, silently -> try each browser in turn
+    for exe in browsers():
+        prof = tempfile.mkdtemp(prefix="render_post_")
+        cmd = [exe, "--headless=new", "--disable-gpu", "--hide-scrollbars",
+               f"--user-data-dir={prof}", f"--window-size={w},{h}",
+               f"--force-device-scale-factor={a.scale}", "--virtual-time-budget=5000",
+               f"--screenshot={out}", src.as_uri()]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90)
+        # 🚨 Edge on Windows returns from its launcher at once and writes the PNG a
+        # few seconds later from a child process: wait for the file to settle.
+        last, t0 = -1, time.time()
+        while time.time() - t0 < 25:
+            size = out.stat().st_size if out.exists() else -1
+            if size > 0 and size == last:
+                break
+            last = size
+            time.sleep(0.75)
+        shutil.rmtree(prof, ignore_errors=True)
+        if out.exists():
             break
-        last = size
-        time.sleep(0.75)
-    shutil.rmtree(prof, ignore_errors=True)
     print(f"{out}  ({int(w * a.scale)}x{int(h * a.scale)})" if out.exists() else "render FAILED")
 
 

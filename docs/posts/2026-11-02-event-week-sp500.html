@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1080">
+<title>S&P 500 Event Week</title>
+<!-- Share card (README.md). Numbers: probe_event_window.py --asof 2026-10-30 (UW option-contracts, greek-flow,
+     oi-per-expiry; positioning_map.py zero-gamma; events: Fed / BLS calendars + UW economic calendar);
+     cards: make_event_cards.py. -->
+<link rel="stylesheet" href="card.css">
+<style>
+  .tbl{width:100%;border-collapse:collapse;font-size:14.5px}
+  .tbl th{color:var(--muted);font-weight:600;font-size:12.5px;text-align:right;padding:4px 7px;border-bottom:1px solid var(--line)}
+  .tbl td{padding:6px 7px;text-align:right;border-bottom:1px solid var(--grid);color:var(--ink2);white-space:nowrap}
+  .tbl th:first-child,.tbl td:first-child{text-align:left}
+  .tbl td:first-child{color:var(--ink);font-weight:700}
+  .tbl .ev{text-align:left;color:var(--accent);font-size:13px;white-space:normal}
+  .tbl th.ev{color:var(--muted)}
+</style></head><body>
+<div class="wrap">
+  <div class="kicker">S&P 500 · SPY + SPX · event week Mon 11/2 – Fri 11/6 · as of the Fri 10/30 close</div>
+  <h1>S&P: put walls at 747–749 into Wednesday, and SPX holds ~88% of them</h1>
+  <div class="sub">SPY closed Fri 10/30 at 756.72, about 1.5% under the ~768 zero-gamma level. Near the money, puts outnumber calls 2.2× across the week's expiries.</div>
+  <div class="tiles">
+    <div class="tile"><div class="v num">756.72</div><div class="l">SPY close · zero-gamma ~768 (+1.5% away)</div></div>
+    <div class="tile"><div class="v num">±1.1%</div><div class="l">Wed 11/4 priced move, vs a typical ±0.62% lately</div></div>
+    <div class="tile"><div class="v num">±2.3%</div><div class="l">priced 1-σ move through Fri 11/6</div></div>
+    <div class="tile"><div class="v num">+2.0 / -1.7</div><div class="l">$B delta bought into these expiries, 5 days: SPY / SPX</div></div>
+  </div>
+  <div class="card">
+    <h2>Where the open interest sits</h2>
+    <div class="h2s">Expiries Mon 11/2 – Fri 11/6 combined · SPY + SPX in SPY-contract units · strikes ±4% of the close, $2 bins</div>
+    <svg id="ld" width="946" height="410" role="img" aria-label="Call and put open interest by strike for the week's expiries"></svg>
+    <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>calls</span>
+      <span><span class="sw" style="background:var(--s2)"></span>puts</span>
+      <span><span class="sw" style="background:#eef1f5;height:3px"></span>Fri 10/30 close</span>
+      <span><span class="sw" style="background:var(--accent);height:3px"></span>zero-gamma level (dealers long calls, short puts)</span></div>
+  </div>
+  <div class="card">
+    <h2>Day by day</h2>
+    <table class="tbl"><tr><th>expiry</th><th class="ev">events that day</th><th>priced move</th><th>ATM IV</th>
+      <th>puts / calls near</th><th>puts per call</th><th>top put</th><th>top call</th></tr><tr><td>Mon 11/2</td><td class='ev'>ISM mfg 10:00</td><td class='num'>±1.12%</td><td class='num'>12.3%</td><td class='num'>847k / 478k</td><td class='num'>1.77</td><td class='num'>737</td><td class='num'>782</td></tr><tr><td>Tue 11/3</td><td class='ev'>Election (results after the close)</td><td class='num'>±0.99%</td><td class='num'>14.3%</td><td class='num'>632k / 373k</td><td class='num'>1.70</td><td class='num'>747</td><td class='num'>777</td></tr><tr><td>Wed 11/4</td><td class='ev'>Treasury refunding 8:30, ISM services 10:00</td><td class='num' style='color:var(--ink);font-weight:800'>±1.12%</td><td class='num'>16.0%</td><td class='num'>645k / 232k</td><td class='num'>2.78</td><td class='num'>749</td><td class='num'>787</td></tr><tr><td>Thu 11/5</td><td class='ev'>—</td><td class='num'>±0.99%</td><td class='num'>16.5%</td><td class='num'>379k / 177k</td><td class='num'>2.14</td><td class='num'>729</td><td class='num'>787</td></tr><tr><td>Fri 11/6</td><td class='ev'>Payrolls 8:30</td><td class='num'>±1.01%</td><td class='num'>16.9%</td><td class='num'>1.3M / 475k</td><td class='num'>2.65</td><td class='num'>757</td><td class='num'>787</td></tr></table>
+  </div>
+  <div class="read"><b>Read:</b> institutions hedged in SPX (it sold $1.7B of delta into these expiries over five sessions) while SPY traders bought $2.0B: the usual split. The 747–749 puts expire Tue/Wed; if the election passes quietly, that protection decays fast. <span class='mon'>Strikes in SPY units (SPX ÷ ~10.03). Side is read from ask/bid; open interest is start of day.</span></div>
+</div>
+<div class="foot">
+  <span>Data: Unusual Whales API · method: <b>probe_event_window.py</b> · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span>
+</div>
+<script src="card.js"></script>
+<script>
+const LD = [[786, 63228, 675], [784, 122687, 7805], [782, 231411, 9377], [780, 204456, 50979], [778, 131712, 15521], [776, 203633, 56723], [774, 151107, 97914], [772, 143337, 113194], [770, 114672, 189753], [768, 59787, 80042], [766, 84860, 167444], [764, 51841, 109601], [762, 50891, 182523], [760, 28222, 139609], [758, 6526, 80178], [756, 16931, 219771], [754, 8102, 138286], [752, 5808, 137177], [750, 3792, 154944], [748, 1772, 331463], [746, 6556, 224201], [744, 4981, 174420], [742, 1350, 164681], [740, 851, 108891], [738, 889, 55117], [736, 1047, 218929], [734, 2964, 83910], [732, 1437, 143960], [730, 732, 97325], [728, 242, 152170], [726, 17, 54207]], SPOT = 756.72, FLIP = 767.84, BIN = 2;
+(() => {
+  const svg = document.getElementById('ld'), W = 946, H = 410, mid = W / 2, gap = 40, T = 26, B = H - 4;
+  const hiK = LD[0][0] + BIN, loK = LD[LD.length - 1][0];
+  const Y = v => T + (hiK - v) / (hiK - loK) * (B - T), bh = Math.max(3, (B - T) / LD.length - 2);
+  const mx = Math.max(...LD.flatMap(r => [r[1], r[2]])), k = (mid - gap - 70) / mx;
+  const fk = v => v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : (v / 1e3).toFixed(0) + 'k';
+  const topC = [...LD].sort((a, b) => b[1] - a[1]).slice(0, 3).map(r => r[0]);
+  const topP = [...LD].sort((a, b) => b[2] - a[2]).slice(0, 3).map(r => r[0]);
+  // reference lines first, so bars and their labels sit on top
+  const line = (v, col, label, dash, right) => { if (v == null || v < loK || v > hiK) return;
+    el('line', {x1: 0, x2: W, y1: Y(v), y2: Y(v), stroke: col, 'stroke-width': 2, 'stroke-dasharray': dash}, svg);
+    txt(svg, right ? W - 2 : 2, Y(v) - 5, label, {'text-anchor': right ? 'end' : 'start', fill: col, 'font-size': 13, 'font-weight': 700}); };
+  line(SPOT, '#eef1f5', `close ${SPOT.toFixed(2)}`, '6 4', false);
+  line(FLIP, '#f0b35a', `zero-gamma ~${FLIP.toFixed(1)}`, '2 3', true);
+  LD.forEach(([b, c, p]) => {
+    const y = Y(b + BIN) + 1;
+    if (c) el('rect', {x: mid - gap / 2 - c * k, y, width: Math.max(1, c * k), height: bh, rx: 2, fill: '#9085e9'}, svg);
+    if (p) el('rect', {x: mid + gap / 2, y, width: Math.max(1, p * k), height: bh, rx: 2, fill: '#199e70'}, svg);
+    if (Math.round(b) % (BIN * 2) === 0 || topC.includes(b) || topP.includes(b))
+      txt(svg, mid, y + bh - 1, String(b), {'text-anchor': 'middle', fill: '#7d8796', 'font-size': 11.5, class: 'num'});
+    if (topC.includes(b)) txt(svg, mid - gap / 2 - c * k - 6, y + bh - 1, fk(c), {'text-anchor': 'end', fill: '#eef1f5', 'font-size': 12.5, 'font-weight': 700, class: 'num'});
+    if (topP.includes(b)) txt(svg, mid + gap / 2 + p * k + 6, y + bh - 1, fk(p), {fill: '#eef1f5', 'font-size': 12.5, 'font-weight': 700, class: 'num'});
+  });
+  txt(svg, mid - gap / 2 - 6, 16, '← calls', {'text-anchor': 'end', fill: '#7d8796', 'font-size': 12.5});
+  txt(svg, mid + gap / 2 + 6, 16, 'puts →', {fill: '#7d8796', 'font-size': 12.5});
+})();
+</script>
+</body></html>

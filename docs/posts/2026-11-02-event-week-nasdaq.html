@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1080">
+<title>Nasdaq-100 Event Week</title>
+<!-- Share card (README.md). Numbers: probe_event_window.py --asof 2026-10-30 (UW option-contracts, greek-flow,
+     oi-per-expiry; positioning_map.py zero-gamma; events: Fed / BLS calendars + UW economic calendar);
+     cards: make_event_cards.py. -->
+<link rel="stylesheet" href="card.css">
+<style>
+  .tbl{width:100%;border-collapse:collapse;font-size:14.5px}
+  .tbl th{color:var(--muted);font-weight:600;font-size:12.5px;text-align:right;padding:4px 7px;border-bottom:1px solid var(--line)}
+  .tbl td{padding:6px 7px;text-align:right;border-bottom:1px solid var(--grid);color:var(--ink2);white-space:nowrap}
+  .tbl th:first-child,.tbl td:first-child{text-align:left}
+  .tbl td:first-child{color:var(--ink);font-weight:700}
+  .tbl .ev{text-align:left;color:var(--accent);font-size:13px;white-space:normal}
+  .tbl th.ev{color:var(--muted)}
+</style></head><body>
+<div class="wrap">
+  <div class="kicker">Nasdaq-100 · QQQ + NDX · event week Mon 11/2 – Fri 11/6 · as of the Fri 10/30 close</div>
+  <h1>Nasdaq: puts outnumber calls 6× near the money after Friday's −3.4%</h1>
+  <div class="sub">QQQ closed at 691.16, about 3.5% under the ~715 zero-gamma level: the deepest of the three. The options price Wednesday at ±2.1%, the biggest day of the week.</div>
+  <div class="tiles">
+    <div class="tile"><div class="v num">691.16</div><div class="l">QQQ close · zero-gamma ~715 (+3.5% away)</div></div>
+    <div class="tile"><div class="v num">±2.1%</div><div class="l">Wed 11/4 priced move, vs a typical ±1.24% lately</div></div>
+    <div class="tile"><div class="v num">±4.0%</div><div class="l">priced 1-σ move through Fri 11/6</div></div>
+    <div class="tile"><div class="v num">+1.0 / +0.8</div><div class="l">$B delta bought into these expiries, 5 days: QQQ / NDX</div></div>
+  </div>
+  <div class="card">
+    <h2>Where the open interest sits</h2>
+    <div class="h2s">Expiries Mon 11/2 – Fri 11/6 combined · QQQ + NDX in QQQ-contract units · strikes ±4% of the close, $2 bins</div>
+    <svg id="ld" width="946" height="410" role="img" aria-label="Call and put open interest by strike for the week's expiries"></svg>
+    <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>calls</span>
+      <span><span class="sw" style="background:var(--s2)"></span>puts</span>
+      <span><span class="sw" style="background:#eef1f5;height:3px"></span>Fri 10/30 close</span>
+      <span><span class="sw" style="background:var(--accent);height:3px"></span>zero-gamma level (dealers long calls, short puts)</span></div>
+  </div>
+  <div class="card">
+    <h2>Day by day</h2>
+    <table class="tbl"><tr><th>expiry</th><th class="ev">events that day</th><th>priced move</th><th>ATM IV</th>
+      <th>puts / calls near</th><th>puts per call</th><th>top put</th><th>top call</th></tr><tr><td>Mon 11/2</td><td class='ev'>ISM mfg 10:00</td><td class='num'>±1.85%</td><td class='num'>20.4%</td><td class='num'>90k / 15k</td><td class='num'>6.03</td><td class='num'>695</td><td class='num'>725</td></tr><tr><td>Tue 11/3</td><td class='ev'>Election (results after the close)</td><td class='num'>±1.79%</td><td class='num'>24.6%</td><td class='num'>54k / 17k</td><td class='num'>3.14</td><td class='num'>680</td><td class='num'>712</td></tr><tr><td>Wed 11/4</td><td class='ev'>Treasury refunding 8:30, ISM services 10:00</td><td class='num' style='color:var(--ink);font-weight:800'>±2.07%</td><td class='num'>28.2%</td><td class='num'>33k / 9k</td><td class='num'>3.53</td><td class='num'>700</td><td class='num'>721</td></tr><tr><td>Thu 11/5</td><td class='ev'>—</td><td class='num'>±1.58%</td><td class='num'>28.6%</td><td class='num'>21k / 6k</td><td class='num'>3.31</td><td class='num'>700</td><td class='num'>710</td></tr><tr><td>Fri 11/6</td><td class='ev'>Payrolls 8:30</td><td class='num'>±1.72%</td><td class='num'>29.2%</td><td class='num'>335k / 37k</td><td class='num'>9.09</td><td class='num'>713</td><td class='num'>715</td></tr></table>
+  </div>
+  <div class="read"><b>Read:</b> the 713 puts went on with QQQ near 715 and are now in the money; 675–680 is the next layer. QQQ (+$1.0B) and NDX (+$0.8B) both bought a little delta: some dip buying, no panic. <span class='mon'>Calls drifted out of the ±4% band as QQQ fell, which lifts the ratio; NDX in QQQ units (÷ ~41).</span></div>
+</div>
+<div class="foot">
+  <span>Data: Unusual Whales API · method: <b>probe_event_window.py</b> · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span>
+</div>
+<script src="card.js"></script>
+<script>
+const LD = [[718, 4345, 4927], [716, 7269, 17575], [714, 24573, 31209], [712, 13872, 66680], [710, 13955, 34695], [708, 3698, 14759], [706, 2554, 8565], [704, 5587, 12574], [702, 1237, 12521], [700, 2775, 40874], [698, 462, 3133], [696, 452, 3887], [694, 1222, 33623], [692, 145, 25974], [690, 482, 38439], [688, 92, 5268], [686, 163, 2890], [684, 289, 19968], [682, 121, 7764], [680, 410, 50960], [678, 539, 4655], [676, 53, 5443], [674, 72, 53496], [672, 410, 3693], [670, 124, 15419], [668, 0, 5867], [666, 0, 0], [664, 65, 9355]], SPOT = 691.16, FLIP = 715.39, BIN = 2;
+(() => {
+  const svg = document.getElementById('ld'), W = 946, H = 410, mid = W / 2, gap = 40, T = 26, B = H - 4;
+  const hiK = LD[0][0] + BIN, loK = LD[LD.length - 1][0];
+  const Y = v => T + (hiK - v) / (hiK - loK) * (B - T), bh = Math.max(3, (B - T) / LD.length - 2);
+  const mx = Math.max(...LD.flatMap(r => [r[1], r[2]])), k = (mid - gap - 70) / mx;
+  const fk = v => v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : (v / 1e3).toFixed(0) + 'k';
+  const topC = [...LD].sort((a, b) => b[1] - a[1]).slice(0, 3).map(r => r[0]);
+  const topP = [...LD].sort((a, b) => b[2] - a[2]).slice(0, 3).map(r => r[0]);
+  // reference lines first, so bars and their labels sit on top
+  const line = (v, col, label, dash, right) => { if (v == null || v < loK || v > hiK) return;
+    el('line', {x1: 0, x2: W, y1: Y(v), y2: Y(v), stroke: col, 'stroke-width': 2, 'stroke-dasharray': dash}, svg);
+    txt(svg, right ? W - 2 : 2, Y(v) - 5, label, {'text-anchor': right ? 'end' : 'start', fill: col, 'font-size': 13, 'font-weight': 700}); };
+  line(SPOT, '#eef1f5', `close ${SPOT.toFixed(2)}`, '6 4', false);
+  line(FLIP, '#f0b35a', `zero-gamma ~${FLIP.toFixed(1)}`, '2 3', true);
+  LD.forEach(([b, c, p]) => {
+    const y = Y(b + BIN) + 1;
+    if (c) el('rect', {x: mid - gap / 2 - c * k, y, width: Math.max(1, c * k), height: bh, rx: 2, fill: '#9085e9'}, svg);
+    if (p) el('rect', {x: mid + gap / 2, y, width: Math.max(1, p * k), height: bh, rx: 2, fill: '#199e70'}, svg);
+    if (Math.round(b) % (BIN * 2) === 0 || topC.includes(b) || topP.includes(b))
+      txt(svg, mid, y + bh - 1, String(b), {'text-anchor': 'middle', fill: '#7d8796', 'font-size': 11.5, class: 'num'});
+    if (topC.includes(b)) txt(svg, mid - gap / 2 - c * k - 6, y + bh - 1, fk(c), {'text-anchor': 'end', fill: '#eef1f5', 'font-size': 12.5, 'font-weight': 700, class: 'num'});
+    if (topP.includes(b)) txt(svg, mid + gap / 2 + p * k + 6, y + bh - 1, fk(p), {fill: '#eef1f5', 'font-size': 12.5, 'font-weight': 700, class: 'num'});
+  });
+  txt(svg, mid - gap / 2 - 6, 16, '← calls', {'text-anchor': 'end', fill: '#7d8796', 'font-size': 12.5});
+  txt(svg, mid + gap / 2 + 6, 16, 'puts →', {fill: '#7d8796', 'font-size': 12.5});
+})();
+</script>
+</body></html>

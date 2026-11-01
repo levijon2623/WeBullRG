@@ -33,6 +33,17 @@ SVG drawn by the page's own script.
 3. `python docs/posts/make_notable.py docs/posts/notable/DATE.json`, then render it as usual.
    The rows carry a chip for the session whose open interest will confirm them (e.g. TUE).
 
+## Event-week positioning cards (S&P, Nasdaq, Russell)
+
+1. `python probe_event_window.py --asof <last session> --out docs/posts/data/event-week-<first expiry>.json` (repo root).
+   For each family (SPY + SPX, QQQ + NDX, IWM + RUT) and each daily expiry of the window: the priced 1-σ move,
+   ATM IV, near-the-money (±4%) call/put open interest in ETF units with the index's share, top strikes, the
+   positioning map's zero-gamma level; plus the strike ladder, 5-day delta flow and open-interest build, and the
+   window's events (live/posmap/events.json). Run it after the as-of close; open interest is start of day.
+2. Edit the WORDS block (and `EVENT_DAY`) in `make_event_cards.py` for the new window, then
+   `python docs/posts/make_event_cards.py docs/posts/data/event-week-<...>.json` -> a summary card + one per family.
+3. Render the four as usual.
+
 ## Making a new card
 
 1. **Start from the analysis, not the design.** Every number on the card comes

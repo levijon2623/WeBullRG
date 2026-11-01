@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1080">
+<title>Russell 2000 Event Week</title>
+<!-- Share card (README.md). Numbers: probe_event_window.py --asof 2026-10-30 (UW option-contracts, greek-flow,
+     oi-per-expiry; positioning_map.py zero-gamma; events: Fed / BLS calendars + UW economic calendar);
+     cards: make_event_cards.py. -->
+<link rel="stylesheet" href="card.css">
+<style>
+  .tbl{width:100%;border-collapse:collapse;font-size:14.5px}
+  .tbl th{color:var(--muted);font-weight:600;font-size:12.5px;text-align:right;padding:4px 7px;border-bottom:1px solid var(--line)}
+  .tbl td{padding:6px 7px;text-align:right;border-bottom:1px solid var(--grid);color:var(--ink2);white-space:nowrap}
+  .tbl th:first-child,.tbl td:first-child{text-align:left}
+  .tbl td:first-child{color:var(--ink);font-weight:700}
+  .tbl .ev{text-align:left;color:var(--accent);font-size:13px;white-space:normal}
+  .tbl th.ev{color:var(--muted)}
+</style></head><body>
+<div class="wrap">
+  <div class="kicker">Russell 2000 · IWM + RUT · event week Mon 11/2 – Fri 11/6 · as of the Fri 10/30 close</div>
+  <h1>Russell: the one call-heavy book, sitting just under its zero-gamma level</h1>
+  <div class="sub">IWM closed at 279.69, 0.6% under the ~281.3 flip. Near the money, calls outnumber puts (0.80 puts per call), led by RUT's 11/6 2840–2850 calls.</div>
+  <div class="tiles">
+    <div class="tile"><div class="v num">279.69</div><div class="l">IWM close · zero-gamma ~281 (+0.6% away)</div></div>
+    <div class="tile"><div class="v num">±1.5%</div><div class="l">Wed 11/4 priced move, vs a typical ±0.95% lately</div></div>
+    <div class="tile"><div class="v num">±3.0%</div><div class="l">priced 1-σ move through Fri 11/6</div></div>
+    <div class="tile"><div class="v num">+0.1 / +0.1</div><div class="l">$B delta bought into these expiries, 5 days: IWM / RUT</div></div>
+  </div>
+  <div class="card">
+    <h2>Where the open interest sits</h2>
+    <div class="h2s">Expiries Mon 11/2 – Fri 11/6 combined · IWM + RUT in IWM-contract units · strikes ±4% of the close, $1 bins</div>
+    <svg id="ld" width="946" height="410" role="img" aria-label="Call and put open interest by strike for the week's expiries"></svg>
+    <div class="legend"><span><span class="sw" style="background:var(--s1)"></span>calls</span>
+      <span><span class="sw" style="background:var(--s2)"></span>puts</span>
+      <span><span class="sw" style="background:#eef1f5;height:3px"></span>Fri 10/30 close</span>
+      <span><span class="sw" style="background:var(--accent);height:3px"></span>zero-gamma level (dealers long calls, short puts)</span></div>
+  </div>
+  <div class="card">
+    <h2>Day by day</h2>
+    <table class="tbl"><tr><th>expiry</th><th class="ev">events that day</th><th>priced move</th><th>ATM IV</th>
+      <th>puts / calls near</th><th>puts per call</th><th>top put</th><th>top call</th></tr><tr><td>Mon 11/2</td><td class='ev'>ISM mfg 10:00</td><td class='num'>±1.40%</td><td class='num'>15.5%</td><td class='num'>27k / 30k</td><td class='num'>0.89</td><td class='num'>271</td><td class='num'>291</td></tr><tr><td>Tue 11/3</td><td class='ev'>Election (results after the close)</td><td class='num'>±1.19%</td><td class='num'>17.6%</td><td class='num'>21k / 18k</td><td class='num'>1.18</td><td class='num'>270</td><td class='num'>289</td></tr><tr><td>Wed 11/4</td><td class='ev'>Treasury refunding 8:30, ISM services 10:00</td><td class='num' style='color:var(--ink);font-weight:800'>±1.52%</td><td class='num'>20.4%</td><td class='num'>19k / 15k</td><td class='num'>1.32</td><td class='num'>275</td><td class='num'>286</td></tr><tr><td>Thu 11/5</td><td class='ev'>—</td><td class='num'>±1.15%</td><td class='num'>20.7%</td><td class='num'>9k / 10k</td><td class='num'>0.88</td><td class='num'>267</td><td class='num'>280</td></tr><tr><td>Fri 11/6</td><td class='ev'>Payrolls 8:30</td><td class='num'>±1.45%</td><td class='num'>21.8%</td><td class='num'>135k / 191k</td><td class='num'>0.70</td><td class='num'>267</td><td class='num'>285</td></tr></table>
+  </div>
+  <div class="read"><b>Read:</b> Wednesday is priced at ±1.5%, 1.6× a typical day lately (±0.95%). Delta flow was tiny in both IWM and RUT: this book was built earlier, not chased. Open interest can't say whether those RUT calls were bought or written. <span class='mon'>RUT strikes in IWM units (÷ ~10.04); RUT weeklies trade as RUTW.</span></div>
+</div>
+<div class="foot">
+  <span>Data: Unusual Whales API · method: <b>probe_event_window.py</b> · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span>
+</div>
+<script src="card.js"></script>
+<script>
+const LD = [[290, 18719, 514], [289, 22086, 715], [288, 15734, 1861], [287, 11644, 935], [286, 14669, 1152], [285, 57539, 3168], [284, 50628, 3389], [283, 8812, 2622], [282, 9151, 4614], [281, 10730, 7897], [280, 11980, 14131], [279, 5700, 11053], [278, 4322, 11123], [277, 4750, 10210], [276, 2592, 16096], [275, 6143, 20864], [274, 1744, 10651], [273, 1728, 11118], [272, 1070, 29063], [271, 446, 10515], [270, 723, 24180], [269, 794, 14986]], SPOT = 279.69, FLIP = 281.3, BIN = 1;
+(() => {
+  const svg = document.getElementById('ld'), W = 946, H = 410, mid = W / 2, gap = 40, T = 26, B = H - 4;
+  const hiK = LD[0][0] + BIN, loK = LD[LD.length - 1][0];
+  const Y = v => T + (hiK - v) / (hiK - loK) * (B - T), bh = Math.max(3, (B - T) / LD.length - 2);
+  const mx = Math.max(...LD.flatMap(r => [r[1], r[2]])), k = (mid - gap - 70) / mx;
+  const fk = v => v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : (v / 1e3).toFixed(0) + 'k';
+  const topC = [...LD].sort((a, b) => b[1] - a[1]).slice(0, 3).map(r => r[0]);
+  const topP = [...LD].sort((a, b) => b[2] - a[2]).slice(0, 3).map(r => r[0]);
+  // reference lines first, so bars and their labels sit on top
+  const line = (v, col, label, dash, right) => { if (v == null || v < loK || v > hiK) return;
+    el('line', {x1: 0, x2: W, y1: Y(v), y2: Y(v), stroke: col, 'stroke-width': 2, 'stroke-dasharray': dash}, svg);
+    txt(svg, right ? W - 2 : 2, Y(v) - 5, label, {'text-anchor': right ? 'end' : 'start', fill: col, 'font-size': 13, 'font-weight': 700}); };
+  line(SPOT, '#eef1f5', `close ${SPOT.toFixed(2)}`, '6 4', false);
+  line(FLIP, '#f0b35a', `zero-gamma ~${FLIP.toFixed(1)}`, '2 3', true);
+  LD.forEach(([b, c, p]) => {
+    const y = Y(b + BIN) + 1;
+    if (c) el('rect', {x: mid - gap / 2 - c * k, y, width: Math.max(1, c * k), height: bh, rx: 2, fill: '#9085e9'}, svg);
+    if (p) el('rect', {x: mid + gap / 2, y, width: Math.max(1, p * k), height: bh, rx: 2, fill: '#199e70'}, svg);
+    if (Math.round(b) % (BIN * 2) === 0 || topC.includes(b) || topP.includes(b))
+      txt(svg, mid, y + bh - 1, String(b), {'text-anchor': 'middle', fill: '#7d8796', 'font-size': 11.5, class: 'num'});
+    if (topC.includes(b)) txt(svg, mid - gap / 2 - c * k - 6, y + bh - 1, fk(c), {'text-anchor': 'end', fill: '#eef1f5', 'font-size': 12.5, 'font-weight': 700, class: 'num'});
+    if (topP.includes(b)) txt(svg, mid + gap / 2 + p * k + 6, y + bh - 1, fk(p), {fill: '#eef1f5', 'font-size': 12.5, 'font-weight': 700, class: 'num'});
+  });
+  txt(svg, mid - gap / 2 - 6, 16, '← calls', {'text-anchor': 'end', fill: '#7d8796', 'font-size': 12.5});
+  txt(svg, mid + gap / 2 + 6, 16, 'puts →', {fill: '#7d8796', 'font-size': 12.5});
+})();
+</script>
+</body></html>
