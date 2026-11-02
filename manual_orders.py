@@ -424,6 +424,93 @@ def _et_today():
         return _dt.date.today().isoformat()
 
 
+def _eod_mod():
+    """Today's EOD flatten minute: 5 minutes before the close -- 15:55, or
+    12:55 on a 1:00 PM early close, when a 0DTE stops trading at 13:00 and a
+    15:55 sweep would find it already expired. EOD_FLATTEN_MOD if the calendar
+    cannot answer."""
+    try:
+        import market_calendar as MC
+        return MC.close_mod(_dt.date.fromisoformat(_et_today())) - 5
+    except Exception:                           # noqa: BLE001
+        return EOD_FLATTEN_MOD
+
+
+def _hhmm(mod):
+    return f"{mod // 60}:{mod % 60:02d}"
+
+
+def _overnight(rec):
+    """Marked to be held past TODAY's EOD flatten. The mark is a DATE, so it
+    lapses by itself: tomorrow the position is swept again unless re-marked."""
+    return bool(rec) and rec.get("overnight") == _et_today()
+
+
+def set_overnight(eng, tk, req):
+    """Exempt one contract from today's EOD flatten (on=true), or take the
+    exemption back. Exit-side bookkeeping, sends nothing, so like CLOSE it is
+    not gated on ARMED or the sideline. The 911 FLATTEN ignores the mark."""
+    on = bool(req.get("on"))
+    oid = str(req.get("option_id") or "")
+    holds, extras = load_positions(eng), load_extras(eng)
+    h = holds.get(tk)
+    if h and (not oid or h.get("option_id") == oid):
+        rec, save = h, save_positions
+    elif oid in extras and extras[oid].get("ticker") == tk:
+        rec, save = extras[oid], save_extras
+    else:
+        return False, f"no manual {tk} position {oid} to mark".rstrip()
+    name = f"{tk} {rec.get('qty')}x {rec.get('option_id')}"
+    if on:
+        if rec.get("pending"):
+            return False, f"{tk} entry has not filled — nothing to hold overnight"
+        exp = str(rec.get("expiry") or "")
+        if not exp:
+            return False, f"{name}: expiry unknown — not exempted"
+        if exp <= _et_today():
+            return False, f"{name} expires today — it cannot be held overnight"
+        rec["overnight"] = _et_today()
+        msg = f"{name} HELD OVERNIGHT — skipped by today's {_hhmm(_eod_mod())} flatten"
+    else:
+        rec.pop("overnight", None)
+        msg = f"{name} back on today's {_hhmm(_eod_mod())} flatten"
+    save(eng)
+    _event(True, msg)
+    return True, msg
+
+
+def _eod_rotate(eng):
+    """EOD: a ticker whose tracked hold is held overnight would never free its
+    slot, so a waiting extra that is NOT exempt would never be swept. Park the
+    hold (its whole record) as an extra and let the extra take the slot."""
+    holds, extras = load_positions(eng), load_extras(eng)
+    for tk, h in list(holds.items()):
+        if not _overnight(h) or h.get("pending") or h.get("exit_coid"):
+            continue
+        if not any(x.get("ticker") == tk and not _overnight(x) for x in extras.values()):
+            continue
+        extras[h["option_id"]] = dict(h, parked=True)
+        holds.pop(tk)
+        save_extras(eng)
+        save_positions(eng)
+        nxt = min((x for x in extras.values() if x.get("ticker") == tk and not _overnight(x)),
+                  key=lambda x: (x.get("expiry") or "", x.get("option_id")))
+        # promote THE one to sweep now, not whatever sorts first
+        extras.pop(nxt["option_id"])
+        extras[nxt["option_id"]] = nxt
+        _promote_one(eng, nxt["option_id"])
+
+
+def _is_trading_day_et():
+    """Weekday and not an NYSE holiday. True if the calendar cannot answer --
+    a missed EOD flatten on a real session costs more than a refused order."""
+    try:
+        import market_calendar as MC
+        return MC.is_trading_day(_dt.date.fromisoformat(_et_today()))
+    except Exception:                           # noqa: BLE001
+        return True
+
+
 def sideline_state():
     """The sideline record if it is in force TODAY, else None."""
     s = _read(SIDELINE)
@@ -545,6 +632,152 @@ def save_positions(eng):
         _write_atomic(STATE, getattr(eng, "manual_holds", {}) or {})
     except OSError:
         pass
+
+
+# 🚨 A SECOND CONTRACT ON A HELD TICKER. Holds are keyed by ticker -- one per
+# ticker, everywhere (entry block, levels, swap, viewer). On 2026-11-02 the
+# broker held IWM 2x 11/02 282C AND 3x 11/04 288C; startup adopted one and the
+# other had no EOD flatten and no viewer row. EXTRAS are the contracts beyond
+# the tracked one: quoted, shown, and PROMOTED into the ticker's slot as soon
+# as it frees -- so every exit (TP/SL, CLOSE, EOD, 911) still runs through
+# flatten()/_check_exits. Nothing in this block sends an order.
+EXTRAS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live",
+                      "manual_extras.json")
+
+
+def load_extras(eng):
+    """{option_id: record} for broker positions beyond each ticker's hold."""
+    if getattr(eng, "manual_extras", None) is None:
+        eng.manual_extras = _read(EXTRAS) or {}
+    return eng.manual_extras
+
+
+def save_extras(eng):
+    try:
+        _write_atomic(EXTRAS, getattr(eng, "manual_extras", {}) or {})
+    except OSError:
+        pass
+
+
+def extra_oids(eng):
+    return set(load_extras(eng))
+
+
+def adopt_all(eng, positions):
+    """Startup: adopt EVERY broker option position on an ALLOWED ticker.
+
+    The nearest expiry becomes the ticker's hold (it is the one the EOD
+    flatten is most urgent for) unless the hold on record is still at the
+    broker, which keeps its state; the rest become extras. Extras the broker
+    no longer shows (sold in the app while the bot was down) are dropped.
+    Returns every adopted contract, for the caller to subscribe quotes.
+    """
+    by_tk = {}
+    for p in positions or []:
+        und, occ, qty = p.get("underlying"), p.get("occ"), p.get("quantity", 0)
+        if und in ALLOWED and occ and qty:
+            by_tk.setdefault(und, []).append(p)
+    holds, extras = load_positions(eng), load_extras(eng)
+    seen = {p["occ"] for ps in by_tk.values() for p in ps}
+    for oid in [o for o in extras if o not in seen]:
+        extras.pop(oid, None)
+    for tk, ps in by_tk.items():
+        ps.sort(key=lambda p: (_parse_occ(p["occ"])[1] or "", p["occ"]))
+        cur = (holds.get(tk) or {}).get("option_id")
+        prim = next((p for p in ps if p["occ"] == cur), ps[0])
+        if prim["occ"] != cur and prim["occ"] in extras:
+            # already on record as an extra (parked at EOD, or marked to hold
+            # overnight): restore THAT record rather than re-adopt a blank one
+            c = holds.get(tk)
+            if c and not (c.get("pending") or c.get("exit_coid")):
+                _event(True, f"{tk} hold was {c.get('option_id')}, broker shows "
+                             f"{prim['occ']} — the record was stale, replacing it")
+                holds.pop(tk)
+            if tk not in holds:
+                _promote_one(eng, prim["occ"], check=False)
+        else:
+            adopt(eng, tk, prim["occ"], prim["quantity"], prim.get("cost_price"))
+        # adopt() can refuse (an order in flight on the old record), so
+        # "extra" = anything that is not the ticker's hold AFTER it ran
+        tracked = (holds.get(tk) or {}).get("option_id")
+        for p in ps:
+            if p["occ"] != tracked:
+                _add_extra(eng, tk, p)
+            else:
+                extras.pop(p["occ"], None)          # never both hold and extra
+    save_extras(eng)
+    return sorted(seen)
+
+
+def _add_extra(eng, tk, p):
+    extras, occ = load_extras(eng), p["occ"]
+    qty = int(abs(p.get("quantity") or 0))
+    new = occ not in extras
+    if not new:
+        # keep what the record carries (an overnight mark, a parked hold's
+        # levels) -- only the size comes from the broker
+        extras[occ]["qty"] = qty
+        return
+    _t, exp, right, strike = _parse_occ(occ)
+    extras[occ] = dict(ticker=tk, option_id=occ, qty=qty,
+                       entry=float(p.get("cost_price") or 0) or None,
+                       expiry=exp, right=right, strike=strike,
+                       seen=int(time.time()))
+    if new:
+        _event(True, f"ALSO HELD {tk} {qty}x {occ} — one {tk} contract is "
+                     f"tracked at a time; this one is quoted and shown, and "
+                     f"takes over the {tk} slot (exits, EOD flatten) once the "
+                     f"current one closes")
+
+
+def _promote_extras(eng):
+    """Move an extra into its ticker's slot once the slot is free. Nearest
+    expiry first. Runs every poll pass, BEFORE the EOD sweep, so at EOD each
+    ticker's contracts are flattened one after another."""
+    extras = load_extras(eng)
+    if not extras:
+        return
+    holds = load_positions(eng)
+    for oid, x in sorted(list(extras.items()),
+                         key=lambda kv: (kv[1].get("expiry") or "", kv[0])):
+        tk = x.get("ticker")
+        if tk and tk not in holds:
+            _promote_one(eng, oid)
+
+
+def _promote_one(eng, oid, check=True):
+    """Extra `oid` -> its ticker's hold (the slot must be free). `check` asks
+    the broker first; the startup reconcile, which has just read the
+    positions, passes False."""
+    extras, holds = load_extras(eng), load_positions(eng)
+    x = extras.pop(oid, None)
+    if not x:
+        return False
+    tk = x.get("ticker")
+    save_extras(eng)
+    if check and _position_gone(eng, oid) is True:
+        _event(True, f"{tk} extra {oid} is no longer held at the broker "
+                     f"— dropped")
+        return False
+    if x.get("parked"):
+        # a full hold record moved aside by _eod_rotate: put it back as it
+        # was (levels, bracket, entry), not re-adopted from scratch
+        rec = dict(x)
+        rec.pop("parked", None)
+        holds[tk] = rec
+        save_positions(eng)
+    else:
+        adopt(eng, tk, oid, x.get("qty") or 0, x.get("entry"))
+        if tk in holds:
+            holds[tk]["note"] = "promoted from extras"
+            if x.get("overnight"):
+                holds[tk]["overnight"] = x["overnight"]
+            save_positions(eng)
+    try:
+        eng.webull.subscribe_to_option(oid)
+    except Exception:                           # noqa: BLE001 -- quote only
+        pass
+    return True
 
 
 def adopt(eng, tk, occ, qty, cost):
@@ -908,8 +1141,8 @@ def swap(eng, tk, req, now_mod=None):
         return False, "SIDELINED until tomorrow — not swapped (use CLOSE to exit)"
     if arm_left(eng) <= 0:
         return False, "the arming window is CLOSED — arm first (a swap opens a position)"
-    if now_mod is not None and now_mod >= EOD_FLATTEN_MOD:
-        return False, "past the 15:55 flatten — no new positions; use CLOSE"
+    if now_mod is not None and now_mod >= _eod_mod():
+        return False, f"past the {_hhmm(_eod_mod())} flatten — no new positions; use CLOSE"
     pos = load_positions(eng).get(tk)
     if not pos:
         return False, f"no manual hold on {tk} to swap"
@@ -1024,8 +1257,8 @@ def place_trigger(eng, tk, req, now_mod=None):
         return False, "SIDELINED until tomorrow — no trigger"
     if arm_left(eng) <= 0:
         return False, "the arming window is CLOSED — arm first to place a trigger"
-    if now_mod is not None and now_mod >= EOD_FLATTEN_MOD:
-        return False, "past the 15:55 flatten — no new positions"
+    if now_mod is not None and now_mod >= _eod_mod():
+        return False, f"past the {_hhmm(_eod_mod())} flatten — no new positions"
     if now_mod is not None and now_mod < RTH_OPEN_MOD:
         return False, PRE_OPEN_MSG
     if tk in load_positions(eng):
@@ -1093,7 +1326,7 @@ def _check_triggers(eng, now_mod=None):
     for tk, t in list(d.items()):
         why = ("sidelined" if side
                else "expired" if now >= float(t.get("expires_at") or 0)
-               else "past 15:55" if now_mod is not None and now_mod >= EOD_FLATTEN_MOD
+               else f"past {_hhmm(_eod_mod())}" if now_mod is not None and now_mod >= _eod_mod()
                else "its expiry has passed" if str(t.get("expiry")) < _et_today()
                else f"{tk} is now held" if (tk in load_positions(eng) or
                                              tk in (getattr(eng, "active_snipes", {}) or {}))
@@ -1207,6 +1440,9 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
         return _result(path, ok, (f"{tk} close sent ({mode})" if n is None
                                   else f"{tk} closing {n}x ({mode})") if ok
                        else f"{tk} close FAILED — position still open")
+    if act == "overnight":
+        # exit-side bookkeeping: not gated on ARMED or the sideline
+        return _result(path, *set_overnight(eng, tk, req))
     if act == "levels":
         # underlying TP/SL: exit-side, so like `close` it is not gated on ARMED
         ok, msg = set_levels(eng, tk, req)
@@ -1225,9 +1461,8 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
     # position the sweep has already passed over -- it would sit there until
     # the NEXT loop pass sold it, paying the spread both ways for nothing, and
     # at 15:59 it would sit there until tomorrow.
-    if now_mod is not None and now_mod >= EOD_FLATTEN_MOD:
-        return _result(path, False, f"past the {EOD_FLATTEN_MOD//60}:"
-                                    f"{EOD_FLATTEN_MOD%60:02d} flatten — no new "
+    if now_mod is not None and now_mod >= _eod_mod():
+        return _result(path, False, f"past the {_hhmm(_eod_mod())} flatten — no new "
                                     f"positions")
     if now_mod is not None and now_mod < RTH_OPEN_MOD:
         return _result(path, False, PRE_OPEN_MSG)
@@ -1898,8 +2133,11 @@ def _position_gone(eng, option_id):
     the app, or by a broker-side bracket, leaves our memory stale and every
     order we send against it meaningless.
     """
+    # 🚨 A FAILED READ IS NOT AN EMPTY ACCOUNT. get_open_option_positions
+    # swallows errors and returns []; on 2026-11-01 a 429 here read as "gone"
+    # and released a real IWM hold. Ask it to raise instead.
     try:
-        pos = eng.webull.get_open_option_positions() or []
+        pos = eng.webull.get_open_option_positions(raise_errors=True) or []
     except Exception:                           # noqa: BLE001
         return None
     for p in pos:
@@ -2034,7 +2272,7 @@ def _shadow_tick(eng, now_mod=None):
     m = _now_mod() if now_mod is None else now_mod
     changed, rows = False, []
     for oid, sh in list(w.items()):
-        if sh.get("date") != today or m > SHADOW_END_MOD:
+        if sh.get("date") != today or m > min(SHADOW_END_MOD, _eod_mod()):
             w.pop(oid)                          # done for the day: release the subscription
             changed = True
             continue
@@ -2283,6 +2521,13 @@ def panic(eng, reason="911"):
             done.append(f"manual {tk}")
         else:
             skipped.append(f"manual {tk} (send failed)")
+    # extras cannot be sold while their ticker's slot is busy; poll() promotes
+    # and sells each in turn (see manual_panic_oids there)
+    ex = extra_oids(eng)
+    if ex:
+        eng.manual_panic_oids = set(ex)
+        done.append(f"{len(ex)} more manual contract(s) queued, sold one at a "
+                    f"time as each slot frees")
 
     for tk, snipe in list((getattr(eng, "active_snipes", None) or {}).items()):
         if snipe.get("exiting"):
@@ -2319,13 +2564,29 @@ def poll(eng, now_mod=None):
         _check_levels(eng)
         _check_triggers(eng, now_mod)
         _shadow_tick(eng, now_mod)
+        # a freed ticker slot takes its next contract BEFORE the sweep looks
+        _promote_extras(eng)
+        # 911 reaches extras one at a time: each is promoted once the contract
+        # ahead of it has sold, then goes out at the 911 price like the rest
+        pend = getattr(eng, "manual_panic_oids", None)
+        if pend:
+            for tk, pos in list((getattr(eng, "manual_holds", None) or {}).items()):
+                if pos.get("option_id") in pend and flatten(eng, tk, "911", EXIT_911):
+                    pend.discard(pos["option_id"])   # a failed send retries next pass
         # EOD FLATTEN -- it must run even if a request is malformed, and even
         # after entries have closed for the day. It goes out MARKETABLE and
         # `_check_exits` escalates to 911 pricing if it has not filled in 20s,
         # so the good price is tried first without risking the position.
-        if now_mod is not None and now_mod >= EOD_FLATTEN_MOD:
-            for tk in list(getattr(eng, "manual_holds", {}) or {}):
-                flatten(eng, tk, "EOD 15:55", EXIT_MARKETABLE)
+        # 🚨 ONLY ON A TRADING DAY. The loop runs all weekend; on Sun 2026-11-01
+        # the sweep fired at 15:55, Webull refused the orders (non-trading
+        # hours), and the retry's failed position read released a real hold.
+        if (now_mod is not None and now_mod >= _eod_mod()
+                and _is_trading_day_et()):
+            _eod_rotate(eng)
+            for tk, pos in list((getattr(eng, "manual_holds", {}) or {}).items()):
+                if _overnight(pos):
+                    continue            # marked from the viewer, for today only
+                flatten(eng, tk, f"EOD {_hhmm(_eod_mod())}", EXIT_MARKETABLE)
         if not os.path.isdir(DIR):
             return
         for fn in sorted(os.listdir(DIR)):

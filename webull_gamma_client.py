@@ -1173,14 +1173,19 @@ class WebullGammaClient:
         except (AttributeError, TypeError, ValueError):
             return None
 
-    def get_open_option_positions(self):
-        """List option holdings -> [{occ, underlying, quantity, cost_price, instrument_id}]."""
+    def get_open_option_positions(self, raise_errors: bool = False):
+        """List option holdings -> [{occ, underlying, quantity, cost_price, instrument_id}].
+
+        raise_errors: re-raise a failed read instead of returning [] -- for
+        callers that must tell "holds nothing" from "could not ask"."""
         out = []
         try:
             resp = self.trade_client.account_v2.get_account_position(self.account_id)
             d = resp.json() if hasattr(resp, "json") else resp
         except Exception as e:
             print(f"  ⚠️ get_account_position failed: {e}")
+            if raise_errors:
+                raise
             return out
         for p in self._unwrap(d, "positions", "holdings", "items", "result"):
             if not isinstance(p, dict):

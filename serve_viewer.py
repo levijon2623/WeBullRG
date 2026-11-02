@@ -116,7 +116,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             req = json.loads(self.rfile.read(n).decode("utf-8"))
             act = str(req.get("action") or "buy").lower()
             if act not in ("buy", "close", "panic", "arm", "disarm", "levels",
-                           "sideline", "unsideline", "swap", "trigger", "untrigger"):
+                           "sideline", "unsideline", "swap", "trigger", "untrigger",
+                           "overnight"):
                 return self._json({"ok": False, "err": "action"}, 400)
             if act == "swap":
                 # the answer to the sideline question, required by the engine
@@ -155,6 +156,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     req.get("ticker", "")).upper() not in (
                     "IWM", "SPY", "QQQ"):
                 return self._json({"ok": False, "err": "ticker"}, 400)
+            if act == "overnight":
+                if not isinstance(req.get("on"), bool):
+                    return self._json({"ok": False, "err": "on must be true/false"}, 400)
+                if not isinstance(req.get("option_id") or "", str):
+                    return self._json({"ok": False, "err": "option_id"}, 400)
             if act == "trigger":
                 if str(req.get("right") or "").upper() not in ("C", "P"):
                     return self._json({"ok": False, "err": "right C/P"}, 400)
@@ -299,6 +305,11 @@ def _recent_events(limit=60):
                 out.append(dict(kind="REQ", at=j.get("requested_at"),
                                 msg=f"CLOSE {j.get('ticker')} "
                                     f"({j.get('mode') or 'marketable'})",
+                                ok=None))
+            elif str(j.get("action") or "").lower() == "overnight":
+                out.append(dict(kind="REQ", at=j.get("requested_at"),
+                                msg=f"{'HOLD' if j.get('on') else 'UNHOLD'} OVERNIGHT "
+                                    f"{j.get('ticker')} {j.get('option_id') or ''}",
                                 ok=None))
             else:
                 out.append(dict(kind="REQ", at=j.get("requested_at"),

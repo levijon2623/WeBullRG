@@ -11,7 +11,7 @@ lake silently failed on the box: the UW gate fell back to "weekdays only" and
 every weekly-GEX snapshot raised ModuleNotFoundError. uw_options_data_lake
 re-exports these names, so research scripts are unchanged.
 
-Early closes (13:00) are NOT in this table -- only full-day closures.
+Early closes (13:00) live in their own table, _EARLY_CLOSES, with close_mod().
 """
 from __future__ import annotations
 
@@ -31,6 +31,23 @@ MARKET_HOLIDAYS: dict[int, frozenset[date]] = {
     y: frozenset(date(y, int(md[:2]), int(md[3:])) for md in mds.split())
     for y, mds in _MARKET_HOLIDAYS.items()
 }
+
+
+# NYSE 1:00 PM early closes ("1:15 p.m. for eligible options"), same source,
+# checked 2026-11-02. 2028 is not published yet -- add it when it is.
+_EARLY_CLOSES = {
+    2026: "11-27 12-24",
+    2027: "11-26",
+}
+
+EARLY_CLOSES: frozenset[date] = frozenset(
+    date(y, int(md[:2]), int(md[3:])) for y, mds in _EARLY_CLOSES.items() for md in mds.split())
+
+
+def close_mod(d: date) -> int:
+    """The regular session's close as minutes after midnight ET: 13:00 on an
+    early close, else 16:00. Says nothing about whether `d` trades at all."""
+    return 13 * 60 if d in EARLY_CLOSES else 16 * 60
 
 
 def market_holidays(year: int) -> frozenset[date]:

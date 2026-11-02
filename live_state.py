@@ -2175,6 +2175,7 @@ def snapshot(eng):
         sidelined=bool(_side),            # done for the day (manual_orders)
         sideline_at=(_side or {}).get("at"),
         manual=dict(getattr(eng, "manual_holds", {}) or {}),
+        manual_extras=dict(getattr(eng, "manual_extras", {}) or {}),  # 2nd+ contract per ticker
         manual_cap=_num(manual_cap, 2),
         manual_cap_basis=cap_basis,
         real_cash=_num(real_cash, 2),

@@ -1227,11 +1227,12 @@ class FlowExecutionEngine:
         wl = set(tickers)
 
         # ---- adopt first, unconditionally ----
-        for p in self.webull.get_open_option_positions():
-            und, occ = p.get("underlying"), p.get("occ")
-            qty = p.get("quantity", 0)
-            if und in manual_orders.ALLOWED and occ and qty:
-                manual_orders.adopt(self, und, occ, qty, p.get("cost_price"))
+        # adopt_all, not adopt-per-row: holds are one per ticker, and a second
+        # contract on the same ticker used to REPLACE the first as "stale"
+        # (2026-11-02: IWM 282C + 288C held, one silently untracked). The
+        # rest become extras -- see manual_orders.adopt_all.
+        for occ in manual_orders.adopt_all(self, self.webull.get_open_option_positions()):
+            if occ:
                 # 🚨 SUBSCRIBE UNCONDITIONALLY, NOT ONLY ON A FIRST ADOPT.
                 # This used to sit inside `if adopt(...)`. On a RESTART the
                 # hold is rehydrated from disk, so adopt() returns False as a
@@ -1602,6 +1603,7 @@ class FlowExecutionEngine:
             # Hold goes blind on the one position nothing else is managing.
             held |= {p.get("option_id")
                      for p in (getattr(self, "manual_holds", None) or {}).values()}
+            held |= manual_orders.extra_oids(self)   # next in line for a slot
             # ...and so do contracts SHADOWED after a manual exit (until 15:55),
             # or the "what would holding have paid" record goes blind.
             try:
@@ -2119,7 +2121,10 @@ class FlowExecutionEngine:
                         trail_stop = round(snipe['peak_bid'] * (1 - trail_pct), 2)
                         snipe['last_trail_stop'] = trail_stop   # for the exit row
 
-                    if cur_mod >= snipe.get('eod_flatten_mod', 15 * 60 + 55):
+                    # min(): an early close (13:00) pulls the 15:55 EOD stop
+                    # to 12:55, or a 0DTE expires before the stop is reached
+                    if cur_mod >= min(snipe.get('eod_flatten_mod', 15 * 60 + 55),
+                                      MC.close_mod(current_time.date()) - 5):
                         reason = "EOD STOP" + peak_note; exit_triggered = True
                     elif snipe.get('time_stop_mins') and hold_time_mins >= snipe['time_stop_mins']:
                         reason = f"TIME STOP {int(hold_time_mins)}m" + peak_note
@@ -2145,7 +2150,9 @@ class FlowExecutionEngine:
                 # =========================================================
                 # Backtest hard-blocks any new entry at/after 15:00 ET (0DTE theta
                 # bleed). Global gate, ahead of the per-cell `hours` list.
-                entries_open = current_time.hour < 15
+                # An early close moves it with the bell: 12:00 on a 13:00 close.
+                entries_open = (current_time.hour * 60 + current_time.minute
+                                < MC.close_mod(current_time.date()) - 60)
 
                 # LIVE CHART STATE. Throttled to 5s internally, atomic write,
                 # and it cannot raise -- see live_state.py. Placed BEFORE the

@@ -142,6 +142,10 @@
   .age{font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:6px;
     border:1px solid var(--line);color:var(--dim)}
   .age.early{color:#f0b35a;border-color:#f0883e;background:#3a2a10}
+  .ovn{font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:6px;cursor:pointer;
+    border:1px solid var(--line);color:var(--dim)}
+  .ovn.on{color:#d2a8ff;border-color:#a371f7;background:#271c3d}
+  .ovn.arm{color:#f0b35a;border-color:#f0883e;background:#3a2a10}
   #hold .p.trg .x{cursor:pointer;color:var(--dim);margin-left:6px}
   #xSwap.hot{background:var(--accent);color:#0d1117}
   #prem.over{color:var(--dn)}
@@ -2056,6 +2060,8 @@ function panicScope(){
   const out = [];
   for(const [t, p] of Object.entries((LIVE && LIVE.manual) || {}))
     out.push(`${t} ${p.qty}x manual`);
+  for(const x of Object.values((LIVE && LIVE.manual_extras) || {}))
+    out.push(`${x.ticker} ${x.qty}x manual (queued)`);
   for(const [t, s] of Object.entries((LIVE && LIVE.tickers) || {}))
     if(s.position) out.push(`${t} bot`);
   return out;
@@ -2095,6 +2101,23 @@ function ageBadge(p){
   return `<span class="age${early ? ' early' : ''}" title="${esc(tip)}">${m}m${early ? ' · early' : ''}</span>`;
 }
 
+/* HOLD OVERNIGHT (operator, 2026-11-02): exempt ONE position from today's EOD
+   flatten. The engine stores today's date, so the mark lapses by itself and
+   tomorrow the position is swept again; it refuses a contract expiring today;
+   911 ignores the mark. Two clicks within 4s, like the sideline. */
+let ovnArm = null, ovnTimer = null;
+function moon(tk, p){
+  if(!p || p.pending) return '';
+  const today = LIVE && LIVE.session;
+  const on = !!(today && p.overnight === today);
+  if(!on && today && String(p.expiry || '') <= today) return '';   // a 0DTE cannot be held over
+  const key = `${tk}|${p.option_id}`, armed = ovnArm === key;
+  const tip = on ? 'HELD OVERNIGHT: today’s EOD flatten skips it. Click twice to put it back on the flatten.'
+                 : 'Hold overnight: skip it in today’s EOD flatten (today only; 911 still closes it). Click twice.';
+  return ` <span class="ovn${on ? ' on' : ''}${armed ? ' arm' : ''}" data-ovn="${esc(key)}" data-on="${
+    on ? 1 : 0}" title="${esc(tip)}">${armed ? (on ? 'unhold?' : 'hold overnight?') : on ? '☾ overnight' : '☾'}</span>`;
+}
+
 function renderHold(){
   if(!LIVE) return;
   const m = LIVE.manual || {};
@@ -2128,7 +2151,20 @@ function renderHold(){
             roe != null ? `<b style="color:${roe>=0?'var(--up)':'var(--dn)'}">${
               roe>0?'+':''}${roe}%</b>` : ''}${
             p.exit_coid ? ` <span style="color:var(--put)">⟳ exit @ ${
-              p.exit_px}</span>` : ''}${ageBadge(p)}`}</span></div>`);
+              p.exit_px}</span>` : ''}${ageBadge(p)}${moon(t, p)}`}</span></div>`);
+  }
+  /* EXTRAS: a second contract on a ticker that already has a hold. Only one
+     per ticker is tracked; this one is quoted and shown, and moves into the
+     slot (exit buttons, EOD flatten) once the tracked one closes. */
+  for(const [oid, x] of Object.entries((LIVE && LIVE.manual_extras) || {})){
+    const bid = liveBid(x.ticker, oid);
+    const roe = (bid != null && x.entry > 0) ? Math.round((bid - x.entry) / x.entry * 100) : null;
+    out.push(`<div class="p" title="a second ${esc(x.ticker)} contract: one per ticker is tracked at a time; this one takes over the slot (exits, EOD flatten) when the current one closes">
+      <span class="mh">◇ ${esc(x.ticker)} ${x.qty}x ${x.strike ?? ''}${x.right ?? ''}
+        <span class="d">${esc(String(x.expiry || '').slice(5))} @ ${x.entry ?? '?'} · next in line</span></span>
+      <span>${bid != null ? `<span class="d">bid ${px2(bid)}</span> ` : ''}${
+        roe != null ? `<b style="color:${roe>=0?'var(--up)':'var(--dn)'}">${roe>0?'+':''}${roe}%</b>` : ''}${
+        moon(x.ticker, x)}</span></div>`);
   }
   for(const [t, s] of Object.entries(LIVE.tickers || {})){
     const q = s.position;
@@ -2148,6 +2184,22 @@ function renderHold(){
   [...document.querySelectorAll('#hold [data-trgx]')].forEach(el => el.onclick = async () => {
     const j = await postOrder({action:'untrigger', ticker:el.dataset.trgx});
     ulToast(j.ok ? 'cancelling the trigger — verdict in telemetry' : 'REFUSED: ' + (j.err || '?'), !j.ok);
+    pollEvents(); livePoll();
+  });
+  [...document.querySelectorAll('#hold [data-ovn]')].forEach(el => el.onclick = async ev => {
+    ev.stopPropagation();                         // not a row select
+    const key = el.dataset.ovn;
+    clearTimeout(ovnTimer);
+    if(ovnArm !== key){
+      ovnArm = key;
+      ovnTimer = setTimeout(() => { ovnArm = null; renderHold(); }, 4000);
+      return renderHold();
+    }
+    ovnArm = null;
+    const i = key.indexOf('|');
+    const j = await postOrder({action:'overnight', ticker:key.slice(0, i),
+                               option_id:key.slice(i + 1), on: el.dataset.on !== '1'});
+    ulToast(j.ok ? 'sent — verdict in telemetry' : 'REFUSED: ' + (j.err || '?'), !j.ok);
     pollEvents(); livePoll();
   });
   [...document.querySelectorAll('#hold .p[data-h]')].forEach(el =>
