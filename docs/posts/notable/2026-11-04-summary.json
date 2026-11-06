@@ -1,0 +1,137 @@
+{
+ "date": "2026-11-04",
+ "slug": "flow-summary",
+ "kicker": "Options flow · Wed Nov 4, 2026 · post-election, Treasury refunding day · at the close",
+ "h1": "Relief rally: hedges expired, then re-set",
+ "sub": "S&amp;P +1.6%, Nasdaq +0.9% (it faded from +2.3%), Russell +1.5%. The election puts bought Tuesday lost about 90%. Today the November protection was moved, not dropped: up and out to December in the Russell, down and back to the money in the S&amp;P.",
+ "tiles": [
+  [
+   "766.74",
+   "SPY +1.6% · high 769.22 at 13:07"
+  ],
+  [
+   "691.85",
+   "QQQ +0.9% · high 701.45 at 10:15"
+  ],
+  [
+   "284.01",
+   "IWM +1.5% · high 286.17 at 09:45"
+  ],
+  [
+   "−$16.8B",
+   "same-day delta, S&P + Nasdaq, on an up day"
+  ]
+ ],
+ "bars_title": "Where today's directional delta went",
+ "bars_sub": "Delta bought (+) or sold (−) today, $ billion, ETF + index · same-day expiry vs the Nov-20 monthly",
+ "bars_max": 16,
+ "bars_x0": 200,
+ "bars": [
+  {
+   "label": "S&P same-day",
+   "v": 15.14,
+   "text": "−$15.14B"
+  },
+  {
+   "label": "Nasdaq same-day",
+   "v": 1.7,
+   "text": "−$1.70B"
+  },
+  {
+   "label": "Russell same-day",
+   "v": 0.11,
+   "text": "+$0.11B"
+  },
+  {
+   "label": "S&P Nov-20",
+   "v": 2.01,
+   "text": "−$2.01B"
+  },
+  {
+   "label": "Nasdaq Nov-20",
+   "v": 1.71,
+   "text": "+$1.71B"
+  },
+  {
+   "label": "Russell Nov-20",
+   "v": 0.01,
+   "text": "+$0.01B"
+  }
+ ],
+ "table_sub": "✓ = Tuesday's trade, settled by this morning's open interest · THU = today's, settled Thursday · $ = premium",
+ "trades": [
+  {
+   "d": "SPX",
+   "k": "Dec-18 $7,600 put + call",
+   "side": "x",
+   "chip": "SYNTH",
+   "n": "+6k each",
+   "prem": 339,
+   "note": "put bought, call sold Tuesday: a ~$4.6B synthetic short",
+   "upd": "ok"
+  },
+  {
+   "d": "QQQ",
+   "k": "Dec-18 $720 call",
+   "side": "s",
+   "chip": "SOLD",
+   "n": "+38.7k",
+   "prem": 52.2,
+   "note": "written Tuesday, ~5% above the price",
+   "upd": "ok"
+  },
+  {
+   "d": "SPX",
+   "k": "Nov-20 $7,700 put",
+   "side": "b",
+   "chip": "BOUGHT",
+   "n": "4.7k",
+   "prem": 40.1,
+   "note": "fresh at-the-money protection, 90% at the ask",
+   "pend": "THU"
+  },
+  {
+   "d": "SPY",
+   "k": "Nov-20 $757 put  →  $725 / $728 puts",
+   "side": "x",
+   "chip": "ROLL",
+   "n": "32k / 69k",
+   "prem": 26.2,
+   "note": "near-money hedge sold, cheaper ones bought",
+   "pend": "THU"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-20 $266 put  →  $270–272 puts",
+   "side": "x",
+   "chip": "ROLL",
+   "n": "58k / 132k",
+   "prem": 19.4,
+   "note": "monthly hedge stepped up again, to ~4% below",
+   "pend": "THU"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-20 $270 put  →  Dec-18 $275 put",
+   "side": "x",
+   "chip": "ROLL",
+   "n": "30.4k each",
+   "prem": 9.3,
+   "pend": "THU",
+   "note": "one package at 15:24: out a month and $5 up; ~$9M net"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-5 / Nov-6 $286–290 calls",
+   "side": "b",
+   "chip": "BOUGHT",
+   "n": "+21.6k",
+   "prem": 0.8,
+   "note": "cheap event calls; 2–3× at the 09:45 high, below entry by the close",
+   "upd": "ok"
+  }
+ ],
+ "confirm": "confirmed by Thursday's open interest",
+ "read": "<b>Read:</b> the event hedges did their job and expired. The rally didn't end hedging; it moved it. Russell protection followed the price up, and late a 30k-lot went out to December. S&amp;P protection went cheaper below and fresh at the money. One big December call sale capped Nasdaq upside. Same-day delta was −$17B on a +1.6% day: volatility sold, not a bearish bet. Positioning, not a signal.",
+ "mon": "Side from ask/bid, inferred · open interest is start-of-day · left out: SPX 7000/8000 box legs and deep in-the-money legs"
+}

@@ -1,0 +1,137 @@
+{
+ "date": "2026-11-04",
+ "slug": "flow-russell",
+ "kicker": "Options flow · Russell 2000 (IWM + RUT) · Wed Nov 4, 2026 · at the close",
+ "h1": "Russell: cheap calls paid at the open, and the hedge moved up",
+ "sub": "IWM +1.5% to 284.01, after 286.17 at 09:45. Tuesday's cheap calls hit 2–3× at the open, then closed below entry. November puts rolled up again, $266 to $270–272, and at 15:24 a 30k-lot went out to December.",
+ "tiles": [
+  [
+   "284.01",
+   "IWM +1.5% · high 286.17 at 09:45"
+  ],
+  [
+   "3.3×",
+   "Nov-5 $290 calls: $0.14 Tuesday → $0.46 high"
+  ],
+  [
+   "30.4k",
+   "Nov-20 $270 puts → Dec-18 $275 puts, 15:24"
+  ],
+  [
+   "65.0k",
+   "Nov-20 $272 puts traded today (6.8k open before)"
+  ]
+ ],
+ "bars_title": "The cheap-call waves, judged by exit",
+ "bars_sub": "Average entry price → today's high → close · the multiple was only there early",
+ "bars_max": 7,
+ "bars_x0": 230,
+ "bars": [
+  {
+   "label": "Nov-5 $290C (Tue)",
+   "v": 3.3,
+   "text": "3.3×  $0.14 → $0.46 · close $0.02"
+  },
+  {
+   "label": "Nov-5 $286C (Tue)",
+   "v": 3.1,
+   "text": "3.1×  $0.58 → $1.78 · close $0.39"
+  },
+  {
+   "label": "Nov-6 $290C (Tue)",
+   "v": 2.3,
+   "text": "2.3×  $0.40 → $0.92 · close $0.12"
+  },
+  {
+   "label": "Nov-6 $289C (Mon)",
+   "v": 2.0,
+   "text": "2.0×  $0.60 → $1.18 · close $0.20"
+  },
+  {
+   "label": "Nov-5 $286C (Mon)",
+   "v": 2.0,
+   "text": "2.0×  $0.88 → $1.78 · close $0.39"
+  },
+  {
+   "label": "Nov-4 $287C (Mon)",
+   "v": 1.9,
+   "text": "1.9×  $0.36 → $0.70 · expired"
+  }
+ ],
+ "table_sub": "✓ = Tuesday's trade, settled by this morning's open interest · THU = today's, settled Thursday · $ = premium",
+ "trades": [
+  {
+   "d": "IWM",
+   "k": "Nov-20 $266 put  →  $270–272 puts",
+   "side": "x",
+   "chip": "ROLL",
+   "n": "58k / 132k",
+   "prem": 19.4,
+   "note": "266s 96% at the bid; 270–272s bought, ~4% below",
+   "pend": "THU"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-20 $270 put  →  Dec-18 $275 put",
+   "side": "x",
+   "chip": "ROLL",
+   "n": "30.4k each",
+   "prem": 9.3,
+   "pend": "THU",
+   "note": "15:24: 270s sold $0.91, 275s bought $3.98; ~$9M net"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-13 $275 / $270 puts",
+   "side": "x",
+   "chip": "SPREAD",
+   "n": "+5.4k / +3.2k",
+   "prem": 2.6,
+   "note": "put spread opened Tuesday",
+   "upd": "ok"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-6 $290 call",
+   "side": "x",
+   "chip": "BOTH WAYS",
+   "n": "20k / 15k",
+   "prem": 1.2,
+   "note": "66% at the bid by 15:08; then 15.1k at the ask, $0.10, at 15:58",
+   "pend": "THU"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-4 $287 / $288 calls",
+   "side": "s",
+   "chip": "CLOSED",
+   "n": "−8.7k",
+   "prem": 0.4,
+   "note": "sold at ~$0.15 Tuesday, a day before the pop",
+   "upd": "ok"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-5 $286 call",
+   "side": "b",
+   "chip": "BOUGHT",
+   "n": "+5.2k",
+   "prem": 0.32,
+   "note": "$0.58 Tuesday → $1.78 high",
+   "upd": "ok"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-5 $290 call",
+   "side": "b",
+   "chip": "BOUGHT",
+   "n": "+13.4k",
+   "prem": 0.23,
+   "note": "$0.14 Tuesday → $0.46 high",
+   "upd": "ok"
+  }
+ ],
+ "confirm": "confirmed by Thursday's open interest",
+ "read": "<b>Read:</b> the two-week pattern of cheap 2–4% out-of-the-money calls bought on dips paid this time, but only at the open, and 15k more were bought into the bell. November protection keeps stepping up with the price, $265 → $266–268 on Monday → $270–272 today, and late a 30k-lot went out to December $275s. Positioning, not a signal: our tests of copying these prints failed.",
+ "mon": "Side inferred from ask/bid · OI is start-of-day · multiples: average entry → day's high · after the bell, Nov-20 $269–271 puts reshuffled"
+}

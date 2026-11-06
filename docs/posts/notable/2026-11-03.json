@@ -1,0 +1,142 @@
+{
+ "date": "2026-11-03",
+ "kicker": "Options flow update · Tue Nov 3, 2026 · Monday's trades judged by Tuesday's open interest",
+ "h1": "Hedges moved, not removed",
+ "sub": "Monday's gap up faded into the close (SPY −0.6%, QQQ −1.5%). Tuesday's open interest showed hedges rolled, not dropped: Russell puts moved up closer to the price, S&amp;P added a Wednesday put, Nasdaq trimmed. One big bullish opening: a December SPY call.",
+ "tiles": [
+  [
+   "754.33",
+   "SPY close Tue"
+  ],
+  [
+   "685.38",
+   "QQQ"
+  ],
+  [
+   "279.80",
+   "IWM"
+  ],
+  [
+   "33k",
+   "IWM Nov-6 $277 puts open, from 3.7k before Monday"
+  ]
+ ],
+ "bars_title": "What Monday's trades left behind",
+ "bars_sub": "Change in open interest, Monday → Tuesday morning, thousand contracts · violet = opened · grey = closed",
+ "bars_max": 66,
+ "bars_x0": 190,
+ "bars": [
+  {
+   "label": "IWM Nov-6 $277P",
+   "v": 29.4,
+   "text": "+29.4k",
+   "color": "#9085e9"
+  },
+  {
+   "label": "IWM Nov-6 $267P",
+   "v": 20.9,
+   "text": "−20.9k",
+   "color": "#7d8796"
+  },
+  {
+   "label": "IWM Nov-20 $266–268P",
+   "v": 64.9,
+   "text": "+64.9k",
+   "color": "#9085e9"
+  },
+  {
+   "label": "IWM Nov-20 $265P",
+   "v": 18.4,
+   "text": "−18.4k",
+   "color": "#7d8796"
+  },
+  {
+   "label": "SPY Dec-18 $785C",
+   "v": 17.5,
+   "text": "+17.5k",
+   "color": "#9085e9"
+  },
+  {
+   "label": "SPY Nov-4 $756P",
+   "v": 12.4,
+   "text": "+12.4k",
+   "color": "#9085e9"
+  }
+ ],
+ "table_sub": "✓ = settled by Tuesday's open interest (n = change in open interest, $ = Monday's premium) · WED = Tuesday's prints (n = volume)",
+ "trades": [
+  {
+   "d": "IWM",
+   "k": "Nov-20 $265 put  →  $266–268 puts",
+   "side": "x",
+   "chip": "ROLL",
+   "n": "−18k / +65k",
+   "prem": 38.4,
+   "note": "OPEX hedge stepped up; 55k more traded Tuesday",
+   "upd": "ok"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-6 $267 put  →  $277 put",
+   "side": "x",
+   "chip": "ROLL",
+   "n": "−21k / +29k",
+   "prem": 9.0,
+   "note": "Friday's hedge moved from 4.4% to 0.9% below the price",
+   "upd": "ok"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-4 $287 / $288  ·  Nov-5 $286 calls",
+   "side": "b",
+   "chip": "BOUGHT",
+   "n": "+16k",
+   "prem": 0.8,
+   "note": "cheap event calls 2–4% above the price; more on Tuesday",
+   "upd": "ok"
+  },
+  {
+   "d": "SPY",
+   "k": "Dec-18 $785 call",
+   "side": "b",
+   "chip": "BOUGHT",
+   "n": "+17.5k",
+   "prem": 18.9,
+   "note": "the one big bullish opening, ~4% above the price",
+   "upd": "ok"
+  },
+  {
+   "d": "SPY",
+   "k": "Nov-4 $756 put",
+   "side": "b",
+   "chip": "BOUGHT",
+   "n": "+12.4k",
+   "prem": 13.6,
+   "note": "a hedge for the day after the election; 34k more traded Tuesday",
+   "upd": "ok"
+  },
+  {
+   "d": "QQQ",
+   "k": "Nov-20 $705 put  →  $680 put",
+   "side": "x",
+   "chip": "LOWER",
+   "n": "−3.2k / +4.5k",
+   "prem": 45.9,
+   "note": "hedges trimmed after Friday's drop, partly re-set lower",
+   "upd": "ok"
+  },
+  {
+   "d": "SPY",
+   "k": "Nov-20 $718 put  /  $716 put",
+   "side": "x",
+   "chip": "SPREAD",
+   "n": "25k each",
+   "prem": 15.4,
+   "note": "Tuesday: $718s at the ask, $716s at the bid: a spread or a roll up",
+   "pend": "WED"
+  }
+ ],
+ "confirm": "confirmed by Wednesday's open interest",
+ "read": "<b>Read:</b> protection is being managed into the events, not dropped. Russell hedgers swapped far puts for closer ones (Friday $277, OPEX $266–268), S&amp;P added Wednesday $756s, Nasdaq trimmed. Upside bets are small and cheap, except one ~$19M December SPY call. In our tests big option flow hasn't predicted direction on its own: positioning, not a signal.",
+ "mon": "Side from ask/bid · open interest is start-of-day · left out: SPX box legs (financing) and QQQ deep in-the-money puts"
+}
