@@ -330,6 +330,11 @@ UL_STALE_S = 30.0              # no underlying tick for this long -> say "blind"
 EXIT_REPLACE_WAIT_S = 6.0      # cancel unconfirmed this long -> send it again
 EXIT_RETRY_S = 1.0             # a rejected exit is re-sent after this
 EXIT_RETRY_MAX = 5             # sends in total, then it is on you
+# ...and the AUTOMATIC exits (sweep, levels) wait this long before another round.
+# "On you" used to last one loop pass: on 2026-11-05 a restart adopted a position
+# after the close and the sweep sent 36,540 SELLs in 6 hours, all refused. A
+# button press is never held back by this; you can always try again yourself.
+EXIT_COOLDOWN_S = 30.0
 # An unfilled ENTRY is not chased. An exit must happen at almost any price; an
 # entry is optional, and a marketable limit that has not filled in 20s means
 # the book moved away -- the setup you pressed the button on is gone. Chasing
@@ -437,6 +442,20 @@ def _eod_mod():
         return EOD_FLATTEN_MOD
 
 
+def _sweep_end_mod():
+    """When SPY/QQQ/IWM options stop trading: 15 minutes after the close, so 16:15,
+    or 13:15 on an early close. A SELL after this cannot fill."""
+    return _eod_mod() + 20
+
+
+def _options_open():
+    return _is_trading_day_et() and RTH_OPEN_MOD <= _now_mod() < _sweep_end_mod()
+
+
+def _exit_cooling(pos):
+    return time.time() < float(pos.get("exit_cool_until") or 0)
+
+
 def _hhmm(mod):
     return f"{mod // 60}:{mod % 60:02d}"
 
@@ -478,6 +497,24 @@ def set_overnight(eng, tk, req):
     save(eng)
     _event(True, msg)
     return True, msg
+
+
+def _eod_missed(eng):
+    """Past the sweep window with a hold still on the flatten: send nothing, say
+    so once a day (and once after a restart)."""
+    today = _et_today()
+    if getattr(eng, "manual_missed_told", None) == today:
+        return
+    eng.manual_missed_told = today
+    for tk, pos in list((getattr(eng, "manual_holds", {}) or {}).items()):
+        if _overnight(pos) or pos.get("pending") or pos.get("exit_coid"):
+            continue
+        name = f"{tk} {pos.get('qty')}x {pos.get('option_id')}"
+        _event(False, (f"{name} expired or expiring today and was NOT sold — check the broker; "
+                       f"CLOSE here releases it once it is gone"
+                       if str(pos.get("expiry") or "") <= today else
+                       f"{name} was NOT swept: options stopped trading at "
+                       f"{_hhmm(_sweep_end_mod())}. It stays open; next flatten is the next session's"))
 
 
 def _eod_rotate(eng):
@@ -1780,6 +1817,8 @@ def flatten(eng, tk, reason="MANUAL EOD", mode=EXIT_MARKETABLE, qty=None):
             ticker=tk, option_id=pos["option_id"], action="SELL",
             quantity=qty, is_closing=True, order_type="LIMIT", limit_price=px)
     except Exception as e:                      # noqa: BLE001 -- deliberate
+        pos["exit_cool_until"] = time.time() + EXIT_COOLDOWN_S
+        save_positions(eng)
         _event(False, f"{tk} exit FAILED to send: {type(e).__name__}: {e} "
                       f"— POSITION STILL OPEN")
         return False
@@ -1799,11 +1838,13 @@ def flatten(eng, tk, reason="MANUAL EOD", mode=EXIT_MARKETABLE, qty=None):
                           f"POSITION STILL OPEN")
         else:
             pos.pop("exit_retry", None)
+            pos["exit_cool_until"] = time.time() + EXIT_COOLDOWN_S
             save_positions(eng)
             _event(False, f"{tk} exit rejected {EXIT_RETRY_MAX}x ({why[:120]}) — "
                           f"POSITION STILL OPEN, CLOSE IT IN THE BROKER APP")
         return False
     pos.pop("exit_retry", None)
+    pos.pop("exit_cool_until", None)
     pos.update(exit_coid=coid, exit_at=time.time(), exit_px=px,
                exit_mode=mode, exit_reason=reason, exit_qty=qty, exit_booked=0)
     save_positions(eng)
@@ -2055,8 +2096,12 @@ def _check_levels(eng):
         if not tps and sl is None:
             continue
         if (pos.get("pending") or pos.get("exit_coid") or pos.get("exit_retry")
-                or pos.get("cancel_sent")):
+                or pos.get("cancel_sent") or _exit_cooling(pos)):
             continue                            # not held yet, or already leaving
+        # a pre-market or after-hours print is not a touch: the broker refuses the
+        # SELL anyway. A level gapped through overnight fires at the open instead.
+        if not _options_open():
+            continue
         spot, age = _spot(eng, tk)
         if spot <= 0 or (age is not None and age > UL_STALE_S):
             if not pos.get("ul_blind"):
@@ -2588,7 +2633,8 @@ def poll(eng, now_mod=None):
         pend = getattr(eng, "manual_panic_oids", None)
         if pend:
             for tk, pos in list((getattr(eng, "manual_holds", None) or {}).items()):
-                if pos.get("option_id") in pend and flatten(eng, tk, "911", EXIT_911):
+                if (pos.get("option_id") in pend and not _exit_cooling(pos)
+                        and not pos.get("exit_retry") and flatten(eng, tk, "911", EXIT_911)):
                     pend.discard(pos["option_id"])   # a failed send retries next pass
         # EOD FLATTEN -- it must run even if a request is malformed, and even
         # after entries have closed for the day. It goes out MARKETABLE and
@@ -2597,13 +2643,22 @@ def poll(eng, now_mod=None):
         # 🚨 ONLY ON A TRADING DAY. The loop runs all weekend; on Sun 2026-11-01
         # the sweep fired at 15:55, Webull refused the orders (non-trading
         # hours), and the retry's failed position read released a real hold.
+        # 🚨 AND ONLY WHILE A SELL CAN FILL. There was no upper bound, so a restart
+        # at 18:02 on 2026-11-05 adopted a position and swept it until midnight.
+        # Rejected rounds wait out the retry and the cooldown instead of re-firing
+        # every pass. Past the window it stays open and is said once.
         if (now_mod is not None and now_mod >= _eod_mod()
                 and _is_trading_day_et()):
-            _eod_rotate(eng)
-            for tk, pos in list((getattr(eng, "manual_holds", {}) or {}).items()):
-                if _overnight(pos):
-                    continue            # marked from the viewer, for today only
-                flatten(eng, tk, f"EOD {_hhmm(_eod_mod())}", EXIT_MARKETABLE)
+            if now_mod >= _sweep_end_mod():
+                _eod_missed(eng)
+            else:
+                _eod_rotate(eng)
+                for tk, pos in list((getattr(eng, "manual_holds", {}) or {}).items()):
+                    if _overnight(pos):
+                        continue        # marked from the viewer, for today only
+                    if pos.get("exit_retry") or _exit_cooling(pos):
+                        continue
+                    flatten(eng, tk, f"EOD {_hhmm(_eod_mod())}", EXIT_MARKETABLE)
         if not os.path.isdir(DIR):
             return
         for fn in sorted(os.listdir(DIR)):
