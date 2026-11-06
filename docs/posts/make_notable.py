@@ -13,6 +13,9 @@ notes and the read are written by hand from what the numbers show. Keys:
   tiles      [[value, label], ...]           up to 4
   bars_title, bars_sub, bars_max             the per-ticker chart
   bars       [{label, v, text}, ...]         v = magnitude (abs), text = signed label
+  bars_x0    optional label column width (default 80; wider for labels like "IWM Nov-6 $277P")
+  slug       optional file name part (default "notable") -> {date}-{slug}.html; a set of cards
+             for one day (summary + one per family) needs a slug each
   trades     [{d, k, side, chip, n, prem, note, pend}]  card.js tradeTable rows;
              d = ticker, pend = "TUE" etc. (the session whose OI confirms it)
   table_sub  optional subtitle of the trade table (default: biggest contracts by premium)
@@ -56,7 +59,7 @@ TPL = """<!doctype html>
 </div>
 <script src="card.js"></script>
 <script>
-compareBars(document.getElementById('bars'), {bars}, {bars_max}, {{x0: 80, H: 22, gap: 10}});
+compareBars(document.getElementById('bars'), {bars}, {bars_max}, {{x0: {bars_x0}, H: 22, gap: 10}});
 tradeTable(document.getElementById('tt'), {trades});
 </script>
 </body></html>
@@ -72,13 +75,13 @@ def main(path):
         b.setdefault("color", "#e66767" if str(b.get("text", "")).lstrip()[:1] in ("−", "-") else "#3987e5")
     out = TPL.format(date=spec["date"], spec=os.path.basename(path), kicker=spec["kicker"], h1=spec["h1"],
                      sub=spec["sub"], tiles=tiles, bars_title=spec["bars_title"], bars_sub=spec["bars_sub"],
-                     bars_h=len(spec["bars"]) * 32 + 4, bars=json.dumps(spec["bars"]), bars_max=spec["bars_max"],
+                     bars_h=len(spec["bars"]) * 32 + 4, bars=json.dumps(spec["bars"]), bars_max=spec["bars_max"], bars_x0=spec.get("bars_x0", 80),
                      trades=json.dumps(spec["trades"]), pend=pend,
                      confirm=spec.get("confirm", "confirmed by the next session's open interest"),
                      read=spec["read"], mon=spec.get("mon", ""),
                      table_sub=spec.get("table_sub", "Biggest contracts by premium · side read from ask/bid · "
                                                      "multi-leg packages read as one trade"))
-    dst = os.path.join(HERE, f"{spec['date']}-notable.html")
+    dst = os.path.join(HERE, f"{spec['date']}-{spec.get('slug', 'notable')}.html")
     open(dst, "w", encoding="utf-8").write(out)
     print("wrote", dst)
 

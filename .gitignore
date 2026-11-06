@@ -148,3 +148,8 @@ Thumbs.db
 
 # third-party EODHD skills download (2026-10-23): reference docs only, not ours to publish
 eohdhd_skills/
+
+# third-party Deepcharts + Volumetrica Bridge install (2026-11-04): licensed
+# binaries plus a Rithmic client certificate and a component licence file --
+# never ours to publish
+deepcharts_bridge/

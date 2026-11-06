@@ -11,7 +11,7 @@ function txt(parent, x, y, s, a = {}) {
   t.textContent = s;
   return t;
 }
-const money = v => v >= 1000 ? `$${(v / 1000).toFixed(2)}B` : `$${Math.round(v)}M`;
+const money = v => v >= 1000 ? `$${(v / 1000).toFixed(2)}B` : v < 1 ? `$${v.toFixed(1)}M` : `$${Math.round(v)}M`;
 
 /* Diverging bars: rows [{label, sold, bought}] in $M; sold grows left, bought right.
    `max` is shared across cards so the ETF cards compare honestly. */
