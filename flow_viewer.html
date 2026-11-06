@@ -1938,7 +1938,7 @@ function renderStage(){
   const held = (LIVE.manual || {})[SEL.tk];
   if(held) why.push(`${SEL.tk} already held manually — close it first`);
   const bot = (LIVE.tickers[SEL.tk] || {}).position;
-  if(bot) why.push(`${SEL.tk} is held by the BOT — the entry block will refuse`);
+  if(bot && !LIVE.dry_run) why.push(`${SEL.tk} is held by the BOT — the entry block will refuse`);
   gate(why, null, c.right);
 }
 
@@ -2063,7 +2063,7 @@ function panicScope(){
   for(const x of Object.values((LIVE && LIVE.manual_extras) || {}))
     out.push(`${x.ticker} ${x.qty}x manual (queued)`);
   for(const [t, s] of Object.entries((LIVE && LIVE.tickers) || {}))
-    if(s.position) out.push(`${t} bot`);
+    if(s.position && !LIVE.dry_run) out.push(`${t} bot`);
   return out;
 }
 

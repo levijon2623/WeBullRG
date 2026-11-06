@@ -2219,8 +2219,9 @@ class FlowExecutionEngine:
                     # A MANUAL hold blocks the bot from the same ticker. Without
                     # this the guard above only knows about the bot's OWN
                     # positions, so a discretionary IWM long and a rule entry
-                    # would stack and double the exposure.
-                    if ticker in (getattr(self, "manual_holds", None) or {}):
+                    # would stack and double the exposure. A paper bot adds no
+                    # exposure and must keep its record whatever the hand does.
+                    if not DRY_RUN and ticker in (getattr(self, "manual_holds", None) or {}):
                         continue
 
                     if USE_RULES:

@@ -23,7 +23,8 @@ POSITION HANDLING -- chosen by the user 2026-09-22
     stop. Two things are enforced anyway:
       1. AN ENTRY BLOCK. `active_snipes` is what the scanner's guard keys on,
          so without this the bot would happily open its own IWM position on top
-         of a manual one and double the exposure.
+         of a manual one and double the exposure. Only while the bot is LIVE
+         since 2026-11-05: a paper position is no exposure (_bot_blocks).
       2. AN EOD FLATTEN, which TRUMPS "unmanaged". A 0DTE with no stop that is
          simply forgotten expires worthless; the user has done it before. This
          is the one exit that protects against absence rather than price.
@@ -918,6 +919,19 @@ def cancel_resting(eng, option_id, why="exit"):
     return killed
 
 
+def _bot_blocks(eng, tk):
+    """Does the bot's own position on `tk` refuse a manual entry?
+
+    🚨 ONLY WHEN THAT POSITION IS REAL (operator, 2026-11-05). A DRY_RUN position
+    is paper: nothing at the broker to double up on or net against, so refusing
+    a real order because of it blocked the hand for no reason, all session on
+    the tickers the bot trades most. A LIVE bot still blocks: two real positions
+    would stack, and on one contract the broker nets them into one line.
+    """
+    from config import DRY_RUN
+    return not DRY_RUN and tk in (getattr(eng, "active_snipes", {}) or {})
+
+
 def attach_bracket(eng, tk, tp=None, sl=None, tp_pct=None, sl_pct=None,
                    dry=False, combo="PAIR"):
     """Put a broker-side TP/SL on a manual hold.
@@ -950,7 +964,7 @@ def attach_bracket(eng, tk, tp=None, sl=None, tp_pct=None, sl_pct=None,
                                     f"is no position to protect"}
     if pos.get("exit_coid"):
         return {"ok": False, "err": f"{tk} is already exiting"}
-    if tk in (getattr(eng, "active_snipes", {}) or {}):
+    if _bot_blocks(eng, tk):
         return {"ok": False, "err": f"{tk} is a BOT position — its exits are "
                                     f"a measured model, never bracket it"}
     if pos.get("bracket"):
@@ -1263,7 +1277,7 @@ def place_trigger(eng, tk, req, now_mod=None):
         return False, PRE_OPEN_MSG
     if tk in load_positions(eng):
         return False, f"{tk} already held manually — close it first"
-    if tk in (getattr(eng, "active_snipes", {}) or {}):
+    if _bot_blocks(eng, tk):
         return False, f"{tk} is held by the BOT"
     right = str(req.get("right") or "").upper()[:1]
     if right not in ("C", "P"):
@@ -1328,8 +1342,7 @@ def _check_triggers(eng, now_mod=None):
                else "expired" if now >= float(t.get("expires_at") or 0)
                else f"past {_hhmm(_eod_mod())}" if now_mod is not None and now_mod >= _eod_mod()
                else "its expiry has passed" if str(t.get("expiry")) < _et_today()
-               else f"{tk} is now held" if (tk in load_positions(eng) or
-                                             tk in (getattr(eng, "active_snipes", {}) or {}))
+               else f"{tk} is now held" if (tk in load_positions(eng) or _bot_blocks(eng, tk))
                else None)
         if why:
             d.pop(tk)
@@ -1468,7 +1481,7 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
         return _result(path, False, PRE_OPEN_MSG)
     if qty < 1 or qty > MAX_CONTRACTS:
         return _result(path, False, f"qty {qty} outside 1..{MAX_CONTRACTS}")
-    if tk in (getattr(eng, "active_snipes", {}) or {}):
+    if _bot_blocks(eng, tk):
         return _result(path, False, f"{tk} already held by the BOT")
     if tk in load_positions(eng):
         return _result(path, False, f"{tk} already held manually")
@@ -2503,7 +2516,10 @@ def _check_exits(eng):
 
 
 def panic(eng, reason="911"):
-    """Emergency flatten: EVERY manual hold and EVERY bot position.
+    """Emergency flatten: EVERY manual hold, and every bot position if it is REAL.
+
+    A paper position stays with the bot (operator, 2026-11-05): there is nothing
+    at the broker to flatten, and a 911 exit would land in the measured record.
 
     Manual holds go out at the 911 price. Bot positions go through
     bot_runner._fire_exit instead -- not because they deserve a softer price,
@@ -2529,7 +2545,8 @@ def panic(eng, reason="911"):
         done.append(f"{len(ex)} more manual contract(s) queued, sold one at a "
                     f"time as each slot frees")
 
-    for tk, snipe in list((getattr(eng, "active_snipes", None) or {}).items()):
+    from config import DRY_RUN
+    for tk, snipe in ([] if DRY_RUN else list((getattr(eng, "active_snipes", None) or {}).items())):
         if snipe.get("exiting"):
             skipped.append(f"bot {tk} (exit already in flight)")
             continue
