@@ -1,0 +1,32 @@
+# /etc/systemd/system/cleanbot-strikes.service
+#
+# strike_cue.py: the flow viewer's STRIKE pill (live/strikes.json). For SPY / QQQ / IWM, the next whole-dollar
+# strike above and below: the six 0DTE contracts' 5-minute volume surge, the gamma sign and relative volume,
+# looked up in strike_cue_tables.json (check_sixpack_lake.py's holdout). Its own process: it never touches the
+# bot, orders or Webull; it reads the bot's live price from live/state.json. UW REST only, about 18 calls a
+# minute in the session (same-day contracts every 15 s, gamma and stock volume once a minute). Logs every
+# touch with its cue to live/strikes/DATE.jsonl.
+#
+#   sudo cp deploy/strikes.service /etc/systemd/system/cleanbot-strikes.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cleanbot-strikes
+
+[Unit]
+Description=Cleanbot strike cue
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/bot_engine/venv/bin/python strike_cue.py
+Restart=on-failure
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-strikes
+
+[Install]
+WantedBy=multi-user.target

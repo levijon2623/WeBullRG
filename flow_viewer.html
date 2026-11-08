@@ -743,6 +743,70 @@ function vgPill(s){
     `<b>${Math.round(g.p*100)}%</b><span class="k">typ ${Math.round(g.clim*100)}%</span></span>`;
 }
 
+/* STRIKE CUE (strike_cue.py -> live/strikes.json, cleanbot-strikes). DISPLAY ONLY. For the next whole-dollar
+   strike above and below, what history says happens if price touches it now: through / stall / turn back within
+   10 min, looked up from check_sixpack_lake.py's holdout (2024-08..2026-09, 512 sessions, 96k touches) by the
+   six 0DTE contracts' 5-min volume surge, the gamma sign and relative volume. A surge mostly means NO STALL (it
+   turns stalls into moves, mostly turnbacks); SPY adds its push-side ATM read, SPY/IWM the push-side OTM read once
+   price sits at a strike. Effects are a few points: context, not a signal. */
+let STRK = null;
+async function pollStrikes(){
+  try { const r = await fetch('live/strikes.json?t='+Date.now()); STRK = r.ok ? await r.json() : null; }
+  catch { STRK = null; }
+}
+const SK_COL = '#58a6ff';
+function skRates(c){ return c ? `through ${c.through}% · stall ${c.stall}% · turn back ${c.reverse}% (n=${c.n})` : 'no history cell'; }
+function strikePill(){
+  const o = STRK && STRK.tickers && STRK.tickers[liveTk];
+  const st = 'width:auto;flex:none;margin:0;font-size:11px;display:inline-flex;align-items:center;gap:6px';
+  if(!o) return '';
+  const age = Date.now()/1000 - (STRK.ts || 0);
+  if(!STRK.live || age > 30)
+    return `<span class="tag" style="${st};color:var(--dim)" title="strike cue: ${STRK.live ? 'no update for ' + Math.round(age) + 's' : 'outside the session'}">STRIKE —</span>`;
+  const T3 = ['low', 'mid', 'high'];
+  const reg = `gamma ${o.gs === 'pos' ? 'positive' : o.gs === 'neg' ? 'negative' : '—'}${o.gex_at ? ' (' + o.gex_at + ')' : ''} · ` +
+    `relative volume ${o.rvol ?? '—'}${o.rvol_t != null ? ' (' + T3[o.rvol_t] + ' third)' : ''}`;
+  const foot = `\n\nHistory: ${STRK.source}. Touch = price comes from ${STRK.R_bp} bp away into ${'±'}${STRK.zone.toFixed(2)} of the strike; ` +
+    `outcome within ${STRK.T_min} min. UW tape lag ${o.lag ?? '—'}s (REST every 15 s). Display only: the effects are a few points, context not a signal.`;
+  if(o.touch){
+    const t = o.touch, arrow = t.side > 0 ? '↑' : '↓', mm = `${Math.floor(t.secs/60)}:${String(t.secs%60).padStart(2,'0')}`;
+    let tip = `AT ${t.K}, came ${t.side > 0 ? 'up from below' : 'down from above'} at ${t.since} (${mm} ago). ${reg}.`;
+    let body = `<b>AT ${t.K}${arrow}</b><span class="k">${mm}</span>`;
+    if(t.no_test){ tip += `\n${t.no_test}.`; }
+    else if(t.reading_at){ tip += `\nReading ${t.contract} (push side, strike ahead) over the touch minute and the next; ready at ${t.reading_at}.`;
+      body += `<span class="k">${esc(t.contract)} at ${esc(t.reading_at)}</span>`; }
+    else if(t.push_otm){ const p = t.push_otm, w = p.t === 2 ? 'bought' : p.t === 0 ? 'sold' : 'mixed';
+      tip += `\n${t.contract} ask−bid over the touch minute + next: ${p.agg ?? '—'} (${p.t != null ? T3[p.t] + ' third, ' + w : 'too few contracts'}).` +
+        `\nIf still open now, history: ${skRates(p.rates || p.open2)}` +
+        `\n  when ${t.contract} was sold: ${skRates(p.low)}\n  when bought: ${skRates(p.high)}`;
+      if(p.rates) body += `<span>${esc(t.contract)} ${w}</span><b>back ${p.rates.reverse}%</b><span class="k">stall ${p.rates.stall}%</span>`; }
+    return `<span class="tag" title="${esc(tip + foot)}" style="${st};border-color:${SK_COL}">${body}</span>`;
+  }
+  const cells = [], tips = [];
+  for(const s of (o.strikes || [])){
+    const arrow = s.side > 0 ? '↑' : '↓';
+    if(s.warming || !s.six){ cells.push(`<span class="k">${arrow}${s.K} warming</span>`); continue; }
+    const c = s.rates, su = s.six.surge, hi = s.six.t === 2;
+    const stall = c ? c.stall : null, col = stall == null ? 'var(--dim)' : stall >= 15 ? '#f0883e' : 'var(--fg)';
+    let pa = '';
+    if(s.push_atm2 && s.push_atm2.t != null && s.push_atm2.t !== 1) pa = `<span class="k">${s.push_atm2.contract} ${s.push_atm2.t === 2 ? 'bought' : 'sold'}</span>`;
+    const stale = s.as_of && STRK.at && STRK.at.slice(0, 5) !== s.as_of;
+    cells.push(`<span>${arrow}<b>${s.K}</b> <span style="color:${hi ? SK_COL : 'var(--dim)'}">×${su ?? '—'}</span> ` +
+      `<span style="color:${col}">stall ${stall ?? '—'}%</span>${pa ? ' ' + pa : ''}${stale ? `<span class="k" style="margin-left:4px" title="UW's tape has not reached this minute yet">${s.as_of}</span>` : ''}</span>`);
+    let tip = `${s.K} (${s.dist > 0 ? '+' : ''}${s.dist} away), approached ${s.side > 0 ? 'from below' : 'from above'}${s.armed ? '' : ' — not yet 5 bp away on that side, so not a tested touch yet'}.` +
+      `\nSix contracts ${s.K-1}-${s.K+1} C/P, 5 min to ${s.as_of}${stale ? ' (UW tape behind: one minute stale)' : ''}: ${s.six.vol5.toLocaleString()} contracts, ×${su ?? '—'} the prior 15 min's pace` +
+      `${s.six.t != null ? ' (' + T3[s.six.t] + ' third)' : ''}.\nIf touched now, history (${reg}): ${skRates(c)}`;
+    const q = s.quiet_vs_surging || [];
+    if(q[0] && q[1]) tip += `\n  quiet strike: ${skRates(q[0])}\n  surging strike: ${skRates(q[1])}`;
+    if(s.push_atm2) tip += `\n${s.push_atm2.contract} ask−bid last 2 min: ${s.push_atm2.agg ?? '—'}` +
+      `${s.push_atm2.t != null ? ' (' + T3[s.push_atm2.t] + ' third)' : ''}. Sold: turn back ${s.push_atm2.low ? s.push_atm2.low.reverse : '—'}%, bought: ${s.push_atm2.high ? s.push_atm2.high.reverse : '—'}%.`;
+    tips.push(tip);
+  }
+  if(o.err) tips.push(`⚠ ${o.err}`);
+  return `<span class="tag" title="${esc(tips.join('\n\n') + foot)}" style="${st};border-color:${SK_COL}">` +
+    `<span style="color:${SK_COL}">STRIKE</span>${cells.join('<span class="k">|</span>')}</span>`;
+}
+
 /* REGIME LABEL + LIVE FLIP TAG (operator, 2026-10-13: "Regime says POSITIVE
    despite price now below the gamma flip"). The regime pills are the session
    regime from the PRIOR close, polled once and held (bot_runner
@@ -1094,6 +1158,7 @@ function liveDraw(d, s){
     ${gxBtn(s)}
     ${imBtn(s)}
     ${vgPill(s)}
+    ${strikePill()}
     ${waitLights(d)}
     <span id="volRead"></span>
     <span class="k">cum</span><b title="${d.flow_src !== null ? '' : 'no flow: this engine is manual-only (no UW_API_KEY)'}">${
@@ -1265,8 +1330,8 @@ $('#liveBtn').onclick = () => {
   $('#liveBtn').textContent = '■ STOP LIVE';
   liveSeries = null;
   $('#telem').style.display = 'flex'; $('#side').classList.add('live');
-  livePoll(); pollEvents(); pollBeat();
-  liveTimer = setInterval(() => { livePoll(); pollEvents(); pollBeat(); if(++newsTick % 6 === 0) pollNews(); }, 5000);
+  pollStrikes().then(livePoll); pollEvents(); pollBeat();
+  liveTimer = setInterval(() => { pollStrikes(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 6 === 0) pollNews(); }, 5000);
   pollNews();
 };
 
