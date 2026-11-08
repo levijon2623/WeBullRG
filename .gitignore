@@ -153,3 +153,5 @@ eohdhd_skills/
 # binaries plus a Rithmic client certificate and a component licence file --
 # never ours to publish
 deepcharts_bridge/
+# Claude Code local permissions: "don't ask again" saves approved commands verbatim
+.claude/settings.local.json
