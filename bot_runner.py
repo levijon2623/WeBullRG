@@ -21,6 +21,7 @@ from config import (WATCHLIST, DRY_RUN, PAPER_TRADING, MAX_PORTFOLIO_RISK_PCT,
                     RULES, USE_RULES, FLOW_THRESHOLDS_PATH)
 import live_state                 # read-only chart emitter; cannot raise
 import manual_orders              # discretionary orders from flow_viewer
+import loop_watch                 # heartbeat + stall stacks from its own thread; read-only
 from macro_calendar import is_macro_am_day
 from amt_profile import profile_from_bars, classify_open, amt_ok
 import market_calendar as MC
@@ -922,6 +923,24 @@ class FlowExecutionEngine:
     # =====================================================================
     # ORDER-FILL CONFIRMATION & POSITION RECONCILIATION
     # =====================================================================
+    def _service_desk(self, between_tickers=False):
+        """Chart state and viewer orders / manual exits, and the loop's heartbeat.
+
+        🚨 ALSO BETWEEN TICKERS (2026-11-06). The scanner below calls UW REST one
+        ticker at a time, 5 s timeout each, failures swallowed. A network blip at
+        10:17 made one pass take about 65 s, and with this only at the top of the
+        pass, real orders and stops waited for all of it. Between tickers it runs
+        at most once a second, so the normal pass costs what it did.
+        """
+        now = time.monotonic()
+        if between_tickers and now - getattr(self, "_desk_at", 0.0) < 1.0:
+            return
+        self._desk_at = now
+        loop_watch.beat()
+        t = market_now()
+        live_state.tick(self)
+        manual_orders.poll(self, t.hour * 60 + t.minute)
+
     def _await_fill(self, coid, timeout=10.0, poll=1.5):
         """Poll an order until terminal or timeout. Returns (status, fill_price, filled_qty).
         status None => the status check itself kept failing."""
@@ -1881,6 +1900,7 @@ class FlowExecutionEngine:
         print("   exits of REAL positions always send, on either flag.")
         print("=" * 65)
 
+        loop_watch.start()
         while True:
             try:
                 current_time = market_now()
@@ -2159,15 +2179,14 @@ class FlowExecutionEngine:
                 # scanner's `break`/`continue` chain so it still runs after
                 # 15:00 and for tickers holding a position; both are exactly
                 # when you want to be watching.
-                live_state.tick(self)
                 # Discretionary orders from the viewer, and the 15:55 flatten
                 # that trumps "unmanaged". Placed BEFORE the scanner so a manual
                 # hold registered this pass blocks an entry on the same pass.
-                manual_orders.poll(
-                    self, current_time.hour * 60 + current_time.minute)
+                self._service_desk()
 
                 # manual-only (no UW key): the scanner is the bot's UW signal -- skip it
                 for ticker in (tickers_to_track if self.uw_enabled else ()):
+                    self._service_desk(between_tickers=True)
                     settings = WATCHLIST.get(ticker, {})
 
                     flow_ticks = self.uw.get_live_net_premium(ticker)

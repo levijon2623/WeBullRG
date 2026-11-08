@@ -335,6 +335,12 @@ EXIT_RETRY_MAX = 5             # sends in total, then it is on you
 # after the close and the sweep sent 36,540 SELLs in 6 hours, all refused. A
 # button press is never held back by this; you can always try again yourself.
 EXIT_COOLDOWN_S = 30.0
+# 🚨 A QUEUED ENTRY GOES STALE. A request waits in live/orders until the loop reads
+# it. On 2026-11-06 two clicks waited about a minute through a stall and only the
+# arming check stopped them; with the window open they would have opened positions
+# at whatever the price had become. The click was a decision about THAT price. Exits
+# and 911 never expire: being out late beats not being out.
+STALE_ENTRY_S = 10.0
 # An unfilled ENTRY is not chased. An exit must happen at almost any price; an
 # entry is optional, and a marketable limit that has not filled in 20s means
 # the book moved away -- the setup you pressed the button on is gone. Chasing
@@ -497,6 +503,18 @@ def set_overnight(eng, tk, req):
     save(eng)
     _event(True, msg)
     return True, msg
+
+
+def _stale_entry(req, path):
+    """Seconds this entry request has been queued if that is too long, else None."""
+    if str(req.get("action") or "buy").lower() not in ("buy", "swap", "trigger"):
+        return None
+    try:
+        at = float(req.get("requested_at") or 0) or os.path.getmtime(path)
+    except (TypeError, ValueError, OSError):
+        return None
+    age = time.time() - at
+    return age if age > STALE_ENTRY_S else None
 
 
 def _eod_missed(eng):
@@ -2671,6 +2689,12 @@ def poll(eng, now_mod=None):
                     os.unlink(p)
                 except OSError:
                     pass
+                continue
+            stale = _stale_entry(req, p)
+            if stale is not None:
+                _result(p, False, f"{str(req.get('ticker', '')).upper()} {req.get('action') or 'buy'} "
+                                  f"NOT sent: it waited {stale:.0f}s while the bot was busy. Check the "
+                                  f"price and send it again")
                 continue
             _execute(eng, req, p, now_mod)
     except Exception as e:                      # noqa: BLE001 -- deliberate

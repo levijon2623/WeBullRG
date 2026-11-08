@@ -56,6 +56,7 @@
     animation:pulse 2s ease-in-out infinite}
   @keyframes pulse{50%{opacity:.62}}
   #liveInfo{font-size:11px;color:var(--dim);text-align:center}
+  #botStall{display:none;font-size:12px;font-weight:700;color:#fff;background:var(--dn);padding:6px 8px;border-radius:4px;text-align:center;margin:4px 0}
   #sideBtn{color:var(--put);border-color:#5a4a1a}
   #sideBtn.conf{background:#2a2411;border-color:var(--put);color:var(--put);
     animation:pulse 1s ease-in-out infinite}
@@ -318,6 +319,7 @@
       <a href="brief.html" style="float:right;margin-right:12px;color:var(--accent);text-decoration:none;text-transform:none;letter-spacing:0">pre-open brief</a><a href="uoa.html" style="float:right;margin-right:12px;color:var(--accent);text-decoration:none;text-transform:none;letter-spacing:0">UOA flags</a></h1>
     <div id="livebar"><button id="liveBtn">● GO LIVE</button>
       <span id="liveInfo" class="d"></span>
+      <div id="botStall" role="alert"></div>
       <button id="sideBtn" disabled>⏸ SIDELINE</button>
       <span id="sideInfo" class="d"></span></div>
     <!-- replay filters: research, not trading -- folded away by default so the
@@ -820,6 +822,7 @@ function liveStop(){
   renderNews();                                  // hides the news strip
   $('#liveBtn').classList.remove('on'); $('#liveBtn').textContent = '● GO LIVE';
   $('#liveInfo').textContent = '';
+  $('#botStall').style.display = 'none';
   sideConf = false; renderSide();
   // the order desk is meaningless without a live engine behind it
   SEL = null; openTk = null; HOLDSEL = null; disarmFire(); disarmPanic();
@@ -827,6 +830,23 @@ function liveStop(){
   $('#side').classList.remove('live');
   $('#ulPop').style.display = 'none'; placeUlPop();
   if(cur) draw(cur); else renderList();
+}
+
+/* A stalled bot cannot write state.json, so the page just looks frozen. A separate
+   thread writes live/heartbeat.json (loop_watch.py), and it only goes quiet if the
+   whole process has. No file = an older bot: say nothing. */
+async function pollBeat(){
+  let msg = '';
+  try {
+    const r = await fetch('live/heartbeat.json?t='+Date.now());
+    if(r.ok){
+      const h = await r.json(), quiet = Date.now()/1000 - h.ts;
+      if(quiet > 20) msg = `⚠ BOT NOT RESPONDING ${Math.round(quiet)}s — orders and exits are not running`;
+      else if(h.stalled) msg = `⚠ BOT STALLED ${Math.round(h.beat_age)}s — orders and exits are waiting`;
+    }
+  } catch {}
+  const el = $('#botStall');
+  el.textContent = msg; el.style.display = msg ? 'block' : 'none';
 }
 
 async function livePoll(){
@@ -1245,8 +1265,8 @@ $('#liveBtn').onclick = () => {
   $('#liveBtn').textContent = '■ STOP LIVE';
   liveSeries = null;
   $('#telem').style.display = 'flex'; $('#side').classList.add('live');
-  livePoll(); pollEvents();
-  liveTimer = setInterval(() => { livePoll(); pollEvents(); if(++newsTick % 6 === 0) pollNews(); }, 5000);
+  livePoll(); pollEvents(); pollBeat();
+  liveTimer = setInterval(() => { livePoll(); pollEvents(); pollBeat(); if(++newsTick % 6 === 0) pollNews(); }, 5000);
   pollNews();
 };
 
