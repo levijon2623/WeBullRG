@@ -47,6 +47,7 @@ Usage:
   python fetch_mbo.py                      # price only, buys nothing
   python fetch_mbo.py --confirm            # actually download
   python fetch_mbo.py --rules "IWM HIVOL CALL" --confirm
+  python fetch_mbo.py --dates 2026-10-07,2026-10-08 --expect-total 10.45 --confirm
 """
 from __future__ import annotations
 
@@ -129,6 +130,11 @@ def main():
     ap.add_argument("--outdir", default=OUTDIR)
     ap.add_argument("--budget", type=float, default=125.0,
                     help="refuse to download above this cost (default = the free credits)")
+    ap.add_argument("--dates", default=None,
+                    help="comma list: these days for each --symbols, instead of the traded days")
+    ap.add_argument("--symbols", default=",".join(PROXY.values()), help="with --dates")
+    ap.add_argument("--expect-total", type=float, default=None,
+                    help="refuse to download unless the quote equals this to the cent")
     a = ap.parse_args()
 
     import databento as db
@@ -137,7 +143,11 @@ def main():
     print("=" * 84)
     print("  DAYS OUR INDEX RULES ACTUALLY TRADED")
     print("=" * 84)
-    by_sym, per_rule = traded_dates(a.rules)
+    if a.dates:
+        ds_ = sorted(pd.Timestamp(x).date() for x in a.dates.split(","))
+        by_sym = {s: ds_ for s in a.symbols.split(",")}
+    else:
+        by_sym, per_rule = traded_dates(a.rules)
     if not by_sym:
         sys.exit("  no dates found")
 
@@ -177,7 +187,7 @@ def main():
             plan.append((sym, d, s, e, cost))
         total += sym_cost
         print(f"  {sym:9} {len(ds):>3} days   ${sym_cost:>7.2f}   {sym_gb:>7.1f} GB   "
-              f"slices {slice_spread(ds)}")
+              + ("" if a.dates else f"slices {slice_spread(ds)}"))
 
     print(f"\n  {'TOTAL':9} {len(plan):>3} day-pulls  ${total:>7.2f}")
     if total > a.budget:
@@ -188,6 +198,8 @@ def main():
         return
     if total > a.budget:
         sys.exit("  refusing to download over budget.")
+    if a.expect_total is not None and abs(total - a.expect_total) >= 0.005:
+        sys.exit(f"  refusing: quote ${total:.2f} is not the agreed ${a.expect_total:.2f}.")
 
     print("\n" + "=" * 84)
     print("  DOWNLOADING (resumable — existing files are skipped)")
@@ -200,16 +212,20 @@ def main():
             print(f"  ·  {sym} {d}  already have it")
             continue
         os.makedirs(p, exist_ok=True)
+        tmp = f + ".part"           # a dropped stream must not look like a finished day
         try:
             data = c.timeseries.get_range(dataset=DATASET, symbols=[sym], schema="mbo",
-                                          start=s, end=e, stype_in="continuous")
-            data.to_file(f)
+                                          start=s, end=e, stype_in="continuous", path=tmp)
+            del data
+            os.replace(tmp, f)
             done += 1
             spent += cost
             print(f"  ✓  {sym} {d}  ${cost:.2f}  {os.path.getsize(f)/1e6:>8.1f} MB"
                   f"   (spent ${spent:.2f})")
         except Exception as ex:
             print(f"  ✗  {sym} {d}  {type(ex).__name__}: {str(ex)[:70]}")
+            if a.dates:             # every retry is billed again: stop and look
+                sys.exit(f"  STOPPED after a failure. ~${spent:.2f} this run; finished days are kept.")
     print(f"\n  downloaded {done} day-pulls, ~${spent:.2f}")
 
 
