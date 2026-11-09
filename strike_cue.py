@@ -116,6 +116,7 @@ class Ticker:
         self.gex = None; self.gex_at = None
         self.rvol = None; self.vol_base = None
         self.err = None
+        self.day0 = self.open_ts = None      # set by run(); lets a touch log its pre-touch cue the moment it happens
 
     # flow ---------------------------------------------------------------
     def add_snap(self, ts, rows):
@@ -182,14 +183,23 @@ class Ticker:
             elif K - BZ <= p <= K + BZ and K in self.armed and self.touch is None and MIN_TOUCH_MOD <= m <= MAX_TOUCH_MOD:
                 sd = self.armed.pop(K)
                 self.touch = {"K": K, "side": sd, "since": t.strftime("%H:%M:%S"), "m0": m, "t0": time.time(), "res": None}
-                if logf: logf({"ev": "touch", "tk": self.tk, "K": K, "side": sd, "since": self.touch["since"], "m0": m})
+                if logf: logf(self._touch_event(K, sd, m))
         # a jump across a zone between samples counts as entering it
         for K in list(self.armed):
             sd = self.armed[K]
             if self.touch is None and MIN_TOUCH_MOD <= m <= MAX_TOUCH_MOD and ((sd > 0 and p > K + BZ) or (sd < 0 and p < K - BZ)):
                 self.armed.pop(K)
                 self.touch = {"K": K, "side": sd, "since": t.strftime("%H:%M:%S"), "m0": m, "t0": time.time(), "res": None, "jumped": True}
-                if logf: logf({"ev": "touch", "tk": self.tk, "K": K, "side": sd, "since": self.touch["since"], "m0": m, "jumped": True})
+                if logf: logf(dict(self._touch_event(K, sd, m), jumped=True))
+
+    def _touch_event(self, K, sd, m):
+        """the forward record: what the pill said at the moment of the touch, logged with the touch itself so a touch that
+        resolves within seconds is not missing from it (11-09: the cue used to be logged only once the at-touch read existed)."""
+        ev = {"ev": "touch", "tk": self.tk, "K": K, "side": sd, "since": self.touch["since"], "m0": m, "gs": self.gs(), "rvol": self.rvol}
+        if self.day0 is not None:
+            try: ev["pre"] = self.strike_cue(K, sd, m, self.day0, self.open_ts)
+            except Exception as e: ev["pre_err"] = type(e).__name__
+        return ev
 
     # cue -----------------------------------------------------------------------
     def tercile(self, v, name):
@@ -309,6 +319,7 @@ def run():
         day0 = datetime(d.year, d.month, d.day, tzinfo=P.NY).timestamp(); open_ts = day0 + 570 * 60
         close_m = MC.close_mod(d)
         T = {tk: Ticker(tk, tables) for tk in TK}
+        for X in T.values(): X.day0, X.open_ts = day0, open_ts
         os.makedirs(LOGDIR, exist_ok=True)
         logp = os.path.join(LOGDIR, f"{d.isoformat()}.jsonl")
         def logf(o, logp=logp):
@@ -374,11 +385,10 @@ def run():
                         up = int(math.floor(X.price + BZ)) + 1; dn = int(math.ceil(X.price - BZ)) - 1
                         o["strikes"] = [X.strike_cue(up, 1, m, day0, open_ts), X.strike_cue(dn, -1, m, day0, open_ts)]
                         o["touch"] = X.touch_cue(m, day0, open_ts)
-                        if X.touch and not X.touch.get("logged_cue") and (o["touch"].get("push_otm") or o["touch"].get("no_test")):
-                            X.touch["logged_cue"] = True
-                            pre = X.strike_cue(X.touch["K"], X.touch["side"], X.touch["m0"], day0, open_ts)
-                            logf({"ev": "cue", "tk": tk, "K": X.touch["K"], "side": X.touch["side"], "since": X.touch["since"], "gs": X.gs(),
-                                  "rvol": X.rvol, "pre": pre, "at": o["touch"]})
+                        if X.touch and not X.touch.get("logged_at") and o["touch"].get("push_otm"):
+                            X.touch["logged_at"] = True       # the at-the-touch read, once it exists (SPY / IWM, touch minute + next)
+                            logf({"ev": "at", "tk": tk, "K": X.touch["K"], "side": X.touch["side"], "since": X.touch["since"], "gs": X.gs(),
+                                  "rvol": X.rvol, "at": o["touch"]})
                     out["tickers"][tk] = o
                 jdump(out, OUT)
             time.sleep(0.5)
