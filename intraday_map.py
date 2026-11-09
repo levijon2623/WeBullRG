@@ -35,8 +35,12 @@ POSITIONS (toggle)
         raw flow), weakly on QQQ, not on IWM; single-leg vs raw flow was a tie.
 EXPIRIES (toggle)  0-1 DTE (where the intraday charm and gamma live) / 0-7 DTE.
 
-Grid: price = the last close +-3% in 0.1% steps (fixed for the day so frames
-line up), time = 09:30 .. 16:00 in 5-minute columns. Values are quantised to
+Grid: price = the last close +-3% in 0.1% steps, anchored to the last close for
+the day so frames line up; it GROWS (never shrinks) whenever the day's price
+comes within 1% of an edge (user, 2026-11-09: QQQ ran off the top after a gap
+up). Rows added mid-day are blank in the columns computed before they existed
+-- the past is never recomputed with hindsight. Time = 09:30 .. 16:00 in
+5-minute columns. Values are quantised to
 +-100 of each grid's own scale (stored) to keep the files small.
 Output: live/posmap/{SP,QQQ,IWM}_trace.json (latest) and
 live/posmap/archive/DATE/{..}_trace.jsonl (every pass, for the replay slider).
@@ -56,6 +60,7 @@ import numpy as np
 OUT = os.path.join("live", "posmap")
 COLS = list(range(570, 961, 5))                  # 09:30 .. 16:00
 BAND, STEP = 0.03, 0.001
+EDGE = 0.01                                      # keep the day's price this far inside the grid
 YEAR_MIN = 365.0 * 1440.0
 LENSES = ("g", "dp", "ch")
 COMBOS = [f"{lens}|{m}|{s}" for lens in LENSES for m in ("oi", "adj") for s in ("01", "07")]
@@ -108,7 +113,25 @@ def trace_pass(uw, key, etf, day, now, rows):
         return "no regular-session bars yet"
     S = path[-1][1]
     center = pos.get("prev_close") or path[0][1]
-    P = center * (1 + np.arange(-BAND, BAND + 1e-9, STEP))
+    # ---- the grid: rows center x (1 + k x STEP); +-BAND to start, grown to keep the day's range EDGE inside it
+    hist_p = os.path.join(OUT, f"{key}_trace_hist.json")
+    hist = _load(hist_p) or {}
+    if hist.get("date") != day.isoformat() or hist.get("center") != center:
+        hist = {"date": day.isoformat(), "center": center, "cols": {}}
+    kb = int(round(BAND / STEP))
+    old_lo, old_hi = hist.get("kmin", -kb), hist.get("kmax", kb)
+    lo_px, hi_px = min(p for _, p in path), max(p for _, p in path)
+    kmin = min(old_lo, math.floor((lo_px * (1 - EDGE) / center - 1) / STEP))
+    kmax = max(old_hi, math.ceil((hi_px * (1 + EDGE) / center - 1) / STEP))
+    if (kmin, kmax) != (old_lo, old_hi):                  # pad what was computed before with blanks
+        pad = lambda v: [float("nan")] * (old_lo - kmin) + list(v) + [float("nan")] * (kmax - old_hi)
+        for part in ("cols", "proj"):
+            for cmb, cols in (hist.get(part) or {}).items():
+                for js in list(cols):
+                    cols[js] = pad(cols[js]) if len(cols[js]) == old_hi - old_lo + 1 else None
+                hist[part][cmb] = {js: v for js, v in cols.items() if v is not None}
+    hist["kmin"], hist["kmax"] = kmin, kmax
+    P = center * (1 + np.arange(kmin, kmax + 1) * STEP)
     Pr = np.append(P, S)                                   # last row = spot now (for delta pressure)
     j0 = next((j for j, c in enumerate(COLS) if c >= mod), len(COLS) - 1)
 
@@ -165,11 +188,7 @@ def trace_pass(uw, key, etf, day, now, rows):
                 out_cols.setdefault(f"ch|{m}|{s}", {})[j] = (-(dn[:-1] - d[j][:-1]) * P if j < len(COLS) - 1
                                                               else np.full(len(P), np.nan))
 
-    # ---- the past stays as it was computed: keep each pass's own first column
-    hist_p = os.path.join(OUT, f"{key}_trace_hist.json")
-    hist = _load(hist_p) or {}
-    if hist.get("date") != day.isoformat() or hist.get("center") != center:
-        hist = {"date": day.isoformat(), "center": center, "cols": {}}
+    # ---- the past stays as it was computed: keep each pass's own first column (hist loaded with the grid above)
     # passes drift (300 s apart plus their own run time), so one can land past a whole column
     # (10:05 -> 10:11 skips 10:10): a skipped column takes the previous pass's projection for it,
     # which was computed then, so the past still carries no hindsight
