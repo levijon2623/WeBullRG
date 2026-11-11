@@ -2094,6 +2094,10 @@ def snapshot(eng):
                 dte = (_dt.date.fromisoformat(exp) - today).days
             except (TypeError, ValueError):
                 dte = None
+            # an expired contract still streaming keeps its last quote; it is not
+            # tradeable (2026-11-11: SPY 11-09 / 11-10 contracts showed as dte -1/-2)
+            if dte is not None and dte < 0:
+                continue
             st = _CSTAT.get(oid) or {}
             mid = (b + k) / 2
             chains.setdefault(tk, []).append(dict(

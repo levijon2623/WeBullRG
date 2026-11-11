@@ -443,21 +443,31 @@ class WebullGammaClient:
     # =====================================================================
     # DYNAMIC MQTT OPTION SUBSCRIPTIONS
     # =====================================================================
-    def subscribe_to_option(self, occ_symbol: str):
-        """Tells the active MQTT client to start streaming this specific option."""
-        if not self.stream_client or occ_symbol in self.active_option_subs:
-            return
-            
+    def subscribe_to_option(self, occ_symbol: str) -> bool:
+        """Tells the active MQTT client to start streaming this specific option.
+
+        Returns True when the contract is (now) streaming. 🚨 False is real: Webull
+        caps a connection at 100 symbols (417 TOO_MANY_SYMBOLS_SUBSCRIPTION), and a
+        caller that treats a refused contract as subscribed never retries it -- on
+        2026-11-10 SPY 748C / 749P were refused at 08:30 and missing from the viewer
+        until price happened to re-centre the basket two hours later."""
+        if not self.stream_client:
+            return False
+        if occ_symbol in self.active_option_subs:
+            return True
+
         print(f"📡 [MQTT] Subscribing to live quotes for {occ_symbol}...")
         try:
             self.stream_client.subscribe(
-                symbols=[occ_symbol], 
-                category=Category.US_OPTION.name, 
+                symbols=[occ_symbol],
+                category=Category.US_OPTION.name,
                 sub_types=[SubscribeType.QUOTE.name]
             )
             self.active_option_subs.add(occ_symbol)
+            return True
         except Exception as e:
             print(f"  🚨 Failed to subscribe to {occ_symbol}: {e}")
+            return False
 
     def unsubscribe_from_option(self, occ_symbol: str):
         """Frees up bandwidth when a trade is closed."""

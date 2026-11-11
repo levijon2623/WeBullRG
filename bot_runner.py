@@ -22,6 +22,13 @@ from config import (WATCHLIST, DRY_RUN, PAPER_TRADING, MAX_PORTFOLIO_RISK_PCT,
 import live_state                 # read-only chart emitter; cannot raise
 import manual_orders              # discretionary orders from flow_viewer
 import loop_watch                 # heartbeat + stall stacks from its own thread; read-only
+
+# 🚨 WEBULL'S 100-SYMBOL STREAM BUDGET (2026-11-11, user's choice). ATM +/- 2 for every
+# (direction, DTE) asked for 104 symbols with the 9 stock streams (SPY/QQQ/IWM 0+1DTE = 60,
+# GLD 10, AVGO/META/MSFT/SMH/NVDA 25), so strikes were refused and went missing from the
+# viewer. These tickers' 1DTE baskets are ATM +/- 1 instead (rules pick the ATM strike):
+# ~92 of 100, leaving room for held and shadowed contracts.
+BASKET_1DTE_NARROW = {"SPY", "QQQ", "IWM"}
 from macro_calendar import is_macro_am_day
 from amt_profile import profile_from_bars, classify_open, amt_ok
 import market_calendar as MC
@@ -918,6 +925,9 @@ class FlowExecutionEngine:
             self.active_ticker_occs[t] = set()
             self.options_basket.pop(t, None)
             self.anchor_prices.pop(t, None)
+        # ...and anything the per-ticker sets never tracked (kept at an earlier
+        # re-centre, now expired) -- before the new basket needs the slots
+        self._release_orphans()
         self._initialize_options_basket(tickers)
 
     # =====================================================================
@@ -1542,10 +1552,11 @@ class FlowExecutionEngine:
                 
                 if not contracts: continue
                 
-                # Find ATM and grab +/- 2 strikes
+                # Find ATM and grab +/- 2 strikes (+/- 1 for SPY/QQQ/IWM 1DTE: see BASKET_1DTE_NARROW)
                 closest_idx = min(range(len(contracts)), key=lambda i: abs(float(contracts[i].get("strikePrice")) - spot))
-                start_idx = max(0, closest_idx - 2)
-                end_idx = min(len(contracts), closest_idx + 3)
+                hw = 1 if (dte >= 1 and ticker in BASKET_1DTE_NARROW) else 2
+                start_idx = max(0, closest_idx - hw)
+                end_idx = min(len(contracts), closest_idx + hw + 1)
                 
                 for c in contracts[start_idx:end_idx]:
                     occ = c.get("symbol")
@@ -1557,6 +1568,55 @@ class FlowExecutionEngine:
                     new_occs.add(occ)
                     
         return new_basket, new_occs
+
+    def _kept_occs(self) -> set:
+        """Contracts that must keep streaming whatever the basket says: open bot
+        snipes, manual holds, a manual hold's next-in-line extras, and contracts
+        shadowed after a manual exit (until 15:55)."""
+        held = {s.get("option_id") for s in (getattr(self, "active_snipes", None) or {}).values()}
+        held |= {p.get("option_id") for p in (getattr(self, "manual_holds", None) or {}).values()}
+        try:
+            held |= manual_orders.extra_oids(self)
+        except Exception:                       # noqa: BLE001 -- never block the basket
+            pass
+        try:
+            held |= manual_orders.shadow_oids()
+        except Exception:                       # noqa: BLE001
+            pass
+        held.discard(None)
+        return held
+
+    def _release_orphans(self):
+        """Unsubscribe every streaming option that is in no basket and not kept.
+
+        🚨 WHY (2026-11-11). A contract kept at a re-centre (held / shadowed) was
+        left subscribed but dropped from active_ticker_occs, so once it stopped
+        being kept nothing ever released it -- not even after it expired. Five
+        such orphans (SPY 11-09 744C, 11-10 746C/747C/747P/755P) sat in Webull's
+        100-symbol budget and showed in the viewer's strip as dte -1/-2 rows,
+        while live strikes were refused (TOO_MANY_SYMBOLS_SUBSCRIPTION)."""
+        try:
+            want = set().union(*(self.active_ticker_occs.get(t) or set() for t in self.active_ticker_occs)) \
+                if self.active_ticker_occs else set()
+            want |= self._kept_occs()
+            gone = [o for o in list(getattr(self.webull, "active_option_subs", set()) or set()) if o not in want]
+            for occ in gone:
+                self.webull.unsubscribe_from_option(occ)
+            if gone:
+                print(f"  🧹 [BASKET] released {len(gone)} orphaned option stream(s): {', '.join(sorted(gone)[:6])}"
+                      f"{' ...' if len(gone) > 6 else ''}")
+        except Exception as e:                  # noqa: BLE001 -- never break the loop over housekeeping
+            print(f"  ⚠️ [BASKET] orphan release failed: {type(e).__name__}: {e}")
+
+    def _subscribe_basket(self, ticker: str, occs) -> set:
+        """Subscribe `occs`; return the ones Webull refused (kept for a retry)."""
+        failed = {occ for occ in occs if not self.webull.subscribe_to_option(occ)}
+        if not hasattr(self, "basket_missing"):
+            self.basket_missing = {}
+        self.basket_missing[ticker] = failed
+        if failed:
+            print(f"  ⚠️ [BASKET] {ticker}: {len(failed)} contract(s) refused, retrying in 30s: {', '.join(sorted(failed))}")
+        return failed
 
     def _initialize_options_basket(self, tickers: list):
         """Runs ONCE at boot. Scans option chains and builds initial ATM basket."""
@@ -1581,15 +1641,14 @@ class FlowExecutionEngine:
             if not chain_data: continue
 
             new_basket, new_occs = self._build_basket_from_chain(ticker, spot, chain_data, required_specs)
-            
+
             self.options_basket[ticker] = new_basket
-            self.active_ticker_occs[ticker] = new_occs
             self.anchor_prices[ticker] = spot
             self.is_rebalancing[ticker] = False
-                    
+
             print(f"  ├─ {ticker}: Subscribing to {len(new_occs)} Plausible Strikes via MQTT... (Anchor: ${spot:.2f})")
-            for occ in new_occs:
-                self.webull.subscribe_to_option(occ)
+            # only what Webull accepted counts as subscribed; the rest is retried
+            self.active_ticker_occs[ticker] = new_occs - self._subscribe_basket(ticker, new_occs)
 
     def _rebalance_basket(self, ticker: str, spot: float):
         """Background thread: re-centre the basket on `spot` (see the strike
@@ -1610,35 +1669,32 @@ class FlowExecutionEngine:
             # SMART DIFFING (No Thrashing)
             to_add = new_occs - old_occs
             to_drop = old_occs - new_occs
-            
-            for occ in to_add:
-                self.webull.subscribe_to_option(occ)
-                
-            held = {s['option_id'] for s in self.active_snipes.values()}
+
             # 🚨 MANUAL HOLDS COUNT AS HELD. A drift past 1.5% shifts the basket
             # and drops the old strikes; without this, a discretionary position
             # loses its MQTT quote while still open. manual_orders.flatten then
             # finds no bid and falls back to a 1c limit, and the viewer's Active
             # Hold goes blind on the one position nothing else is managing.
-            held |= {p.get("option_id")
-                     for p in (getattr(self, "manual_holds", None) or {}).values()}
-            held |= manual_orders.extra_oids(self)   # next in line for a slot
-            # ...and so do contracts SHADOWED after a manual exit (until 15:55),
-            # or the "what would holding have paid" record goes blind.
-            try:
-                held |= manual_orders.shadow_oids()
-            except Exception:                   # noqa: BLE001 -- never block a rebalance
-                pass
+            # Also kept: a hold's next-in-line extras and contracts SHADOWED after
+            # a manual exit (until 15:55). See _kept_occs.
+            held = self._kept_occs()
+
+            # 🚨 RELEASE BEFORE SUBSCRIBING (2026-11-11). Webull refuses anything past
+            # 100 symbols; adding the new edge strikes first, at the cap, got exactly
+            # those refused while the old ones they replace still held their slots.
             for occ in to_drop:
                 # Never unsubscribe if we have an active snippet holding this contract!
                 if occ not in held:
                     self.webull.unsubscribe_from_option(occ)
-                
+
+            failed = self._subscribe_basket(ticker, to_add)
+
             self.options_basket[ticker] = new_basket
-            self.active_ticker_occs[ticker] = new_occs
+            self.active_ticker_occs[ticker] = new_occs - failed
             self.anchor_prices[ticker] = spot
-            
-            print(f"  ✅ [BASKET REBALANCE] {ticker} completed. Added {len(to_add)}, Dropped {len(to_drop)}. New Anchor: ${spot:.2f}")
+            self._release_orphans()
+
+            print(f"  ✅ [BASKET REBALANCE] {ticker} completed. Added {len(to_add) - len(failed)}, Dropped {len(to_drop)}. New Anchor: ${spot:.2f}")
         except Exception as e:
             print(f"  🚨 Rebalance Exception for {ticker}: {e}")
         finally:
@@ -1971,8 +2027,12 @@ class FlowExecutionEngine:
                     last = getattr(self, "_last_rebalance", None)
                     if last is None:
                         last = self._last_rebalance = {}
-                    if (abs(spot_price - anchor) >= step
-                            and time.time() - last.get(ticker, 0) >= 10
+                    # ...or, with no drift at all, every 30s while some of the basket
+                    # was refused by Webull (_subscribe_basket), so a missing strike
+                    # comes back once a slot frees instead of waiting for price
+                    missing = (getattr(self, "basket_missing", None) or {}).get(ticker)
+                    wait = time.time() - last.get(ticker, 0)
+                    if (((abs(spot_price - anchor) >= step and wait >= 10) or (missing and wait >= 30))
                             and not self.is_rebalancing.get(ticker, False)):
                         last[ticker] = time.time()
                         self.is_rebalancing[ticker] = True
