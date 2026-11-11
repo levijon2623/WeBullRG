@@ -719,6 +719,26 @@ def extra_oids(eng):
     return set(load_extras(eng))
 
 
+def _shield_adopted(rec):
+    """A contract ADOPTED today that does not expire today is held overnight
+    by default on its adoption day (user, 2026-11-11). Returns True if marked.
+
+    🚨 WHY. On 11-11 a restart at 16:07 -- inside the 15:55-16:15 sweep window --
+    adopted the user's broker-app SPY 11-13 770C lotto and the EOD flatten sold
+    it in the same second, before the hold-overnight toggle could be pressed.
+    A position opened in the broker app was a deliberate decision this process
+    never saw; sweeping it on sight is the bot overriding it. Same mark as the
+    viewer's moon toggle (a DATE, so it lapses by itself tomorrow), so the
+    toggle shows it and one press puts the contract back on today's flatten.
+    0DTE is never shielded: it cannot be held overnight."""
+    exp = str(rec.get("expiry") or "")
+    if not exp or exp <= _et_today():
+        return False
+    rec["overnight"] = _et_today()
+    rec["shielded"] = _et_today()
+    return True
+
+
 def adopt_all(eng, positions):
     """Startup: adopt EVERY broker option position on an ALLOWED ticker.
 
@@ -779,11 +799,14 @@ def _add_extra(eng, tk, p):
                        entry=float(p.get("cost_price") or 0) or None,
                        expiry=exp, right=right, strike=strike,
                        seen=int(time.time()))
+    shielded = _shield_adopted(extras[occ])
     if new:
         _event(True, f"ALSO HELD {tk} {qty}x {occ} — one {tk} contract is "
                      f"tracked at a time; this one is quoted and shown, and "
                      f"takes over the {tk} slot (exits, EOD flatten) once the "
-                     f"current one closes")
+                     f"current one closes"
+                     + (f". Adopted today and not expiring today, so it is HELD OVERNIGHT today "
+                        f"(not swept at {_hhmm(_eod_mod())}); the moon toggle puts it back on" if shielded else ""))
 
 
 def _promote_extras(eng):
@@ -826,8 +849,13 @@ def _promote_one(eng, oid, check=True):
         adopt(eng, tk, oid, x.get("qty") or 0, x.get("entry"))
         if tk in holds:
             holds[tk]["note"] = "promoted from extras"
-            if x.get("overnight"):
-                holds[tk]["overnight"] = x["overnight"]
+            # the extra's own mark wins, either way: adopt() shields a contract
+            # not expiring today, which would undo a moon toggle switched OFF
+            for k in ("overnight", "shielded"):
+                if x.get(k):
+                    holds[tk][k] = x[k]
+                else:
+                    holds[tk].pop(k, None)
             save_positions(eng)
     try:
         eng.webull.subscribe_to_option(oid)
@@ -889,6 +917,9 @@ def adopt(eng, tk, occ, qty, cost):
                      adopted=True, note="adopted at startup")
     t, exp, right, strike = _parse_occ(occ)
     holds[tk].update(strike=strike, expiry=exp, right=right)
+    shielded = _shield_adopted(holds[tk])
+    if shielded:
+        holds[tk]["note"] = "adopted at startup · held overnight today (not expiring today)"
     save_positions(eng)
     # 🚨 `entry` here is the broker's COST BASIS, not a fill we observed, and
     # `opened` is when we adopted it, not when you bought it. The row is
@@ -897,7 +928,9 @@ def adopt(eng, tk, occ, qty, cost):
     _log_manual("open", holds[tk], _context(eng, tk), source="adopted")
     _event(True, f"ADOPTED existing {tk} {int(abs(qty))}x {occ}"
                  + (f" @ {float(cost):.2f}" if cost else "")
-                 + " — entry block + 15:55 flatten now cover it")
+                 + (f" — entry block now covers it; HELD OVERNIGHT today (not expiring today, so "
+                    f"not swept at {_hhmm(_eod_mod())}): the moon toggle puts it back on the flatten"
+                    if shielded else " — entry block + 15:55 flatten now cover it"))
     return True
 
 
