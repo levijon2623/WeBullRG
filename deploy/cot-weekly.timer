@@ -1,0 +1,12 @@
+# /etc/systemd/system/cleanbot-cot.timer -- see cot-weekly.service. The CFTC releases Friday 15:30 ET; in a federal-
+# holiday week it is often Monday, hence both. The box clock is New York time.
+
+[Unit]
+Description=Cleanbot weekly COT refresh (Fri + Mon 16:10 ET)
+
+[Timer]
+OnCalendar=Fri,Mon *-*-* 16:10:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

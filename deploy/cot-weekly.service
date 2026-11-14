@@ -1,0 +1,27 @@
+# /etc/systemd/system/cleanbot-cot.service
+#
+# Weekly CFTC Commitments of Traders refresh (user, 2026-11-14): pull the new report (cot_pull.py --refresh, with
+# APP_TOKEN from .env), rebuild the positioning features (build_cot_features.py) and log the new report's signal
+# state for the locked forward test (check_cot_forward.py --log). Oneshot, run by cleanbot-cot.timer. Public CFTC
+# data only; never touches the bot, orders or Webull.
+#
+#   sudo cp deploy/cot-weekly.service /etc/systemd/system/cleanbot-cot.service
+#   sudo cp deploy/cot-weekly.timer   /etc/systemd/system/cleanbot-cot.timer
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cleanbot-cot.timer
+
+[Unit]
+Description=Cleanbot weekly COT refresh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/bot_engine/venv/bin/python cot_pull.py --refresh
+ExecStart=/root/bot_engine/venv/bin/python build_cot_features.py
+ExecStart=/root/bot_engine/venv/bin/python check_cot_forward.py --log
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-cot
