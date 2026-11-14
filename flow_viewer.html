@@ -180,6 +180,10 @@
   #xMkt{border-color:var(--put);color:var(--put)}
   #xMkt:hover:not(:disabled){background:#2a2411}
   #x911{flex:0 0 50px;border-color:var(--dn);color:var(--dn)}
+  #xSync{width:auto;margin:0 8px 0 0;padding:1px 7px;font-size:10px;letter-spacing:.06em;
+    border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--dim);cursor:pointer}
+  #xSync:hover:not(:disabled){color:var(--fg);border-color:var(--accent)}
+  #xSync:disabled{opacity:.5;cursor:wait}
   #xMkt{flex:1 1 auto;min-width:0;letter-spacing:0 !important}
   #x911:hover:not(:disabled){background:#2a1416}
   #x911.hot{background:var(--dn);color:#fff;border-color:#fff;
@@ -339,7 +343,7 @@
          means bot_runner is not running -- which is the failure you most want
          visible, and the one a silent UI hides. -->
     <div id="telem">
-      <h2><span>guard telemetry</span><span id="telemN"></span></h2>
+      <h2><span>guard telemetry</span><span><button id="xSync" title="Pick up option positions opened in the Webull app (SPY/QQQ/IWM). Sends no orders. Picked-up contracts not expiring today are held overnight today; 0DTE ones go on the 15:55 flatten. Off during the 15:55–16:15 sweep.">⟳ SYNC</button> <span id="telemN"></span></span></h2>
       <div id="hold"></div>
       <div id="ulPop"></div>
       <div id="exitbar">
@@ -2493,6 +2497,19 @@ $('#xMkt').onclick = async () => {
                     : {ticker:t, action:'close', mode:'marketable'});
   CLOSEQ = {tk:null, n:null};
   pollEvents();                 // the verdict lands in the feed below
+};
+
+/* SYNC (user, 2026-11-13): pick up positions opened in the Webull app without a
+   restart -- manual_orders.sync_broker runs the startup adoption on demand. It
+   sends no orders, so one click; the result lands in the Guard Telemetry feed. */
+$('#xSync').onclick = async () => {
+  const b = $('#xSync');
+  b.disabled = true; b.textContent = '⟳ …';
+  const j = await postOrder({action:'sync'});
+  const m = $('#panicMsg');
+  if(!j.ok){ m.style.display = 'block'; m.textContent = 'SYNC REFUSED by the server: ' + (j.err || '?'); }
+  pollEvents();
+  setTimeout(() => { b.disabled = false; b.textContent = '⟳ SYNC'; }, 3000);
 };
 
 /* 911 ENUMERATES BEFORE IT FIRES. "Emergency flatten" has to mean everything

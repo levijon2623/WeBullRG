@@ -719,6 +719,42 @@ def extra_oids(eng):
     return set(load_extras(eng))
 
 
+def sync_broker(eng, now_mod=None):
+    """The viewer's SYNC button (user, 2026-11-13): pick up option positions
+    opened in the broker app since startup -- the same adopt_all the startup
+    reconcile runs, on demand. Sends no orders.
+
+    A contract that does not expire today is held overnight on its adoption day
+    (_shield_adopted); a 0DTE one goes on today's flatten like any manual hold.
+    🚨 REFUSED INSIDE THE SWEEP WINDOW: a 0DTE adopted between the EOD flatten and
+    the end of the sweep would be sold the same second (the 11-11 restart sold a
+    lotto exactly that way)."""
+    if (now_mod is not None and _is_trading_day_et()
+            and _eod_mod() <= now_mod < _sweep_end_mod()):
+        return False, (f"SYNC is off during the EOD sweep ({_hhmm(_eod_mod())}–{_hhmm(_sweep_end_mod())}): "
+                       f"a same-day contract picked up now would be sold at once. Press it after "
+                       f"{_hhmm(_sweep_end_mod())}")
+    try:
+        positions = eng.webull.get_open_option_positions(raise_errors=True)
+    except Exception as e:                      # noqa: BLE001 -- a failed read is not "nothing held"
+        return False, f"SYNC could not read the broker ({type(e).__name__}) — nothing changed"
+    before = {h.get("option_id") for h in load_positions(eng).values()} | set(load_extras(eng))
+    for occ in adopt_all(eng, positions):
+        try:
+            eng.webull.subscribe_to_option(occ)
+        except Exception:                       # noqa: BLE001 -- quote only
+            pass
+    after = {h.get("option_id") for h in load_positions(eng).values()} | set(load_extras(eng))
+    new = sorted(o for o in after - before if o)
+    shown = [p.get("occ") for p in positions or [] if p.get("underlying") in ALLOWED]
+    other = len(positions or []) - len(shown)
+    tail = f"; {other} on other tickers left alone" if other else ""
+    if not new:
+        return True, (f"SYNC: nothing new — {len(after - {None})} tracked, "
+                      f"{len(shown)} at the broker on {'/'.join(sorted(ALLOWED))}{tail}")
+    return True, f"SYNC: picked up {len(new)} — {', '.join(new)}{tail}"
+
+
 def _shield_adopted(rec):
     """A contract ADOPTED today that does not expire today is held overnight
     by default on its adoption day (user, 2026-11-11). Returns True if marked.
@@ -1511,6 +1547,9 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
         return _result(path, *sideline(eng))
     if act == "unsideline":
         return _result(path, *unsideline(eng, req.get("answer"), req.get("note")))
+    if act == "sync":
+        # bookkeeping only (sends no orders), so like CLOSE not gated on ARMED
+        return _result(path, *sync_broker(eng, now_mod))
     if act == "panic":
         r = panic(eng, "911")
         return _result(path, not r["skipped"],

@@ -117,7 +117,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             act = str(req.get("action") or "buy").lower()
             if act not in ("buy", "close", "panic", "arm", "disarm", "levels",
                            "sideline", "unsideline", "swap", "trigger", "untrigger",
-                           "overnight"):
+                           "overnight", "sync"):
                 return self._json({"ok": False, "err": "action"}, 400)
             if act == "swap":
                 # the answer to the sideline question, required by the engine
@@ -301,6 +301,9 @@ def _recent_events(limit=60):
             elif str(j.get("action") or "buy").lower() == "panic":
                 out.append(dict(kind="REQ", at=j.get("requested_at"),
                                 msg="911 FLATTEN ALL", ok=None))
+            elif str(j.get("action") or "").lower() == "sync":
+                out.append(dict(kind="REQ", at=j.get("requested_at"),
+                                msg="SYNC BROKER (pick up app positions)", ok=None))
             elif str(j.get("action") or "buy").lower() == "close":
                 out.append(dict(kind="REQ", at=j.get("requested_at"),
                                 msg=f"CLOSE {j.get('ticker')} "
