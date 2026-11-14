@@ -154,7 +154,18 @@ def flow_pairs_for(t):
         thr = t.get("thr")
         return [] if not thr else [(P, thr[P]) for P in GRID_MIN_FLOW_PCT]
     return [(mf, mf) for mf in GRID_MIN_FLOW]
-COMMISSION_PCT = 0.015   # round-trip commission + slippage, as a fraction of entry premium
+COMMISSION_PCT = 0.015   # RETIRED as the research default 2026-11-14 -- see commission_frac. Kept for old run logs.
+#: Webull's real option cost (user, 2026-11-14): no commission, only transaction fees -- 1 contract $0.05,
+#: 2 $0.09, 3 $0.14, 4 $0.18, ~$0.045 per contract per order -> $0.10 per contract round trip (rounded up).
+#: The flat 1.5% above was "commission + slippage", but slippage is modelled on its own (mid+0.01 entry,
+#: CUSHION_CAP / FILL_COST exits), so it counted slippage twice: ~1.4pp per trade too pessimistic
+#: (check_book_fees.py). Every sim now nets commission_frac(entry) instead.
+FEE_RT_CONTRACT = 0.10
+
+
+def commission_frac(entry):
+    """Round-trip fees as a fraction of the entry premium ($ per share)."""
+    return FEE_RT_CONTRACT / (100.0 * max(float(entry), 0.01))
 
 
 # --------------------------------------------------------------------------
@@ -552,7 +563,7 @@ def simulate_trigger(t, direction, dtes, tstop, bars_by_date, bars_by_cid, only=
             tstop_hit = held >= tstop
             if tstop_hit.any():
                 ts_idx = min(ts_idx, int(np.argmax(tstop_hit)))
-        comm = COMMISSION_PCT
+        comm = commission_frac(entry_mid)
         for tr in tr_vals:
             tp = entry_mid * (1 + tr)
             tp_idx = int(np.searchsorted(cummax_cl, tp)) if cummax_cl[-1] >= tp else len(cl)
@@ -1150,7 +1161,7 @@ def _bracket_pnl(entry_mid, cl, lo, mod, held, tr, rr, tstop, eod_mod):
         exit_px = min(sl, cl[sl_idx])
     else:
         exit_px = cl[exit_idx]
-    return (exit_px - entry_mid) / entry_mid - COMMISSION_PCT
+    return (exit_px - entry_mid) / entry_mid - commission_frac(entry_mid)
 
 
 def emit_thresholds(args, path):

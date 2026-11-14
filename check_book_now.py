@@ -22,7 +22,9 @@ on the fill model the bot actually runs:
     flow_zscore, skip_macro_am, dmi_confirm and ema_confirm on top of the
     builder's own gates. Before that this script scored the bare builder.
 
-Everything here already nets config COMMISSION_PCT (1.5% of premium round-trip).
+Everything here nets the real per-contract fee (D.commission_frac) since 2026-11-14; before that a flat 1.5%.
+Per-rule lines and the headline use the RESEARCH DEFAULT fill: `botcap` with sim_core.research_cap (the tape-
+measured exit cushion on SPY/QQQ/IWM, CUSHION_CAP elsewhere).
 
 RUN LOG
   2026-10-13 full gates vs the bare builder (realistic "bot" fills):
@@ -33,6 +35,13 @@ RUN LOG
     (EMA; -26.9 -> -8.1). The rest are identical. Matches check_trigger_paths'
     TAKEN set exactly (328, +8.6%). The gates were each chosen on this same
     data, so this corrects what the book CLAIMS -- it is not new evidence.
+
+  2026-11-14 research default (real per-contract fee + tape-measured SPY/QQQ/IWM exit cushion):
+    MID      n=328  +28.2%  OOS +36.5%
+    bot      n=328  +10.0%  OOS +13.3%   (legacy cushion, real fee; was +8.6 / +11.9 at the flat 1.5%)
+    DEFAULT  n=328  +18.1%  IS +12.4  OOS +23.6  win 0.42  maxLL 8  6/6 slices positive
+    The cushion change moves only SPY/QQQ/IWM (IWM +10.2 -> +18.3, QQQ +17.6 -> +26.2); the rest is the fee.
+    No rule changes sign out of sample; MSFT and GLD stay negative OOS.
 
 Usage:  python check_book_now.py
 """
@@ -85,7 +94,7 @@ def run(a):
         rules = [r for r in rules if r["name"] in a.rules]
     if getattr(a, "drop", None):
         rules = [r for r in rules if r["name"] not in a.drop]
-    per_rule, mid_book, real_book = {}, [], []
+    per_rule, mid_book, real_book, bot_book = {}, [], [], []
 
     for r in rules:
         # ONE builder, ONE simulator -- see sim_core's header. `rl` now carries
@@ -109,22 +118,27 @@ def run(a):
         # contrast. See check_fill_sensitivity.py for the full band.
         m_ = sim_core.walk(cand, pol, em, fill="mid")
         rl = sim_core.walk(cand, pol, em, fill="bot")
-        per_rule[r["name"]] = (m_, rl, tp_)
+        # RESEARCH DEFAULT since 2026-11-14: `botcap` with the tape-measured cushion (sim_core.research_cap) and the
+        # real per-contract fee (D.commission_frac, now netted by every sim). Per-rule lines use it.
+        rd = sim_core.walk(cand, pol, em, fill="botcap", cush_cap=sim_core.research_cap(r["ticker"]))
+        per_rule[r["name"]] = (m_, rd, tp_)
         mid_book += m_
-        real_book += rl
+        real_book += rd
+        bot_book.append(rl)
 
     print("=" * 122)
     print(f"  THE BOOK AS CONFIGURED NOW   TRAIL_PCT={TRAIL_PCT}   sequential fills   split {SPLIT}")
     print("=" * 122)
 
-    print("\n  -- per rule (REALISTIC fills: enter ask, exit bid) --")
+    print("\n  -- per rule (RESEARCH DEFAULT: mid+0.01 in, tape-measured exit cushion, real per-contract fees) --")
     for rn, (m_, rl, tp_) in sorted(per_rule.items(), key=lambda x: -np.mean(
             [p for d, p in x[1][1] if d >= SPLIT] or [-9])):
         print(_line(f"{rn}", rl))
 
     print("\n  -- BLENDED BOOK --")
     print(_line("MID fills", mid_book, 24))
-    print(_line("REALISTIC fills", real_book, 24))
+    print(_line("legacy `bot` cushion", [x for b in bot_book for x in b], 24))
+    print(_line("RESEARCH DEFAULT", real_book, 24))
 
     v = np.array([p for _, p in real_book])
     o = np.array([p for d, p in real_book if d >= SPLIT])
@@ -133,7 +147,7 @@ def run(a):
     print("\n  -- what that means, roughly --")
     print(f"    {len(v)} trades over {days} trading days / {yrs:.1f} years  "
           f"= {len(v)/max(yrs,1e-9):.0f} trades/yr ({len(v)/max(days,1):.2f} per active day)")
-    print(f"    net expectancy per trade (realistic, after {0.015*100:.1f}% round-trip cost):")
+    print("    net expectancy per trade (research default, after $0.10/contract round-trip fees):")
     print(f"       all {v.mean()*100:+.2f}%   IS {np.mean([p for d,p in real_book if d<SPLIT])*100:+.2f}%   "
           f"OOS {o.mean()*100:+.2f}%")
     for eq in (25_000, 50_000):

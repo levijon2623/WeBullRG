@@ -148,7 +148,7 @@ def run_exit(path, eod_m, mode, ind_day, direction, trail=0.50):
         # population is scorable -- and exits have already been shown to FLIP
         # SIGN between populations (momentum exits: +2.7pp bare, -12pp gated),
         # so the sequential book is the only one a live conclusion can rest on.
-        return (px - entry) / entry - D.COMMISSION_PCT, int(mods[i])
+        return (px - entry) / entry - D.commission_frac(entry), int(mods[i])
 
     use_trail = mode in ("trail50", "trail+sig") and trail > 0
     use_sig = mode in ("rsi3", "emacross", "either", "trail+sig")

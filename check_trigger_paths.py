@@ -101,7 +101,7 @@ def path_row(r, d, m, payload, ul, eod):
         return None
     b, a, mm = bid[keep], ask[keep], mod[keep]
     sp = np.where((a > b) & (b > 0), a - b, 0.0)
-    sell = (np.maximum(0.01, np.where(b > 0, b - 0.5 * sp, 0.0)) - entry) / entry - D.COMMISSION_PCT
+    sell = (np.maximum(0.01, np.where(b > 0, b - 0.5 * sp, 0.0)) - entry) / entry - D.commission_frac(entry)
     sell = np.where(b > 0, sell, np.nan)
     if np.all(np.isnan(sell)):
         return None

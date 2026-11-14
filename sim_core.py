@@ -188,6 +188,20 @@ FILL_MODELS = {
 #: away from the thing it is supposed to govern (METHODOLOGY 1).
 from config import ADVERSE_TAGS, CUSHION_CAP, FILL_COST  # noqa: F401  (re-export)
 
+#: RESEARCH-ONLY exit cushion where the tape has measured it (2026-11-14, check_exit_cushion.py). For 104 SPY/QQQ/IWM
+#: trail/stop exits the real bid 1 s after it touched the level sat, against min(minute-close bid, level): mean
+#: -0.5pp, median 0.0pp of entry -- the minute-close price ALREADY carries the slippage, so the 1.27-1.50 spread
+#: cushion on top made those exits ~3-5pp too pessimistic. The user's 220 real 0DTE sells filled at the bid or better
+#: (mid -$0.08). So on these tickers an adverse exit pays only FILL_COST, like any other.
+#: config.CUSHION_CAP is untouched: bot_runner uses it to place its marketable sell limit, which is a different job.
+#: Tickers not on the trade-level tape (trades-core holds SPY/QQQ/IWM) keep their measured CUSHION_CAP.
+TAPE_CUSHION = {"SPY": FILL_COST, "QQQ": FILL_COST, "IWM": FILL_COST}
+
+
+def research_cap(ticker):
+    """The research default exit cushion for `fill="botcap"`: tape-measured where we have it, else CUSHION_CAP."""
+    return TAPE_CUSHION.get(ticker, CUSHION_CAP.get(ticker))
+
 
 def simulate(path, pol, eod_m, realistic=True, cushion=True, fill=None, sig=None,
              cush_cap=None, tighten=None, trail_tight=None):
@@ -277,7 +291,7 @@ def simulate(path, pol, eod_m, realistic=True, cushion=True, fill=None, sig=None
                 #    understated a real winner by 9.0pp.
                 m = cush_cap if tag in ADVERSE_TAGS else FILL_COST
             px = max(0.01, px - sp * m)
-        return (px - entry) / entry - D.COMMISSION_PCT, int(mod[i]), tag
+        return (px - entry) / entry - D.commission_frac(entry), int(mod[i]), tag
 
     armed = False
     for i in range(n):

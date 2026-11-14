@@ -69,6 +69,13 @@ RUN LOG
     VERDICT: no candidate. Closest: RSI (-1.5%) and LEG30 (-1.8%, +1.4% at
     mid; 2026 +2.6%) -- fills, not the idea, are the obstacle.
 
+  2026-11-14 RE-SCORE at the user's measured fills (mid +$0.06 buy / -$0.08 sell, $0.10 fees per leg; the
+    pre-registered verdict above stands -- this is after the fact):
+      HIGH  HOLD -0.5% [-2.2, +1.5]  LEG30 +1.2% [-1.2, +3.7] (halves -1.3 / +3.9)  RSI +1.2% [-1.2, +3.6] (+0.6 / +1.8)
+      LOW   every policy -1.7..-2.6%, CIs below 0.
+    Fills were most of the loss (HOLD -3.1 -> -0.5), but no policy is reliably profitable: forward-log candidate
+    at most (HIGH-gauge straddle, cut the loser on RSI or at -30%).
+
 Usage:  python check_straddle_legout.py
 """
 from __future__ import annotations
@@ -125,17 +132,34 @@ def leg_exit(q, cost):
     return max(0.0, b - c * (a - b))
 
 
+#: 2026-11-14 RE-SCORE (after the fact, NOT the pre-registered fill): the user's 448 real 0DTE SPY/QQQ/IWM fills
+#: (July-Oct 2026, matched to their own prints) paid mid +$0.06 per contract on buys and mid -$0.08 on sells, and
+#: Webull's transaction fee is ~$0.045 per contract per order. `user` prices every leg that way; the verdict
+#: printed below still runs on the pre-registered `real` fill.
+USER_BUY, USER_SELL, USER_FEE = 0.0006, 0.0008, 0.0005      # $ per share
+
+
 def simulate(book, legs, m, rsi, fill="real"):
     """{policy: roe} for one straddle bought at m."""
     qin = [VT.quote(book, k, m, 3) for k in legs]
     if any(q is None for q in qin):
         return None
-    cost = [a for _b, a in qin] if fill == "real" else [(b + a) / 2 for b, a in qin]
+    if fill == "real":
+        cost = [a for _b, a in qin]
+    elif fill == "user":
+        cost = [(b + a) / 2 + USER_BUY + USER_FEE for b, a in qin]
+    else:
+        cost = [(b + a) / 2 for b, a in qin]
     end = min(m + HOLD_M, EOD)
     qend = [VT.quote(book, k, end, 10) for k in legs]
     if any(q is None for q in qend):
         return None
-    sell = (lambda q, c0: leg_exit(q, c0)) if fill == "real" else (lambda q, c0: (q[0] + q[1]) / 2)
+    if fill == "real":
+        sell = lambda q, c0: leg_exit(q, c0)
+    elif fill == "user":
+        sell = lambda q, c0: max(0.0, (q[0] + q[1]) / 2 - USER_SELL - USER_FEE)
+    else:
+        sell = lambda q, c0: (q[0] + q[1]) / 2
     hold_val = [sell(qend[i], cost[i]) for i in (0, 1)]
     tot = sum(cost)
     out = {"HOLD": sum(hold_val) / tot - 1}
@@ -216,10 +240,11 @@ def run(entries):
             legs = lg["straddle"]
             res = simulate(bk, legs, m, rsis.get((tk, day), {}), "real")
             mid = simulate(bk, legs, m, rsis.get((tk, day), {}), "mid")
-            if res is None or mid is None:
+            usr = simulate(bk, legs, m, rsis.get((tk, day), {}), "user")
+            if res is None or mid is None or usr is None:
                 continue
             rows.append(dict(lab=lab, tk=tk, day=day, m=m, p=gp, **res,
-                             **{f"mid_{k}": mid[k] for k in POLICIES}))
+                             **{f"mid_{k}": mid[k] for k in POLICIES}, **{f"user_{k}": usr[k] for k in POLICIES}))
         if len(m1) < 50 and n % 7 == 0:
             for tk in CG.TICKERS:
                 bk, sp = books.get(tk), (spots.get((tk, day)) or {}).get(575)
@@ -298,6 +323,12 @@ def main():
                 l2 = m > 0 and lo > 0 and all(x > 0 for x in hv)
                 print(f"      {pol:6} L1 better-than-hold {'PASS' if l1 else 'FAIL'}   L2 profitable {'PASS' if l2 else 'FAIL'}"
                       f"   -> {'CANDIDATE' if l1 and l2 else 'no'}")
+        print("    RE-SCORE 2026-11-14 at the user's measured fills (mid +$0.06 buy / -$0.08 sell, $0.10 fees per leg):")
+        for pol in POLICIES:
+            m, lo, hi, _p = dboot(d, f"user_{pol}", rng)
+            hv = [d.loc[d["day"] < SPLIT, f"user_{pol}"].mean(), d.loc[d["day"] >= SPLIT, f"user_{pol}"].mean()]
+            print(f"      {pol:6} {m:+7.2%} [{lo:+7.2%},{hi:+7.2%}]  halves {hv[0]:+6.2%} / {hv[1]:+6.2%}   "
+                  + " ".join(f"{t} {g[f'user_{pol}'].mean():+.2%}" for t, g in d.groupby("tk")))
         print("    by year (HOLD / LEG30 / RSI): " + "  ".join(
             f"{y}: {g['HOLD'].mean():+.1%} / {g['LEG30'].mean():+.1%} / {g['RSI'].mean():+.1%}"
             for y, g in d.groupby(pd.to_datetime(d['day']).dt.year)))

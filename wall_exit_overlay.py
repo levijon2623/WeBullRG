@@ -121,7 +121,7 @@ def _sim(t, direction, dte, tr, rr, bars_by_date, bars_by_cid, wall, net_sign, a
     cummin_lo = np.minimum.accumulate(lo)
     eod = ((pm.dt.hour == 15) & (pm.dt.minute >= 55)).values
     ts_idx = int(np.argmax(eod)) if eod.any() else n - 1
-    comm = D.COMMISSION_PCT
+    comm = D.commission_frac(entry_mid)
 
     tp = entry_mid * (1 + tr)
     sr = tr / rr

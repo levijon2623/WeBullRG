@@ -134,7 +134,7 @@ def _sim(path, pol, eod_m, realistic=True, cushion=False):
         if realistic and cushion and bid[i] > 0 and ask[i] > bid[i]:
             sp = ask[i] - bid[i]
             px = max(0.01, px - sp * (0.5 if px > entry else 1.5))
-        return (px - entry) / entry - D.COMMISSION_PCT, int(mod[i]), tag
+        return (px - entry) / entry - D.commission_frac(entry), int(mod[i]), tag
 
     for i in range(n):
         if mod[i] >= eod_m:

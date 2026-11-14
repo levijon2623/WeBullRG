@@ -98,7 +98,7 @@ def scaled_pnl(path, eod_m, tranches, trail=0.50):
         if ask is not None and bid[i] > 0 and ask[i] > bid[i]:
             sp = ask[i] - bid[i]
             px = max(0.01, px - sp * (0.5 if px > entry else 1.5))
-        return (px - entry) / entry - D.COMMISSION_PCT
+        return (px - entry) / entry - D.commission_frac(entry)
 
     pending = list(tranches)
     booked, done_w = 0.0, 0.0

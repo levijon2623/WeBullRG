@@ -77,7 +77,7 @@ def _bracket_full(entry_mid, cl, lo, mod, held, tr, rr, tstop, eod_m):
         px, i, why = min(sl, cl[sl_idx]), sl_idx, "SL"
     else:
         px, i, why = cl[ei], ei, why_t
-    return (px - entry_mid) / entry_mid - D.COMMISSION_PCT, int(mod[i]), why
+    return (px - entry_mid) / entry_mid - D.commission_frac(entry_mid), int(mod[i]), why
 
 
 def _split(sub, col="pnl"):

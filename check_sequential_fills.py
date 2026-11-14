@@ -70,7 +70,7 @@ def _exit_of(entry_mid, cl, lo, mod, held, tr, rr, eod_m):
     else:
         px, i = cl[ei], ei
     import directional_flow_backtester as D
-    pnl = (px - entry_mid) / entry_mid - D.COMMISSION_PCT
+    pnl = (px - entry_mid) / entry_mid - D.commission_frac(entry_mid)
     return float(pnl), int(mod[i])
 
 

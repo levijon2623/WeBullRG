@@ -79,7 +79,7 @@ def _sim(path, policy, eod_m):
     for i in range(n):
         if mod[i] >= eod_m:
             px = cl[i]
-            return (px - entry) / entry - D.COMMISSION_PCT, int(mod[i])
+            return (px - entry) / entry - D.commission_frac(entry), int(mod[i])
         # stop first (conservative: assume the low is hit before the close)
         lvl = hard
         if kind == "trail":
@@ -90,12 +90,12 @@ def _sim(path, policy, eod_m):
             lvl = t if lvl is None else max(lvl, t)
         if lvl is not None and lo[i] <= lvl:
             px = min(lvl, cl[i]) if i else lvl
-            return (px - entry) / entry - D.COMMISSION_PCT, int(mod[i])
+            return (px - entry) / entry - D.commission_frac(entry), int(mod[i])
         if tp is not None and cl[i] >= tp:
-            return policy["tp"] - D.COMMISSION_PCT, int(mod[i])
+            return policy["tp"] - D.commission_frac(entry), int(mod[i])
         peak = max(peak, cl[i])
     px = cl[-1]
-    return (px - entry) / entry - D.COMMISSION_PCT, int(mod[-1])
+    return (px - entry) / entry - D.commission_frac(entry), int(mod[-1])
 
 
 def _policies():

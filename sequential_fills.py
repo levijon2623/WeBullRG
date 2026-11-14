@@ -60,7 +60,7 @@ def bracket_with_exit(entry_mid, cl, lo, mod, held, tr, rr, tstop, eod_mod):
         exit_px, i = min(sl, cl[sl_idx]), sl_idx
     else:
         exit_px, i = cl[exit_idx], exit_idx
-    pnl = (exit_px - entry_mid) / entry_mid - D.COMMISSION_PCT
+    pnl = (exit_px - entry_mid) / entry_mid - D.commission_frac(entry_mid)
     return float(pnl), int(mod[i])
 
 
