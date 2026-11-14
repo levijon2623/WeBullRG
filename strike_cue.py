@@ -24,7 +24,7 @@ Every touch is logged with its cue values to live/strikes/DATE.jsonl (a forward 
 """
 import argparse, glob, json, math, os, sys, time
 from collections import deque
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -290,6 +290,32 @@ def load_vol_base(uw, tk, d):
     return med
 
 
+TIDE_OUT = os.path.join(HERE, "live", "market_tide.json")
+
+
+def write_market_tide(uw, d):
+    """Market Tide for the flow viewer's lower pane (user, 2026-11-13): UW's market-wide
+    running net call premium and net put premium (ask-lift minus bid-hit), 1-minute,
+    regular session. Here because this service already polls UW once a minute in its own
+    process -- the bot's loop stays out of it. DISPLAY ONLY: in check_market_tide.py the
+    15-min tide slope ranked the next 30-60 min of SPY/QQQ at +0.08..+0.10 (IS and OOS,
+    weak) and added nothing as a rule filter.
+    Stamps are ET wall-clock as UTC, the chart's convention (live_state._et_stamp)."""
+    import positioning_map as P
+    try:
+        rows = uw.get("/market/market-tide", date=d.isoformat(), interval_5m="false").get("data") or []
+        out = []
+        for r in rows:
+            t = datetime.fromisoformat(str(r["timestamp"])).astimezone(P.NY)
+            if not (570 <= mod_of(t) <= 960):
+                continue
+            stamp = int(datetime(t.year, t.month, t.day, t.hour, t.minute, tzinfo=timezone.utc).timestamp())
+            out.append([stamp, P.num(r.get("net_call_premium")), P.num(r.get("net_put_premium")), P.num(r.get("net_volume"))])
+        jdump({"ts": time.time(), "day": d.isoformat(), "rows": out}, TIDE_OUT)
+    except Exception as e:                      # noqa: BLE001 -- context only, never stop the cue
+        print(f"  ⚠️ market tide: {type(e).__name__}", flush=True)
+
+
 def bot_price(tk):
     try:
         s = json.load(open(os.path.join(HERE, "live", "state.json")))
@@ -372,6 +398,7 @@ def run():
                             T[tk].rvol = cum / b if b else None
                     except Exception as e:
                         T[tk].err = f"regime: {type(e).__name__}"
+                write_market_tide(uw, d)
             # write every 2 s
             if time.time() - last_write >= 2:
                 last_write = time.time()

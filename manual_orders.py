@@ -738,6 +738,24 @@ def sync_broker(eng, now_mod=None):
         positions = eng.webull.get_open_option_positions(raise_errors=True)
     except Exception as e:                      # noqa: BLE001 -- a failed read is not "nothing held"
         return False, f"SYNC could not read the broker ({type(e).__name__}) — nothing changed"
+    shown = [p.get("occ") for p in positions or [] if p.get("underlying") in ALLOWED]
+    # ...and the other way (user, 2026-11-13): a hold the broker no longer shows --
+    # expired, or closed in the app -- is released, as CLOSE would release it.
+    # Not a pending entry or an exit in flight (their orders are the truth), not
+    # a paper hold (never at the broker), not one opened in the last 60 s (a
+    # fresh fill can take a moment to appear in the positions read).
+    released = []
+    holds = load_positions(eng)
+    for tk, h in list(holds.items()):
+        oid = h.get("option_id")
+        if (not oid or oid in shown or h.get("pending") or h.get("exit_coid") or h.get("dry")
+                or time.time() - float(h.get("opened") or 0) < 60):
+            continue
+        cancel_resting(eng, oid, why="gone at the broker (sync)")
+        holds.pop(tk, None)
+        released.append(oid)
+    if released:
+        save_positions(eng)
     before = {h.get("option_id") for h in load_positions(eng).values()} | set(load_extras(eng))
     for occ in adopt_all(eng, positions):
         try:
@@ -746,9 +764,9 @@ def sync_broker(eng, now_mod=None):
             pass
     after = {h.get("option_id") for h in load_positions(eng).values()} | set(load_extras(eng))
     new = sorted(o for o in after - before if o)
-    shown = [p.get("occ") for p in positions or [] if p.get("underlying") in ALLOWED]
     other = len(positions or []) - len(shown)
-    tail = f"; {other} on other tickers left alone" if other else ""
+    tail = (f"; released {len(released)} the broker no longer shows ({', '.join(released)})" if released else "") \
+        + (f"; {other} on other tickers left alone" if other else "")
     if not new:
         return True, (f"SYNC: nothing new — {len(after - {None})} tracked, "
                       f"{len(shown)} at the broker on {'/'.join(sorted(ALLOWED))}{tail}")
@@ -1307,8 +1325,27 @@ def swap(eng, tk, req, now_mod=None):
     if mid > 0 and (a - b) / mid > MAX_SPREAD_PCT:
         return False, (f"the {k:g}{new} spread {b:.2f}/{a:.2f} is over "
                        f"{MAX_SPREAD_PCT:.0%} of mid — not swapped (untouched)")
+    # 🚨 HOW MANY TO OPEN (user, 2026-11-13: "x closed, x opened"). The swap still
+    # closes the WHOLE hold (one hold per ticker); the re-entry size is chosen:
+    #   count   : open_qty contracts (default: the same count as held)
+    #   dollars : about the same premium -- held bid x qty / the new ask
+    # _swap_enter re-checks the premium cap at the fill and cuts the count to fit.
+    held = int(pos.get("qty") or 1)
+    size = str(req.get("size") or "count")
+    if size == "dollars":
+        hb, _ha, _age = _quote(eng, pos["option_id"])
+        value = float(hb or 0) * held
+        open_qty = int(value // a) if a > 0 and value > 0 else held
+        how = f"same dollars: ~${value * 100:,.0f} at the bid ÷ {a:.2f}"
+    else:
+        try:
+            open_qty = int(req.get("open_qty") or held)
+        except (TypeError, ValueError):
+            open_qty = held
+        how = "same count" if open_qty == held else f"{open_qty} chosen"
+    open_qty = max(1, min(open_qty, 50))
     pos["swap"] = dict(at=time.time(), right=new, expiry=expiry,
-                       qty=int(pos.get("qty") or 1), n=n + 1,
+                       qty=open_qty, size=size, n=n + 1,
                        note=str(req.get("note") or "")[:200])
     save_positions(eng)
     if not flatten(eng, tk, f"SWAP {old}->{new}", EXIT_MARKETABLE):
@@ -1317,9 +1354,9 @@ def swap(eng, tk, req, now_mod=None):
         return False, f"{tk} swap: the close FAILED to send — position still open, no swap"
     _swap_log(kind="swap", tk=tk, n=n + 1, answer=ans or None, from_oid=pos["option_id"],
               from_right=old, to_right=new, planned_oid=oid, qty=pos["swap"]["qty"],
-              note=pos["swap"]["note"])
-    return True, (f"{tk} SWAP #{n + 1} {old}→{new}: closing {pos['swap']['qty']}x now, "
-                  f"then buying the ATM {new} (~{k:g}) once the close fills")
+              close_qty=held, size=size, note=pos["swap"]["note"])
+    return True, (f"{tk} SWAP #{n + 1} {old}→{new}: closing {held}x now, then buying "
+                  f"{open_qty}x the ATM {new} (~{k:g}; {how}) once the close fills")
 
 
 def _swap_enter(eng, tk, intent):

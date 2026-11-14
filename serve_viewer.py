@@ -126,6 +126,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._json({"ok": False, "err": "answer yes/no"}, 400)
                 if not isinstance(req.get("note") or "", str):
                     return self._json({"ok": False, "err": "note"}, 400)
+                # how many of the other side to open (user, 2026-11-13): whole contracts, or same dollars
+                oq = req.get("open_qty")
+                if oq is not None and (isinstance(oq, bool) or not isinstance(oq, int) or not 1 <= oq <= 50):
+                    return self._json({"ok": False, "err": "open_qty must be 1..50 contracts"}, 400)
+                if str(req.get("size") or "count") not in ("count", "dollars"):
+                    return self._json({"ok": False, "err": "size count/dollars"}, 400)
             # underlying TP/SL prices: numbers or null, nothing else
             for k in ("tp", "sl", "ul_tp", "ul_sl", "level", "minutes"):
                 if req.get(k) is not None and not isinstance(req[k], (int, float)):

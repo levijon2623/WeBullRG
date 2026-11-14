@@ -191,6 +191,10 @@
   #exitbar button:disabled{opacity:.3;cursor:not-allowed}
   #panicMsg{padding:0 12px 6px;font-size:10.5px;color:var(--dn);display:none;
     line-height:1.5}
+  #swapQ{padding:0 12px 6px;font-size:10.5px;color:var(--fg);display:none;align-items:center;gap:5px;flex-wrap:wrap}
+  #swapQ button{width:auto;margin:0;padding:1px 7px;font-size:10.5px;border:1px solid var(--line);
+    border-radius:4px;background:transparent;color:var(--fg);cursor:pointer}
+  #swapQ button.on{border-color:var(--accent);color:var(--accent)}
   #feed{flex:1;overflow-y:auto;padding:5px 0;font-size:10.5px;line-height:1.55}
   #feed div{padding:1px 12px;white-space:nowrap;overflow:hidden;
     text-overflow:ellipsis}
@@ -353,6 +357,7 @@
         <button id="x911">911</button>
       </div>
       <div id="panicMsg"></div>
+      <div id="swapQ"></div>
       <div id="feed"></div>
     </div>
   </div>
@@ -690,6 +695,31 @@ function gxBtn(s){
    nothing else was tested.                                                  */
 const IM_COL = '#f778ba', IM_COL90 = 'rgba(247,120,186,0.6)';
 const IM_TICKERS = ['SPY', 'QQQ', 'IWM'];
+/* LOWER PANE: FLOW / TIDE toggle (user, 2026-11-13). FLOW = this ticker's cumulative net
+   premium, its EMA(5) and the sweeps line -- what the bot's trigger reads. TIDE = UW Market
+   Tide: MARKET-WIDE running net call premium and net put premium (ask-lift minus bid-hit),
+   1-minute, written by strike_cue.py to live/market_tide.json. DISPLAY ONLY: in
+   check_market_tide.py (2024-08..2026-08) the 15-min tide slope ranked the next 30-60 min
+   of SPY/QQQ at +0.08..+0.10, in and out of sample -- weak -- and added nothing as a filter
+   on the bot's rules. Per-browser, like the other toggles; `t` flips it.               */
+let PANE = uiGet('fv_pane') === 'tide' ? 'tide' : 'flow', TIDE = null;
+async function pollTide(){
+  if(PANE !== 'tide') return;
+  try { const r = await fetch('live/market_tide.json?t='+Date.now()); TIDE = r.ok ? await r.json() : null; }
+  catch { TIDE = null; }
+}
+function paneToggle(){
+  PANE = PANE === 'tide' ? 'flow' : 'tide'; uiSet('fv_pane', PANE === 'tide' ? 'tide' : null);
+  pollTide().then(() => { if(LIVE && liveTk) liveDraw(LIVE, LIVE.tickers[liveTk]); });
+}
+function paneBtn(){
+  const tip = PANE === 'tide'
+    ? 'Lower pane: MARKET TIDE (market-wide net call vs net put premium). Click (or t) for this ticker’s flow.'
+    : 'Lower pane: this ticker’s cumulative net premium flow. Click (or t) for Market Tide.';
+  return `<button id="paneBtn" class="tag" title="${esc(tip)}" style="width:auto;flex:none;margin:0;font:inherit;` +
+    `font-size:11px;cursor:pointer;background:transparent;color:var(--fg);border-color:${PANE === 'tide' ? '#3fb950' : 'var(--line)'}">` +
+    `${PANE === 'tide' ? 'TIDE' : 'FLOW'} ⇄</button>`;
+}
 let IM_ON = uiGet('fv_im') !== '0';
 function imToggle(){
   IM_ON = !IM_ON; uiSet('fv_im', IM_ON ? null : '0');
@@ -980,7 +1010,13 @@ function liveDraw(d, s){
       color:'#ff7b72', lineWidth:2, priceScaleId:'sweep',
       priceFormat:{type:'volume'}, title:'sweeps only',
     }, 1);
-    liveSeries = {px, vw, vol, cum, ema, swp, lines:[], gexLines:[], ulLines:[]};
+    /* Market Tide, the other face of this pane (see PANE). Both lines on one scale:
+       they are the same unit, and their GAP is the reading. */
+    const tideC = chart.addSeries(LWC.LineSeries, {color:'#3fb950', lineWidth:2, priceScaleId:'tide',
+      priceFormat:{type:'volume'}, title:'market net call prem', visible:false}, 1);
+    const tideP = chart.addSeries(LWC.LineSeries, {color:'#f85149', lineWidth:2, priceScaleId:'tide',
+      priceFormat:{type:'volume'}, title:'market net put prem', visible:false}, 1);
+    liveSeries = {px, vw, vol, cum, ema, swp, tideC, tideP, lines:[], gexLines:[], ulLines:[]};
     chart.subscribeClick(ulClick);
   }
   /* Closed minutes PLUS the forming one. Without the forming point the line
@@ -1022,6 +1058,14 @@ function liveDraw(d, s){
   liveSeries.cum.setData(s.flow.map(([t,v]) => ({time:t, value:v})));
   liveSeries.ema.setData(s.ema.map(([t,v]) => ({time:t, value:v})));
   liveSeries.swp.setData((s.sweep || []).map(([t,v]) => ({time:t, value:v})));
+  {
+    const tide = PANE === 'tide';
+    for(const k of ['cum', 'ema', 'swp']) liveSeries[k].applyOptions({visible: !tide});
+    liveSeries.tideC.applyOptions({visible: tide}); liveSeries.tideP.applyOptions({visible: tide});
+    const rows = tide && TIDE && TIDE.rows ? TIDE.rows.filter(([t]) => Math.floor(t / 86400) === pxDay) : [];
+    liveSeries.tideC.setData(rows.filter(r => r[1] != null).map(([t, c]) => ({time:t, value:c})));
+    liveSeries.tideP.setData(rows.filter(r => r[2] != null).map(([t, , p]) => ({time:t, value:p})));
+  }
   /* The magnitude gate is on |cum flow|, so it is a BAND, not a line. This is
      the number check_flow_threshold showed is load-bearing, and it MOVES
      during the session as the bot's own crossover history grows.            */
@@ -1168,6 +1212,7 @@ function liveDraw(d, s){
     <span class="k">cum</span><b title="${d.flow_src !== null ? '' : 'no flow: this engine is manual-only (no UW_API_KEY)'}">${
       d.flow_src !== null ? fmtM(s.cum||0) : '—'}</b>
     <span class="k">gate</span><b>±${s.thr?fmtM(s.thr):'—'}</b>
+    ${paneBtn()}
     <span class="tag">${d.dry_run?'PAPER':'LIVE MONEY'}</span>
     <span class="tag" title="${d.data_src === 'webull'
         ? esc(`viewer market data from Webull (VIEWER_DATA) · ${(d.webull_data||{}).calls ?? 0} calls, ${
@@ -1184,6 +1229,7 @@ function liveDraw(d, s){
       : `<span class="k">${s.state}</span>`}`;
   const gb = $('#gxBtn'); if(gb) gb.onclick = gxToggle;
   const ib = $('#imBtn'); if(ib) ib.onclick = imToggle;
+  const pb = $('#paneBtn'); if(pb) pb.onclick = paneToggle;
   $('#legend').innerHTML = `
     <div class="hd"><span>chart key — live</span>
       <span>k or click to dismiss</span></div>
@@ -1233,7 +1279,9 @@ function liveDraw(d, s){
     <span><i style="background:#f85149"></i>put wall</span>
     <span><i style="background:#d29922"></i>gamma flip${
       s.gex && s.gex.src ? ` (${s.gex.src})` : ''}</span>`}
-    ${d.flow_src !== null ? `
+    ${PANE === 'tide' ? `
+    <span><i style="background:#3fb950"></i>market net call premium</span>
+    <span><i style="background:#f85149"></i>market net put premium — UW Market Tide: all US options, running totals for the day (UW counts from 07:30 ET); context only: its 15-min slope leaned the next 30–60 min of SPY/QQQ by +0.08..+0.10 (weak), and added nothing to the bot's rules · t or FLOW ⇄ to switch back</span>` : d.flow_src !== null ? `
     <span><i style="background:#58a6ff"></i>cumulative net premium</span>
     <span><i style="background:#a371f7"></i>EMA(5) — crossings are the trigger</span>` : `
     <span style="color:var(--dim)">cumulative flow, EMA and the gate: need Unusual Whales —
@@ -1334,8 +1382,8 @@ $('#liveBtn').onclick = () => {
   $('#liveBtn').textContent = '■ STOP LIVE';
   liveSeries = null;
   $('#telem').style.display = 'flex'; $('#side').classList.add('live');
-  pollStrikes().then(livePoll); pollEvents(); pollBeat();
-  liveTimer = setInterval(() => { pollStrikes(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 6 === 0) pollNews(); }, 5000);
+  Promise.all([pollStrikes(), pollTide()]).then(livePoll); pollEvents(); pollBeat();
+  liveTimer = setInterval(() => { pollStrikes(); pollTide(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 6 === 0) pollNews(); }, 5000);
   pollNews();
 };
 
@@ -2405,6 +2453,27 @@ function disarmSwap(){
   swapArm = false;
   if(swapTimer){ clearTimeout(swapTimer); swapTimer = null; }
   const b = $('#xSwap'); if(b) b.classList.remove('hot');
+  const q = $('#swapQ'); if(q){ q.style.display = 'none'; q.innerHTML = ''; }
+}
+/* HOW MANY TO OPEN (user, 2026-11-13, option A). The swap closes the WHOLE hold; while it
+   is armed this line picks the re-entry: a count (default = the count held) or "same $"
+   (held bid x qty / the new ask, worked out by the engine at the moment it is sent). The
+   engine caps it to the premium limit at the fill. Adjusting restarts the confirm window. */
+let SWAPQ = {n: 1, dollars: false};
+function swapRestartTimer(){
+  if(swapTimer) clearTimeout(swapTimer);
+  swapTimer = setTimeout(() => { disarmSwap(); renderSwap((LIVE.manual || {})[HOLDSEL]); }, 8000);
+}
+function renderSwapQ(held){
+  const q = $('#swapQ'); if(!q) return;
+  q.style.display = 'flex';
+  q.innerHTML = `<span>close all ${held} · open</span><button id="sqm" ${SWAPQ.dollars ? 'disabled' : ''}>−</button>` +
+    `<b>${SWAPQ.dollars ? 'same $' : SWAPQ.n}</b><button id="sqp" ${SWAPQ.dollars ? 'disabled' : ''}>+</button>` +
+    `<button id="sqd" class="${SWAPQ.dollars ? 'on' : ''}" title="about the same premium: held bid × qty ÷ the new ask">same $</button>` +
+    `<span class="k">then CONFIRM</span>`;
+  $('#sqm').onclick = () => { if(SWAPQ.n > 1){ SWAPQ.n--; swapRestartTimer(); renderSwapQ(held); } };
+  $('#sqp').onclick = () => { if(SWAPQ.n < 50){ SWAPQ.n++; swapRestartTimer(); renderSwapQ(held); } };
+  $('#sqd').onclick = () => { SWAPQ.dollars = !SWAPQ.dollars; swapRestartTimer(); renderSwapQ(held); };
 }
 function renderSwap(sel){
   const b = $('#xSwap'); if(!b) return;
@@ -2425,7 +2494,8 @@ async function sendSwap(answer, note){
   const t = HOLDSEL;
   disarmSwap();
   $('#xSwap').disabled = true; $('#xSwap').textContent = 'swapping…';
-  const j = await postOrder({ticker: t, action: 'swap', answer: answer || '', note: note || ''});
+  const j = await postOrder({ticker: t, action: 'swap', answer: answer || '', note: note || '',
+                             open_qty: SWAPQ.n, size: SWAPQ.dollars ? 'dollars' : 'count'});
   if(!j.ok) $('#panicMsg').textContent = 'REFUSED by the server: ' + (j.err || '?');
   pollEvents(); livePoll();
   return j;
@@ -2435,8 +2505,11 @@ $('#xSwap').onclick = async () => {
   if(!swapArm){
     swapArm = true;
     $('#xSwap').classList.add('hot');
+    const held = +(((LIVE.manual || {})[HOLDSEL] || {}).qty || 1);
+    SWAPQ = {n: held, dollars: false};
     renderSwap((LIVE.manual || {})[HOLDSEL]);
-    swapTimer = setTimeout(() => { disarmSwap(); renderSwap((LIVE.manual || {})[HOLDSEL]); }, 4000);
+    renderSwapQ(held);
+    swapRestartTimer();
     return;
   }
   const n = ((LIVE && LIVE.manual_day && LIVE.manual_day.swaps) || 0);
@@ -2652,6 +2725,7 @@ addEventListener('keydown', e => {
   if(e.key === 'k'){ e.preventDefault(); toggleKey(); return; }
   if(e.key === 'g' && LIVE){ e.preventDefault(); gxToggle(); return; }
   if(e.key === 'i' && LIVE){ e.preventDefault(); imToggle(); return; }
+  if(e.key === 't' && LIVE){ e.preventDefault(); paneToggle(); return; }
   if(e.key === 'n'){ e.preventDefault(); openNote(); return; }
   if(e.key === 'l'){ e.preventDefault(); $('#liveBtn').click(); return; }
   if(LIVE) return;
