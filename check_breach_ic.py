@@ -185,11 +185,15 @@ def minute_book(d):
 
 def pull_tide():
     """UW Market Tide, 1-minute, one call per session -> _breach_cache/tide/DATE.json (history from 2024-08-20)."""
+    pull_tide_range(DISC[0], FRESH[1])
+
+
+def pull_tide_range(lo, hi):
     import time
     import positioning_map as P
     uw, out = P.UW(), os.path.join(CACHE, "tide")
     os.makedirs(out, exist_ok=True)
-    for d in L.lake_days(DISC[0], FRESH[1]):
+    for d in L.lake_days(lo, hi):
         f = os.path.join(out, d + ".json")
         if os.path.exists(f):
             continue
