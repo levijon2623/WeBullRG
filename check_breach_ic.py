@@ -75,6 +75,20 @@ PASS RULES
      contract > 0 with the day-block 95% CI above 0; BH q < 0.10 across the two.
   OVERALL PASS = P2 AND at least one P3 -> a forward paper log from the live strike cue. Nothing is deployed on it.
 
+RUN LOG
+  2026-11-14 (machinery fix before any scoring: LassoCV `n_alphas` -> `alphas` for scikit-learn 1.7+)
+    DISCOVERY 15,576 breaches / 336 sessions; Y +1 21% / -1 62% / 0 17%.
+    P1 IC: 2 of 28 pass, both NEGATIVE: s_kcall -0.034 (calls bought at K WITH the breach -> it fails),
+       f_delta5 -0.030 (0DTE delta bought with the breach, 5 min -> it fails). Everything else |IC| < 0.02.
+    P2 LASSO keeps 10: a_speed +0.099, s_kcall -0.061, f_delta5 -0.045, x_breach +0.033, c_rvol +0.032,
+       c_gex -0.015, s_surge +0.012, c_tod, f_delta15, q_strad ~0.  HOLDOUT (9,665 / 176 sessions):
+       IC +0.047 [+0.024, +0.069] -> PASS (stronger than in-sample +0.032).
+    P3 A top quintile $+0.20/contract [-1.73, +1.96]; B1 bottom quintile $+0.17 [-0.88, +1.28] -> both FAIL.
+    OVERALL FAIL. Holdout by quintile (descriptive): continuation 14 / 19 / 26 / 28 / 33%, but failure flat
+    62-66% -- the score sorts "runs to the next strike" from "stalls", not "fails back through K", and the A trade's
+    $0.10 stop sits inside that unchanged failure rate. FRESH (descriptive): IC +0.025, A top $+3.71 (n 147).
+    Consistent with the order-flow x six-pack read (11-07): aggressive one-sided flow INTO a strike = it stalls.
+
 Usage:  python check_breach_ic.py --tide (once) | --build | --discovery | --holdout | --fresh
 """
 from __future__ import annotations
@@ -539,7 +553,8 @@ def fit(disc):
     wk = np.array([dt.date.fromisoformat(r["d"]).isocalendar()[0] * 100 + dt.date.fromisoformat(r["d"]).isocalendar()[1]
                    for r in disc])
     cv = list(GroupKFold(n_splits=5).split(Xd, y, wk))
-    m = LassoCV(cv=cv, random_state=0, n_alphas=60, max_iter=20000).fit(Xd, y)
+    # `alphas=<int>` is scikit-learn 1.7+'s name for n_alphas (machinery fix 2026-11-14, before any scoring)
+    m = LassoCV(cv=cv, random_state=0, alphas=60, max_iter=20000).fit(Xd, y)
     return X, m
 
 
