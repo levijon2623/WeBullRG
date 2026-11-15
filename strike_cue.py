@@ -19,8 +19,18 @@ LIVE MEASUREMENT, matched to the test: same-day contracts' cumulative ask / bid 
 of the same for the prior 20 sessions; price = the bot's live price (live/state.json, ~5 s), UW stock-state if that goes stale.
 Every touch is logged with its cue values to live/strikes/DATE.jsonl (a forward record; the cue itself is never retuned).
 
+THRU (user, 2026-11-14): a strike BREACH -- the median of the last three 5-second closes of the sampled price comes from >= 5 bp
+beyond K and reaches K + $0.10 (check_breach_ic's event, 09:45-15:30, one per ticker per 5 min) -- is scored with the FROZEN
+check_breach_ic Lasso (breach_model_frozen.json, 10 inputs: approach speed, K-call ask-bid, 0DTE delta flow 5/15 min, other indices
+breaking, relative volume, gamma, six-pack surge, time of day) and shown for 5 minutes with its quintile's holdout rates from
+strike_cue_thru.json (next strike first 14 / 19 / 26 / 28 / 33%). Logged as "breach" / "breach_res" events. Offline replay of
+three lake days through this code: 221 of 221 breaches matched, score corr 0.999, same quintile 99-100%. Live differences:
+the bot's 2 s price samples instead of option-print prices, UW tape lag, relative volume over a median (not mean) base.
+DISPLAY ONLY: the score ranked breaches out of sample (holdout IC +0.047) but failed the money test.
+
     python strike_cue.py                 (service loop)
     python strike_cue.py --build-tables  (once, on the PC: freezes strike_cue_tables.json from _sixpack_cache)
+    python strike_cue.py --build-thru    (once, on the PC: strike_cue_thru.json from _breach_cache)
 """
 import argparse, glob, json, math, os, sys, time
 from collections import deque
@@ -38,6 +48,26 @@ OUT = os.path.join(HERE, "live", "strikes.json")
 LOGDIR = os.path.join(HERE, "live", "strikes")
 PUSH_ATM_TK = ("SPY",)                  # P4 passed on SPY only
 PUSH_OTM_TK = ("SPY", "IWM")            # P7: SPY and IWM carried it, QQQ ~0
+# THRU: the study's breach window (t_in 09:45-15:30) and how long the pill shows a breach
+THRU_MIN_MOD, THRU_MAX_MOD, THRU_SHOW_S = 9 * 60 + 45, 15 * 60 + 30, 300
+FRZ = THRU = None                       # breach_model_frozen.json / strike_cue_thru.json, loaded by run()
+BREACHES = deque(maxlen=200)            # (tk, side, epoch) every confirmed breach, for the cross-index input
+LABELS = {  # driver -> (label when it RAISES the odds, label when it LOWERS them); the sign is the contribution's
+    "a_speed": ("fast approach", "slow approach"),
+    "s_kcall": ("K calls leaning against the break", "\u26a0 K calls chasing the break"),
+    "f_delta5": ("0DTE delta leaning against (5m)", "\u26a0 0DTE delta chasing (5m)"),
+    "f_delta15": ("0DTE delta leaning against (15m)", "\u26a0 0DTE delta chasing (15m)"),
+    "x_breach": ("{w} breaking too", "breaking alone"),
+    "c_rvol": ("heavy volume", "light volume"),
+    "c_gex": ("negative gamma", "positive gamma (pinning)"),
+    "s_surge": ("six-pack surging", "six-pack quiet"),
+    "c_tod": ("early in the day", "late in the day"),
+}
+
+
+def _label(k, v, others):
+    up, dn = LABELS[k]
+    return (up if v > 0 else dn).replace("{w}", "/".join(others) or "others")
 
 
 # ------------------------------------------------------------------ frozen tables (PC, once)
@@ -88,6 +118,35 @@ def build_tables():
                                      "| cells n min", min(v["n"] for v in t["surge"].values()))
 
 
+# ------------------------------------------------------------------ THRU (breach) table (PC, once)
+THRU_TABLE = os.path.join(HERE, "strike_cue_thru.json")
+MODEL = os.path.join(HERE, "breach_model_frozen.json")
+
+
+def build_thru():
+    """strike_cue_thru.json: quintile cut points of the FROZEN breach score (check_breach_forward / breach_model_frozen.json)
+    over check_breach_ic's discovery, and what followed in each quintile on its HOLDOUT (2026-01..09, scored once 11-14)."""
+    import numpy as np
+    import check_breach_ic as B
+    import check_breach_forward as F
+    frz = json.load(open(MODEL))
+    disc, hold = B.load(*B.DISC), B.load(*B.HOLD)
+    sd = np.array([F.score(frz, r) for r in disc])
+    cuts = [float(x) for x in np.quantile(sd, [0.2, 0.4, 0.6, 0.8])]
+    def rates(rs):
+        n = len(rs)
+        return {"next": round(100 * sum(r["Y"] == 1 for r in rs) / n, 1), "back": round(100 * sum(r["Y"] == -1 for r in rs) / n, 1),
+                "neither": round(100 * sum(r["Y"] == 0 for r in rs) / n, 1), "n": n}
+    q = [[] for _ in range(5)]
+    for r in hold:
+        q[int(np.searchsorted(cuts, F.score(frz, r), side="right"))].append(r)
+    T = {"source": "check_breach_ic.py holdout 2026-01-02..2026-09-25 (scored once 2026-11-14); frozen score breach_model_frozen.json",
+         "built": datetime.now().isoformat(timespec="seconds"), "cuts": cuts, "quintiles": [rates(x) for x in q], "base": rates(hold),
+         "note": "the score ranked breaches out of sample (IC +0.047) but FAILED the money test: display only"}
+    json.dump(T, open(THRU_TABLE, "w"), indent=1)
+    print("wrote", THRU_TABLE, [x["next"] for x in T["quintiles"]], "base", T["base"])
+
+
 # ------------------------------------------------------------------ live
 def now_et():
     import positioning_map as P
@@ -117,6 +176,12 @@ class Ticker:
         self.rvol = None; self.vol_base = None
         self.err = None
         self.day0 = self.open_ts = None      # set by run(); lets a touch log its pre-touch cue the moment it happens
+        # THRU (strike BREACH, check_breach_ic / breach_model_frozen.json): 5-second bars of the sampled price, median of the
+        # last three closes = the study's centred median, known when its third bar closes
+        self.delta = {}                      # (K, cp) -> latest UW delta
+        self.bars = deque(maxlen=60); self.cur_b = self.cur_c = None
+        self.barm = {}                       # K -> (side, armed at epoch, median then)
+        self.thru = None; self.last_breach = 0.0
 
     # flow ---------------------------------------------------------------
     def add_snap(self, ts, rows):
@@ -139,12 +204,14 @@ class Ticker:
             k = o[3]
             if abs(k - round(k)) > 1e-6: continue
             cum[(int(round(k)), o[2])] = (P.num(x.get("ask_volume")) or 0.0, P.num(x.get("bid_volume")) or 0.0, P.num(x.get("volume")) or 0.0)
-        if cum: self.snaps.append((asof, cum))
+            dl = P.num(x.get("delta"))
+            if dl is not None: self.delta[(int(round(k)), o[2])] = dl
+        if cum: self.snaps.append((asof, cum, dict(self.delta)))     # deltas as of this snapshot, for the THRU delta flow
 
     def at(self, boundary_ts, open_ts):
         """cumulative snapshot at a minute boundary: the first whose tape has reached it (within 25 s past it); before the open nothing
         has traded."""
-        for ts, cum in self.snaps:
+        for ts, cum, *_ in self.snaps:
             if boundary_ts <= ts < boundary_ts + 25: return cum
         if boundary_ts <= open_ts: return {}
         return None
@@ -159,6 +226,22 @@ class Ticker:
             out[k] = tuple(max(0.0, y - x) for x, y in zip(a, b))
         return out
 
+    def delta_flow(self, m_a, m_b, day0, open_ts):
+        """sum over minutes [m_a, m_b) and every contract of (ask - bid volume that minute) x its delta at the minute's end x 100
+        = check_breach_ic's f_delta (which uses each minute bar's delta_close); None if a boundary snapshot is missing."""
+        tot = 0.0
+        for mm in range(m_a, m_b):
+            A = self.at(day0 + mm * 60, open_ts)
+            B = next(((c, d) for ts, c, *d in self.snaps if day0 + (mm + 1) * 60 <= ts < day0 + (mm + 1) * 60 + 25), None)
+            if A is None or B is None: return None
+            cum, dm = B[0], (B[1][0] if B[1] else self.delta)
+            for k, (a, b, _v) in cum.items():
+                dl = dm.get(k)
+                if dl is None: continue
+                a0, b0, _ = A.get(k, (0, 0, 0))
+                tot += ((a - a0) - (b - b0)) * dl * 100
+        return tot
+
     # price / touches ----------------------------------------------------------
     def on_price(self, p, t, logf):
         if p is None: return
@@ -166,6 +249,8 @@ class Ticker:
         if self.p0 is None and m >= 570: self.p0 = p
         self.price, self.price_at = p, time.time()
         if self.p0 is None: return
+        try: self._bar(p, t, logf)
+        except Exception as e: self.err = f"thru: {type(e).__name__}"      # noqa: BLE001 -- never stop the touch cue
         Rr = self.p0 * R_BP / 1e4
         if self.touch:
             T = self.touch; K, sd = T["K"], T["side"]
@@ -200,6 +285,79 @@ class Ticker:
             try: ev["pre"] = self.strike_cue(K, sd, m, self.day0, self.open_ts)
             except Exception as e: ev["pre_err"] = type(e).__name__
         return ev
+
+    # THRU: strike breach ------------------------------------------------------------
+    def _bar(self, p, t, logf):
+        now = time.time(); b = int(now // 5) * 5
+        if self.cur_b is None or b == self.cur_b:
+            self.cur_b, self.cur_c = b, p; return
+        self.bars.append((self.cur_b, self.cur_c)); self.cur_b, self.cur_c = b, p
+        if len(self.bars) < 3: return
+        med = sorted(c for _b, c in list(self.bars)[-3:])[1]
+        self._breach_step(med, t, now, logf)
+
+    def _breach_step(self, med, t, now, logf):
+        Rr, m = self.p0 * R_BP / 1e4, mod_of(t)
+        th = self.thru
+        if th and th.get("res") is None:                       # resolve the live breach (the study's target, 15 min)
+            x = th["side"] * (med - th["K"])
+            res = "next" if x >= 0.95 else ("back" if x <= -BZ else ("neither" if now - th["t0"] >= 900 else None))
+            if res:
+                th["res"], th["res_at"] = res, t.strftime("%H:%M:%S")
+                if logf: logf({"ev": "breach_res", "tk": self.tk, "K": th["K"], "side": th["side"], "at": th["at"], "res": res,
+                               "res_at": th["res_at"], "q": th.get("q")})
+        for K in range(int(math.floor(med)) - 3, int(math.ceil(med)) + 4):
+            if med <= K - BZ - Rr: self.barm[K] = (1, now, med)
+            elif med >= K + BZ + Rr: self.barm[K] = (-1, now, med)
+            a = self.barm.get(K)
+            if not a: continue
+            if (a[0] > 0 and med >= K + BZ) or (a[0] < 0 and med <= K - BZ):
+                self.barm.pop(K)
+                BREACHES.append((self.tk, a[0], now))
+                if THRU_MIN_MOD <= m <= THRU_MAX_MOD and now - self.last_breach >= 300 and FRZ and THRU:
+                    self.last_breach = now
+                    self._fire(K, a[0], a[1], a[2], med, t, now, logf)
+
+    def _fire(self, K, side, t_arm, med_arm, p_in, t, now, logf):
+        import numpy as np
+        m, day0, open_ts = mod_of(t), self.day0, self.open_ts
+        x = dict.fromkeys(FRZ["coef"])
+        x["a_speed"] = side * (p_in - med_arm) / self.p0 * 1e4 / max((now - t_arm) / 60.0, 0.1)
+        six = [(K + d, cp) for d in (-1, 0, 1) for cp in ("C", "P")]
+        w5 = wb = None
+        for m_eff in (m, m - 1):
+            w5 = self.window(m_eff - 5, m_eff, six + [(K, "C")], day0, open_ts)
+            wb = self.window(m_eff - 20, m_eff - 5, six, day0, open_ts)
+            if w5 is not None and wb is not None: break
+        if w5 is not None and wb is not None:
+            v5, vb = sum(w5[k][2] for k in six), sum(wb[k][2] for k in six)
+            x["s_surge"] = (v5 / 5) / (vb / 15 + 1) if v5 >= 50 else 0.0
+            a, b, _v = w5[(K, "C")]; x["s_kcall"] = side * (a - b)
+            for name, span in (("f_delta5", 5), ("f_delta15", 15)):
+                fl = self.delta_flow(m_eff - span, m_eff, day0, open_ts)
+                if fl is not None: x[name] = side * fl
+        x["c_rvol"], x["c_gex"] = self.rvol, self.gex
+        x["c_tod"] = (now - day0) / 60.0 - 570
+        hits = [tk for tk, sd, ts in BREACHES if tk != self.tk and sd == side and now - 60 <= ts <= now]
+        others = sorted(set(hits))
+        x["x_breach"] = len(hits)                           # the study counts breach EVENTS (one ticker can cross two strikes)
+        z, contrib = FRZ["intercept"], []
+        for k, c in FRZ["coef"].items():
+            g = FRZ["grids"][self.tk][k]
+            r = 0.5 if x.get(k) is None else float(np.interp(x[k], g, np.linspace(0, 1, len(g))))
+            z += c * (r - 0.5); contrib.append((k, c * (r - 0.5)))
+        q = int(np.searchsorted(THRU["cuts"], z, side="right"))
+        drv = [[_label(k, v, others), round(v, 4)] for k, v in sorted(contrib, key=lambda kv: -abs(kv[1]))
+               if k in LABELS and abs(v) >= 0.004][:3]
+        self.thru = {"K": K, "side": side, "at": t.strftime("%H:%M:%S"), "t0": now, "z": round(z, 4), "q": q + 1,
+                     "rates": THRU["quintiles"][q], "drivers": drv, "with": others, "res": None,
+                     "inputs": {k: (None if v is None else round(float(v), 4)) for k, v in x.items()}}
+        if logf: logf({"ev": "breach", "tk": self.tk, **{k: v for k, v in self.thru.items() if k not in ("t0", "rates")}})
+
+    def thru_cue(self):
+        th = self.thru
+        if not th or time.time() - th["t0"] > THRU_SHOW_S: return None
+        return dict({k: v for k, v in th.items() if k not in ("t0", "inputs")}, age=int(time.time() - th["t0"]))
 
     # cue -----------------------------------------------------------------------
     def tercile(self, v, name):
@@ -331,6 +489,11 @@ def run():
     import market_calendar as MC
     import positioning_map as P
     tables = json.load(open(TABLES))
+    global FRZ, THRU
+    try:
+        FRZ, THRU = json.load(open(MODEL)), json.load(open(THRU_TABLE))
+    except (OSError, ValueError) as e:
+        print(f"  THRU off: {type(e).__name__} loading {os.path.basename(MODEL)} / {os.path.basename(THRU_TABLE)}", flush=True)
     uw = P.UW()
     print(f"strike cue: tables from {tables['source']}", flush=True)
     while True:
@@ -345,6 +508,7 @@ def run():
         day0 = datetime(d.year, d.month, d.day, tzinfo=P.NY).timestamp(); open_ts = day0 + 570 * 60
         close_m = MC.close_mod(d)
         T = {tk: Ticker(tk, tables) for tk in TK}
+        BREACHES.clear()
         for X in T.values(): X.day0, X.open_ts = day0, open_ts
         os.makedirs(LOGDIR, exist_ok=True)
         logp = os.path.join(LOGDIR, f"{d.isoformat()}.jsonl")
@@ -403,6 +567,7 @@ def run():
             if time.time() - last_write >= 2:
                 last_write = time.time()
                 out = {"ts": time.time(), "at": t.strftime("%H:%M:%S"), "live": True, "day": d.isoformat(), "R_bp": R_BP, "zone": BZ,
+                       "thru_base": THRU["base"] if THRU else None, "thru_source": THRU["source"] if THRU else None,
                        "T_min": T_MIN, "source": tables["source"], "calls": uw.calls - calls0, "poll_age": round(time.time() - last_poll, 1), "tickers": {}}
                 for tk, X in T.items():
                     o = {"spot": X.price, "p0": X.p0, "lag": X.lag, "gex": X.gex, "gex_at": X.gex_at, "gs": X.gs(),
@@ -416,6 +581,7 @@ def run():
                             X.touch["logged_at"] = True       # the at-the-touch read, once it exists (SPY / IWM, touch minute + next)
                             logf({"ev": "at", "tk": tk, "K": X.touch["K"], "side": X.touch["side"], "since": X.touch["since"], "gs": X.gs(),
                                   "rvol": X.rvol, "at": o["touch"]})
+                    o["thru"] = X.thru_cue()
                     out["tickers"][tk] = o
                 jdump(out, OUT)
             time.sleep(0.5)
@@ -424,6 +590,8 @@ def run():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--build-tables", action="store_true")
+    ap.add_argument("--build-thru", action="store_true")
     a = ap.parse_args()
     if a.build_tables: build_tables()
+    elif a.build_thru: build_thru()
     else: run()

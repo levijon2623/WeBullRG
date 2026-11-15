@@ -1,0 +1,49 @@
+{
+ "source": "check_breach_ic.py holdout 2026-01-02..2026-09-25 (scored once 2026-11-14); frozen score breach_model_frozen.json",
+ "built": "2026-11-14T17:51:36",
+ "cuts": [
+  -0.4386845116749386,
+  -0.4092009502388421,
+  -0.3814181942801227,
+  -0.34992559000367923
+ ],
+ "quintiles": [
+  {
+   "next": 14.0,
+   "back": 62.3,
+   "neither": 23.7,
+   "n": 1954
+  },
+  {
+   "next": 19.3,
+   "back": 65.8,
+   "neither": 15.0,
+   "n": 1859
+  },
+  {
+   "next": 25.9,
+   "back": 63.3,
+   "neither": 10.8,
+   "n": 2021
+  },
+  {
+   "next": 28.4,
+   "back": 65.0,
+   "neither": 6.6,
+   "n": 1998
+  },
+  {
+   "next": 33.3,
+   "back": 63.1,
+   "neither": 3.6,
+   "n": 1833
+  }
+ ],
+ "base": {
+  "next": 24.1,
+  "back": 63.9,
+  "neither": 12.0,
+  "n": 9665
+ },
+ "note": "the score ranked breaches out of sample (IC +0.047) but FAILED the money test: display only"
+}

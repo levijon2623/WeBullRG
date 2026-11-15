@@ -790,6 +790,30 @@ async function pollStrikes(){
 }
 const SK_COL = '#58a6ff';
 function skRates(c){ return c ? `through ${c.through}% · stall ${c.stall}% · turn back ${c.reverse}% (n=${c.n})` : 'no history cell'; }
+/* THRU (user, 2026-11-14): for 5 minutes after a confirmed strike BREACH (price $0.10 through K, the median of three
+   5-second closes, from >= 5 bp on the other side), the frozen check_breach_ic score's quintile and what followed in that
+   quintile on the study's holdout: next strike first / back through K first / neither within 15 min. The tooltip names
+   the three inputs pushing hardest. Display only: the score ranked breaches out of sample but did not make money as a
+   trade; a wider-stop version is in a locked forward test (check_breach_forward). */
+function thruCell(o){
+  const h = o && o.thru;
+  if(!h || !h.rates) return null;
+  const r = h.rates, b = STRK.thru_base || {}, arrow = h.side > 0 ? '↑' : '↓';
+  const col = h.q === 5 ? '#3fb950' : h.q === 1 ? '#f0883e' : 'var(--fg)';
+  const word = h.q === 5 ? 'run likely' : h.q === 1 ? 'stall likely' : `Q${h.q}`;
+  const res = h.res ? (h.res === 'next' ? `reached ${h.K + h.side}` : h.res === 'back' ? 'fell back' : 'neither') : null;
+  const body = `<b style="color:${col}">THRU ${arrow}${h.K} ${r.next}%</b><span class="k">${res ? esc(res) : word} · ${h.age}s</span>`;
+  const drv = (h.drivers || []).map(d => `  ${d[1] > 0 ? '+' : '−'} ${d[0]}`).join('\n');
+  const tip = `BREACH ${h.K} ${h.side > 0 ? 'upward' : 'downward'} at ${h.at} — score quintile ${h.q} of 5.` +
+    `\nWhat followed in this quintile (within 15 min): next strike first ${r.next}% · back through ${h.K} first ${r.back}% · neither ${r.neither}% (n=${r.n}).` +
+    `\nAll breaches: ${b.next ?? '—'}% · ${b.back ?? '—'}% · ${b.neither ?? '—'}%.` +
+    (drv ? `\nPushing hardest:\n${drv}` : '') +
+    (res ? `\nOutcome: ${res} at ${h.res_at}.` : '') +
+    `\n\nHistory: ${STRK.thru_source || 'check_breach_ic holdout'}. Display only: the score ranks which breaches run on, ` +
+    `but the failure rate barely moves with it, so as a trade it did not pay. "Chasing" flags are contrarian: calls / 0DTE delta ` +
+    `bought WITH the break came before it stalled.`;
+  return {body, tip};
+}
 function strikePill(){
   const o = STRK && STRK.tickers && STRK.tickers[liveTk];
   const st = 'width:auto;flex:none;margin:0;font-size:11px;display:inline-flex;align-items:center;gap:6px';
@@ -802,6 +826,8 @@ function strikePill(){
     `relative volume ${o.rvol ?? '—'}${o.rvol_t != null ? ' (' + T3[o.rvol_t] + ' third)' : ''}`;
   const foot = `\n\nHistory: ${STRK.source}. Touch = price comes from ${STRK.R_bp} bp away into ${'±'}${STRK.zone.toFixed(2)} of the strike; ` +
     `outcome within ${STRK.T_min} min. UW tape lag ${o.lag ?? '—'}s (REST every 15 s). Display only: the effects are a few points, context not a signal.`;
+  const th = thruCell(o);
+  const thBody = th ? th.body + '<span class="k">|</span>' : '', thTip = th ? th.tip + '\n\n' : '';
   if(o.touch){
     const t = o.touch, arrow = t.side > 0 ? '↑' : '↓', mm = `${Math.floor(t.secs/60)}:${String(t.secs%60).padStart(2,'0')}`;
     let tip = `AT ${t.K}, came ${t.side > 0 ? 'up from below' : 'down from above'} at ${t.since} (${mm} ago). ${reg}.`;
@@ -814,7 +840,7 @@ function strikePill(){
         `\nIf still open now, history: ${skRates(p.rates || p.open2)}` +
         `\n  when ${t.contract} was sold: ${skRates(p.low)}\n  when bought: ${skRates(p.high)}`;
       if(p.rates) body += `<span>${esc(t.contract)} ${w}</span><b>back ${p.rates.reverse}%</b><span class="k">stall ${p.rates.stall}%</span>`; }
-    return `<span class="tag" title="${esc(tip + foot)}" style="${st};border-color:${SK_COL}">${body}</span>`;
+    return `<span class="tag" title="${esc(thTip + tip + foot)}" style="${st};border-color:${SK_COL}">${thBody}${body}</span>`;
   }
   const cells = [], tips = [];
   for(const s of (o.strikes || [])){
@@ -837,8 +863,8 @@ function strikePill(){
     tips.push(tip);
   }
   if(o.err) tips.push(`⚠ ${o.err}`);
-  return `<span class="tag" title="${esc(tips.join('\n\n') + foot)}" style="${st};border-color:${SK_COL}">` +
-    `<span style="color:${SK_COL}">STRIKE</span>${cells.join('<span class="k">|</span>')}</span>`;
+  return `<span class="tag" title="${esc(thTip + tips.join('\n\n') + foot)}" style="${st};border-color:${SK_COL}">` +
+    `<span style="color:${SK_COL}">STRIKE</span>${thBody}${cells.join('<span class="k">|</span>')}</span>`;
 }
 
 /* REGIME LABEL + LIVE FLIP TAG (operator, 2026-10-13: "Regime says POSITIVE
