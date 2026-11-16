@@ -156,9 +156,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._json({"ok": False, "err": "answer yes/no"}, 400)
                 if not isinstance(req.get("note") or "", str):
                     return self._json({"ok": False, "err": "note"}, 400)
-            # 911, arm/disarm and the sideline are account-wide: no ticker
+            # 911, arm/disarm, the sideline and SYNC are account-wide: no ticker
+            # (sync was missing here until 2026-11-16: the button was refused with "ticker")
             if act not in ("panic", "arm", "disarm", "sideline",
-                           "unsideline") and str(
+                           "unsideline", "sync") and str(
                     req.get("ticker", "")).upper() not in (
                     "IWM", "SPY", "QQQ"):
                 return self._json({"ok": False, "err": "ticker"}, 400)
