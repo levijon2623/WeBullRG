@@ -56,6 +56,18 @@ RUN LOG
   2026-11-15 V1/V2 run 1 (single fixed pair): MACHINERY FAIL (M1 [-27.3, +35.8]); 1,319 windows (S&P 459 days /
     Nasdaq 202 / Russell 81). Not scorable. Record: S&P b3 -13.1 [-30.7, +33.5], Nasdaq +11.9, Russell +79.4;
     V2 S&P n=18 rho -0.003. -> DEVIATION above, run 2.
+  2026-11-15 V1/V2 run 2 (many-contract sticky-strike IV change): 18,137 scored windows / 552 sessions (+5,661 pre).
+    MACHINERY M1 FAIL again ([-6.0, +20.5]): not a data bug now but POWER -- the CI half-width is ~13 bp per vol pt
+    per VFn unit, so only an amplifier of roughly >= 15 (~40% of the base spot-vol slope) is detectable; the planted
+    3 (~8%) is not. M0 also excluded 0 ([-28.2, -2.2]): the day-block CIs are not well calibrated here. -> V1 NOT
+    SCORABLE as a pass; descriptive: S&P b3 +1.8 [-9.2, +17.6], Nasdaq -4.2, Russell -8.8; bp of index move per vol
+    point of IV DROP, low- vs high-vanna days: S&P +37.7 / +40.8, Nasdaq +36.7 / +35.5, Russell +30.5 / +23.4 --
+    the spot-vol link is large and the SAME whatever dealers hold. No sign of a vanna amplifier; a big one (> ~40%)
+    looks unlikely on S&P.
+    V2 (55 days each): S&P rho -0.124 [-0.431, +0.201] -> FAIL; Nasdaq -0.343 [-0.582, -0.063] (the WRONG sign,
+    excludes 0); Russell -0.159. On IV-collapse days, more modelled dealer vanna did NOT mean a bigger rally.
+    VERDICT: the mechanism (V1/V2) is not supported -- as in check_currents, signs lean against the dealer
+    convention. Only V3's VIX-vs-realized split holds, and it is about crash regimes, not dealer positioning.
 
 Usage:  python check_vanna.py --extend   (adds new lake days to _currents_cache)
         python check_vanna.py --v3 | --v1v2
