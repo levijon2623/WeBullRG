@@ -38,6 +38,25 @@ REPORTED, NOT SCORED  V1 with a dealer side inferred from the day's ask-side ope
     validated side model: check_flow_oi failed); the convention is the assumption, said here.
 SpotGamma's own levels (Risk Pivot etc.) are proprietary and not tested.
 
+DEVIATION (2026-11-15, after run 1, logged): run 1's V1 MACHINERY FAILED -- the planted b3 = 3 was not recovered
+([-27, +36]) -- because the single fixed 21-day ATM pair has an IV only in minutes when BOTH legs trade (2025-06-12:
+SPY 26 of 390 minutes, QQQ 2, IWM 1), leaving 1,319 windows of noisy last-trade IVs (expected ~18,000). Run 1 was
+therefore not scorable (its b3s are in the RUN LOG for the record). Run 2 keeps the sticky-strike idea, the model,
+the pass rules and the machinery checks, and only changes how the window's IV change is measured: every contract
+2-45 days to expiry within 3% of the 09:35 price that has an IV in the 10 minutes before BOTH window ends gives its
+own IV change; the window's change is their MEDIAN (>= 5 contracts). Same for V2's 09:35 -> 15:55.
+
+RUN LOG
+  2026-11-15 V3: 72 de-clustered VIX-collapse episodes 2007-08..2026-08. SPENT (VIX < RV21) n=27: SPY next 5
+    sessions -161 bp (median -8, up 44%); LEFT n=45: +63 bp (median +87, up 69%); all days +17 bp.
+    SPENT - LEFT -224 bp [-431, -29], halves -322 / -122 -> PASS. FRAGILE: without 2008-10-20 (-1,630 bp) the gap
+    is -168; without the worst three (+ 2020-03-04, 2022-05-04) -85. "Spent" often = VIX fell while realized vol
+    was still crash-sized (2008, 2011, 2020, 2022, 2025-04) and the market fell again. 2026-11-10/11 qualify as a
+    SPENT episode (VIX -31% in 3 sessions, 19.5 vs RV21 21.7).
+  2026-11-15 V1/V2 run 1 (single fixed pair): MACHINERY FAIL (M1 [-27.3, +35.8]); 1,319 windows (S&P 459 days /
+    Nasdaq 202 / Russell 81). Not scorable. Record: S&P b3 -13.1 [-30.7, +33.5], Nasdaq +11.9, Russell +79.4;
+    V2 S&P n=18 rho -0.003. -> DEVIATION above, run 2.
+
 Usage:  python check_vanna.py --extend   (adds new lake days to _currents_cache)
         python check_vanna.py --v3 | --v1v2
 """
@@ -164,6 +183,39 @@ def vf_table():
     return agg.set_index(["date", "mkt"])["vfn"]
 
 
+def iv_changes(day, f, spans):
+    """{market: {(a, b): median per-contract IV change over [a, b], vol fraction}} -- run 2's sticky-strike measure."""
+    x = (pl.scan_parquet(f).filter(pl.col("underlying_symbol").is_in(list(ETF.values())))
+         .select("underlying_symbol", "option_chain_id", pl.col("strike").cast(pl.Float64), "expiry", "minute_et",
+                 "iv_close", "underlying_close").collect())
+    x = x.with_columns(mod=pl.col("minute_et").dt.hour().cast(pl.Int32) * 60 + pl.col("minute_et").dt.minute().cast(pl.Int32))
+    out = {}
+    for mkt, tk in ETF.items():
+        z = x.filter(pl.col("underlying_symbol") == tk)
+        s0 = z.filter((pl.col("mod") >= 574) & (pl.col("mod") <= 576))["underlying_close"].drop_nulls()
+        if not len(s0):
+            continue
+        s0 = float(s0.median())
+        z = z.filter((pl.col("expiry") >= pl.lit(day + dt.timedelta(days=2))) & (pl.col("expiry") <= pl.lit(day + dt.timedelta(days=45)))
+                     & ((pl.col("strike") / s0 - 1).abs() <= 0.03) & pl.col("iv_close").is_not_null()
+                     & (pl.col("iv_close") > 0.02) & (pl.col("iv_close") < 3)).sort("mod")
+        series = {}
+        for cid, mods, ivs in z.group_by("option_chain_id").agg(pl.col("mod"), pl.col("iv_close")).iter_rows():
+            series[cid] = (np.asarray(mods), np.asarray(ivs, float))
+        res = {}
+        for a, b in spans:
+            ch = []
+            for mods, ivs in series.values():
+                ia = np.searchsorted(mods, a, side="right") - 1
+                ib = np.searchsorted(mods, b, side="right") - 1
+                if ia >= 0 and ib >= 0 and mods[ia] >= a - 10 and mods[ib] >= b - 10 and ib > ia:
+                    ch.append(ivs[ib] - ivs[ia])
+            if len(ch) >= 5:
+                res[(a, b)] = float(np.median(ch))
+        out[mkt] = res
+    return out
+
+
 def iv_paths(day, f):
     """{market: (iv minute series dict, spot minute dict)} for the fixed 09:35 pair."""
     x = (pl.scan_parquet(f).filter(pl.col("underlying_symbol").is_in(list(ETF.values())))
@@ -215,20 +267,21 @@ def build_panel():
         day = dt.date.fromisoformat(f.split("date=")[1][:10])
         if day > END:
             continue
-        ivs = iv_paths(day, f)
-        for mkt, iv in ivs.items():
+        spans = WINDOWS + [(575, 955)]
+        ivc = iv_changes(day, f, spans)                 # run 2 (see DEVIATION)
+        for mkt, chg in ivc.items():
             v = vf.get((day, mkt))
             p = px.get((mkt, day.isoformat()))
             if v is None or not np.isfinite(v) or not p:
                 continue
-            for a, b in WINDOWS + [(575, 955)]:
-                i0, i1, p0, p1 = near(iv, a), near(iv, b), near(p, a), near(p, b)
-                if None in (i0, i1, p0, p1) or p0 <= 0:
+            for a, b in spans:
+                p0, p1 = near(p, a), near(p, b)
+                if (a, b) not in chg or None in (p0, p1) or p0 <= 0:
                     continue
-                rows.append(dict(date=day, mkt=mkt, w=f"{a}-{b}", x=-(i1 - i0) * 100, y=np.log(p1 / p0) * 1e4, vfn=float(v)))
+                rows.append(dict(date=day, mkt=mkt, w=f"{a}-{b}", x=-chg[(a, b)] * 100, y=np.log(p1 / p0) * 1e4, vfn=float(v)))
     D = pd.DataFrame(rows)
     os.makedirs(CACHE, exist_ok=True)
-    D.to_pickle(os.path.join(CACHE, "panel.pkl"))
+    D.to_pickle(os.path.join(CACHE, "panel2.pkl"))
     return D
 
 
@@ -250,7 +303,7 @@ def boot_b3(d, rng):
 
 def v1v2():
     rng = np.random.default_rng(SEED)
-    p = os.path.join(CACHE, "panel.pkl")
+    p = os.path.join(CACHE, "panel2.pkl")
     D = pd.read_pickle(p) if os.path.exists(p) else build_panel()
     W = D[D.w != "575-955"].reset_index(drop=True)
     DAY = D[D.w == "575-955"].reset_index(drop=True)
@@ -292,7 +345,10 @@ def v1v2():
         d = DAY[(DAY.mkt == mkt) & (DAY.date >= DEP_START) & (DAY.date <= END)]
         top = d[d.x >= d.x.quantile(0.9)].reset_index(drop=True)
         rho = spearmanr(top.vfn, top.y)[0]
-        bs = [spearmanr(*top.iloc[rng.integers(0, len(top), len(top))][["vfn", "y"]].T.to_numpy())[0] for _ in range(N_BOOT)]
+        bs = []
+        for _ in range(N_BOOT):
+            b = top.iloc[rng.integers(0, len(top), len(top))]
+            bs.append(spearmanr(b.vfn, b.y)[0] if b.vfn.nunique() > 1 and b.y.nunique() > 1 else np.nan)
         lo, hi = np.nanquantile(bs, [0.025, 0.975])
         print(f"  {mkt:8s} n={len(top)} days, IV drop >= {d.x.quantile(0.9):.2f} pts, mean day {top.y.mean():+.0f} bp; "
               f"rho {rho:+.3f} [{lo:+.3f}, {hi:+.3f}]" + (f" -> {'PASS' if lo > 0 else 'FAIL'}" if mkt == "S&P" else ""))
