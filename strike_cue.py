@@ -347,8 +347,12 @@ class Ticker:
             r = 0.5 if x.get(k) is None else float(np.interp(x[k], g, np.linspace(0, 1, len(g))))
             z += c * (r - 0.5); contrib.append((k, c * (r - 0.5)))
         q = int(np.searchsorted(THRU["cuts"], z, side="right"))
+        # an input sitting at zero (no other index breaking, no six-pack surge) gets its rank from the frozen grid's
+        # ties, not from anything happening: score it as frozen, but don't name it as a driver (11-16: QQQ said
+        # "others breaking too" with nobody breaking)
+        idle = {k for k in ("x_breach", "s_surge") if not x.get(k)}
         drv = [[_label(k, v, others), round(v, 4)] for k, v in sorted(contrib, key=lambda kv: -abs(kv[1]))
-               if k in LABELS and abs(v) >= 0.004][:3]
+               if k in LABELS and k not in idle and abs(v) >= 0.004][:3]
         self.thru = {"K": K, "side": side, "at": t.strftime("%H:%M:%S"), "t0": now, "z": round(z, 4), "q": q + 1,
                      "rates": THRU["quintiles"][q], "drivers": drv, "with": others, "res": None,
                      "inputs": {k: (None if v is None else round(float(v), 4)) for k, v in x.items()}}
