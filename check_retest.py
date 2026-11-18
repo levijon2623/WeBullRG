@@ -43,7 +43,15 @@ SAMPLES
              now: an inconclusive H1 is a FAIL; H2-H4 are read for direction.
   FORWARD    from 2026-11-16 with each lake refresh; a confirmed H1 goes to a paper log, nothing deployed.
 
-Usage:  python check_retest.py --build | --sizing | --confirm
+RUN LOG
+  2026-11-17 run 1. SIZING E1 n=9,776 -$0.73 [-1.64, +0.12]; E2 n=10,461 +$2.94 [+2.15, +3.69].
+    CONFIRM (scored once): H1 E1 -$0.34 [-4.18, +3.38] FAIL; H2 Tide -2.02 FAIL; H3 trend +1.70 FAIL; H4 K-flow
+    -0.002 FAIL. E2 reported +$4.56 [+0.93, +8.32].
+    BUG found after the run (E2 only): a setup that hit the VOID (back to the previous strike) after E2 had fired
+    dropped the E2 trade -- that run IS E2's stop-out, so E2's worst trades were excluded (look-ahead). E1 is
+    unaffected (its void always precedes its entry), so the scored H1-H4 stand. E2 rebuilt in run 2 (--e2).
+
+Usage:  python check_retest.py --build | --sizing | --confirm | --e2
 """
 from __future__ import annotations
 
@@ -154,7 +162,12 @@ def retest(d, tk, K, side, t_br, sc, med, kt, tq, tide, mins, kf):
     while k < len(sc) and kt[k] <= t_snap + ENTRY_S:
         v = x(k)
         if v <= -1.0:
-            return out                           # void: back to the previous strike
+            # void for E1 (no entry yet). An E2 that already FIRED is a live trade, and this run is its stop-out:
+            # it must be kept (run 1 dropped it -- look-ahead that hid E2's worst trades; fixed 2026-11-17)
+            if e2:
+                o = trade(d, tk, K, side, "E2", e2[0], e2[1], t_br, sc, med, kt, tq, tide, mins, kf)
+                return [o] if o else []
+            return out
         if v < ext:
             ext = v
         if e2 is None and ext >= -E2_ZONE and v - ext >= E2_TURN and v < 0.10:
@@ -275,7 +288,7 @@ def report(rows, title, scored=False):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    for a in ("build", "sizing", "confirm"):
+    for a in ("build", "sizing", "confirm", "e2"):
         ap.add_argument(f"--{a}", action="store_true")
     a = ap.parse_args()
     if a.build:
@@ -289,6 +302,10 @@ if __name__ == "__main__":
         print("built", len(days))
     if a.sizing:
         print("\n".join(report(load(*SIZING), f"SIZING (exploratory) {SIZING[0]}..{SIZING[1]}")))
+    if a.e2:                                     # run 2 after the E2 void fix: report only, never rewrites RESULT
+        for lo, hi, lab in ((*SIZING, "SIZING"), (*CONFIRM, "CONFIRM window")):
+            rows = [r for r in load(lo, hi) if r["entry"] == "E2"]
+            print("\n".join(report(rows, f"E2 run 2 {lab} {lo}..{hi}")))
     if a.confirm:
         res = os.path.join(CACHE, "RESULT-confirm.txt")
         if os.path.exists(res):
