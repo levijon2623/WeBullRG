@@ -31,7 +31,7 @@ isEvent = barstate.isconfirmed and not na(rv) and not na(chg) and chg <= -dropPc
 spent   = vix < rv
 
 var int   evBar   = na
-var bool  evSpent = false     // Pine v6: a bool cannot be na -- "no episode yet" is na(evBar)
+var int   evSpent = 0         // 1 = FUEL SPENT, 0 = FUEL LEFT (an int, not a bool: Pine v6 is strict about bools)
 var float evClose = na
 var int   evTime  = na
 
@@ -47,7 +47,7 @@ var array<float> rLeft  = array.new<float>()
 if isEvent
     lastEv  := bar_index
     evBar   := bar_index
-    evSpent := spent
+    evSpent := spent ? 1 : 0
     evClose := ref
     evTime  := time
     array.push(pBar, bar_index)
@@ -72,7 +72,7 @@ if barstate.isconfirmed and array.size(pBar) > 0
             array.remove(pTime, i)
 
 inWindow = not na(evBar) and bar_index > evBar and bar_index <= evBar + fwdLen
-bgcolor(showBg and inWindow ? (evSpent ? color.new(color.orange, 88) : color.new(color.teal, 88)) : na)
+bgcolor(showBg and inWindow ? (evSpent == 1 ? color.new(color.orange, 88) : color.new(color.teal, 88)) : na)
 
 // ----------------------------- table
 upShare(a) =>
@@ -97,8 +97,8 @@ if showTable and barstate.islast
     string evTxt = "-"
     color evCol = dim
     if not na(evBar)
-        evTxt := str.format_time(evTime, "yyyy-MM-dd", "America/New_York") + (evSpent ? " | FUEL SPENT (VIX < realized)" : " | FUEL LEFT (VIX >= realized)") + " | " + str.tostring(bar_index - evBar) + " sessions ago"
-        evCol := evSpent ? color.orange : color.teal
+        evTxt := str.format_time(evTime, "yyyy-MM-dd", "America/New_York") + (evSpent == 1 ? " | FUEL SPENT (VIX < realized)" : " | FUEL LEFT (VIX >= realized)") + " | " + str.tostring(bar_index - evBar) + " sessions ago"
+        evCol := evSpent == 1 ? color.orange : color.teal
     table.cell(t, 1, 2, evTxt, text_color = evCol, text_size = size.small)
     table.cell(t, 0, 3, "This chart: spent", text_color = dim, text_size = size.small)
     table.cell(t, 1, 3, "next " + str.tostring(fwdLen) + " sessions: " + fmtStats(rSpent), text_color = color.orange, text_size = size.small)
