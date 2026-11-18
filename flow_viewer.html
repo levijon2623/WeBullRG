@@ -49,6 +49,11 @@
   button:hover{border-color:var(--accent)}
   label.chk{grid-column:1/-1;display:flex;align-items:center;gap:6px;color:var(--dim)}
   label.chk input{width:auto}
+  details.dd{display:inline-block;position:relative}
+  details.dd > summary{list-style:none;cursor:pointer}
+  details.dd > summary::-webkit-details-marker{display:none}
+  details.dd > div{position:absolute;top:120%;left:0;z-index:60;background:var(--panel);border:1px solid var(--line);
+    padding:8px 10px;border-radius:6px;min-width:320px;font-size:11px;line-height:1.9;box-shadow:0 6px 20px rgba(0,0,0,.5)}
   #livebar{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;
     gap:8px;align-items:center;flex-direction:column}
   #livebar button{background:#1c2128;border-color:var(--line)}
@@ -815,6 +820,47 @@ function thruCell(o){
     `bought WITH the break came before it stalled.`;
   return {body, tip};
 }
+/* PULLBACK (user, 2026-11-18; strike_cue.py -> live/strikes.json). Between setups: the LIVE context the pullback
+   score reads -- dealer gamma, the biggest gamma wall within 1% of price, today's swing structure, the other two
+   indices' 15-min move (the bot's RULE regime stays prior-close, in the ⚙ dropdown). On a lower-low -> lower-high
+   setup (or the mirror): the frozen check_structure_ic score's quintile and its holdout rate of 2R before the stop,
+   for 5 minutes, with the inputs pushing hardest. Display only: ranks out of sample (IC +0.032), did not pay. */
+let DD_OPEN = false;
+function pullPill(){
+  const o = STRK && STRK.tickers && STRK.tickers[liveTk];
+  const st = 'width:auto;flex:none;margin:0;font-size:11px;display:inline-flex;align-items:center;gap:6px';
+  const age = STRK ? Date.now()/1000 - (STRK.ts || 0) : 1e9;
+  if(!o || !o.pullback || !STRK.live || age > 30) return '';
+  const c = o.pullback, PB_COL = '#d2a8ff';
+  const bn = v => v == null ? '—' : `${v < 0 ? '−' : '+'}${(Math.abs(v)/1e9).toFixed(1)}B`;
+  const g = c.gamma == null ? '<span class="k">γ —</span>'
+    : `<span style="color:${c.gamma < 0 ? '#f0883e' : 'var(--fg)'}">γ ${c.gamma < 0 ? '−' : '+'}</span>`;
+  const tr = c.trend ? `<b style="color:${c.trend === 'LH/LL' ? 'var(--dn)' : c.trend === 'HH/HL' ? 'var(--up)' : 'var(--dim)'}">${c.trend}</b>` : '<span class="k">trend —</span>';
+  const wall = c.wall ? `<span class="k">wall</span> ${c.wall.K}${c.wall.share >= 0.5 ? ' <b>big</b>' : ''}` : '<span class="k">no wall data</span>';
+  const oth = Object.entries(c.others || {}).map(([k, v]) => `${k}${v > 3 ? '↑' : v < -3 ? '↓' : '→'}`).join(' ');
+  let tip = `Live context (what the pullback score reads):\n  dealer gamma ${bn(c.gamma)} per 1% move` +
+    `\n  biggest gamma wall within 1%: ${c.wall ? c.wall.K + ' — ' + Math.round(c.wall.share * 100) + '% of the gamma within 5% (a big wall at price lowered the odds)' : '— (0-7 day chain read after 10:00)'}` +
+    `\n  today's swings: ${c.trend || '—'} (last two highs / lows, 0.10% zigzag on 1-minute closes)` +
+    `\n  other indices, last 15 min: ${Object.entries(c.others || {}).map(([k, v]) => k + ' ' + (v > 0 ? '+' : '') + v + ' bp').join(', ') || '—'}`;
+  let body = `<span style="color:${PB_COL}">PULL</span>${g}${tr}<span>${wall}</span><span class="k">${oth}</span>`;
+  const s = c.setup;
+  if(s){
+    const col = s.q === 5 ? '#3fb950' : s.q === 1 ? '#f0883e' : 'var(--fg)';
+    const res = s.res ? (s.res === '2R' ? 'hit 2R' : s.res === 'stop' ? 'stopped' : 'timed out') : null;
+    body = `<span style="color:${PB_COL}">PULL</span><b style="color:${col}">${s.side < 0 ? '↓ short' : '↑ long'} ${s.rate.two_r}%</b>` +
+      `<span class="k">${res ? esc(res) : 'Q' + s.q} · ${s.age}s</span><span class="k">|</span>${g}${tr}`;
+    tip = `PULLBACK ${s.side < 0 ? 'SHORT (lower high after a lower low)' : 'LONG (higher low after a higher high)'} at ${s.at}` +
+      `${s.fb ? ' — after a failed breakout' : ''}\n  entry ~${s.entry} · stop ${s.stop} · 2R ${s.target}` +
+      `\n  score quintile ${s.q} of 5: 2R before the stop ${s.rate.two_r}% on the holdout (n=${s.rate.n}; all setups ` +
+      `${(STRK.pullback_base || {}).two_r ?? '41.6'}%)` +
+      ((s.drivers || []).length ? '\n  pushing hardest:\n' + s.drivers.map(d => `    ${d[1] > 0 ? '+' : '−'} ${d[0]}`).join('\n') : '') +
+      (res ? `\n  outcome: ${res} at ${s.res_at}` : '') + '\n\n' + tip;
+  }
+  tip += `\n\nDisplay only: check_structure_ic's score ranks these entries out of sample (IC +0.032, holdout partly clean), ` +
+    `but the top quintile did not pay through the option (+$0.52 [−0.47, +1.49]). The bot's rule regime is the prior close (⚙).`;
+  return `<span class="tag" title="${esc(tip)}" style="${st};border-color:${PB_COL}">${body}</span>`;
+}
+
 function strikePill(){
   const o = STRK && STRK.tickers && STRK.tickers[liveTk];
   const st = 'width:auto;flex:none;margin:0;font-size:11px;display:inline-flex;align-items:center;gap:6px';
@@ -1225,28 +1271,35 @@ function liveDraw(d, s){
   const p = s.position, r = s.regime || {};
   $('#bar').innerHTML = `
     <b style="color:var(--dn)">● LIVE</b> <b>${liveTk}</b>
-    <span class="tag">${s.rule||'no rule'}</span>
-    <span class="k" title="${esc(REGIME_TIP)}">regime · prior close</span>
-    <span class="tag" title="${esc(REGIME_TIP)}">${r.vol||'—'}</span><span class="tag" title="${esc(REGIME_TIP)}">${r.trend||'—'}</span>
-    <span class="tag" title="${esc(REGIME_TIP)}">${r.gex||'—'} GEX</span><span class="tag" title="${esc(REGIME_TIP)}">amp ${r.amp??'—'}</span>
+    <details class="dd" ${DD_OPEN ? 'open' : ''} ontoggle="DD_OPEN=this.open">
+      <summary class="tag" title="the bot's rule, its prior-close regime, the flow gate and the data source"
+        >⚙ <b style="color:${d.dry_run ? 'var(--dim)' : 'var(--dn)'}">${d.dry_run ? 'PAPER' : 'LIVE MONEY'}</b> ▾</summary>
+      <div>
+        <div><span class="k">rule</span> <span class="tag">${s.rule||'no rule'}</span></div>
+        <div title="${esc(REGIME_TIP)}"><span class="k">rule regime · prior close (the bot gates on these)</span><br>
+          <span class="tag">${r.vol||'—'}</span> <span class="tag">${r.trend||'—'}</span>
+          <span class="tag">${r.gex||'—'} GEX</span> <span class="tag">amp ${r.amp??'—'}</span></div>
+        <div><span class="k">cum</span> <b title="${d.flow_src !== null ? '' : 'no flow: this engine is manual-only (no UW_API_KEY)'}">${
+          d.flow_src !== null ? fmtM(s.cum||0) : '—'}</b>
+          <span class="k">gate</span> <b>±${s.thr?fmtM(s.thr):'—'}</b></div>
+        <div><span class="k">mode</span> <b style="color:${d.dry_run ? 'var(--fg)' : 'var(--dn)'}">${d.dry_run?'PAPER':'LIVE MONEY'}</b>
+          <span class="k">data</span> <span class="tag" title="${d.data_src === 'webull'
+            ? esc(`viewer market data from Webull (VIEWER_DATA) · ${(d.webull_data||{}).calls ?? 0} calls, ${
+                (d.webull_data||{}).fails ?? 0} failed${(d.webull_data||{}).last_fail ? ' · last ' + d.webull_data.last_fail : ''}`)
+            : 'viewer market data from Unusual Whales (VIEWER_DATA)'}"
+          style="${d.data_src === 'webull' && (d.webull_data||{}).fails ? 'border-color:var(--put);color:var(--put)' : ''}">${
+          d.data_src === 'webull' ? 'Webull' : 'UW'}</span></div>
+      </div>
+    </details>
     ${flipTag(s)}
     ${gxBtn(s)}
     ${imBtn(s)}
     ${vgPill(s)}
     ${strikePill()}
+    ${pullPill()}
     ${waitLights(d)}
     <span id="volRead"></span>
-    <span class="k">cum</span><b title="${d.flow_src !== null ? '' : 'no flow: this engine is manual-only (no UW_API_KEY)'}">${
-      d.flow_src !== null ? fmtM(s.cum||0) : '—'}</b>
-    <span class="k">gate</span><b>±${s.thr?fmtM(s.thr):'—'}</b>
     ${paneBtn()}
-    <span class="tag">${d.dry_run?'PAPER':'LIVE MONEY'}</span>
-    <span class="tag" title="${d.data_src === 'webull'
-        ? esc(`viewer market data from Webull (VIEWER_DATA) · ${(d.webull_data||{}).calls ?? 0} calls, ${
-            (d.webull_data||{}).fails ?? 0} failed${(d.webull_data||{}).last_fail ? ' · last ' + d.webull_data.last_fail : ''}`)
-        : 'viewer market data from Unusual Whales (VIEWER_DATA)'}"
-      style="${d.data_src === 'webull' && (d.webull_data||{}).fails ? 'border-color:var(--put);color:var(--put)' : ''}">data ${
-      d.data_src === 'webull' ? 'Webull' : 'UW'}</span>
     ${d.flow_src !== null ? '' : '<span class="tag" style="color:var(--dim)" title="no UW_API_KEY: the bot\'s flow, regimes and rules are off">manual-only</span>'}
     ${p ? `<span class="k">pos</span><b>${p.dir} ${p.strike} ${p.dte}DTE</b>
       <span class="k">entry</span>${p.entry} <span class="k">bid</span>${p.bid}

@@ -28,6 +28,17 @@ three lake days through this code: 221 of 221 breaches matched, score corr 0.999
 the bot's 2 s price samples instead of option-print prices, UW tape lag, relative volume over a median (not mean) base.
 DISPLAY ONLY: the score ranked breaches out of sample (holdout IC +0.047) but failed the money test.
 
+PULLBACK (user, 2026-11-18): check_structure's setup live -- zigzag swings (0.10% of the day's first price) on 1-minute
+closes of the same 5-second median path; after a LOWER LOW (under the last low) the bounce's high is tracked and the
+setup fires when price comes 0.02% off it while it is still a LOWER HIGH (bullish: the mirror). Scored with the frozen
+check_structure_ic Lasso (pullback_model_frozen.json, 9 inputs: stop size, dealer gamma, the gamma wall's share near
+price, the other indices' 15-min move, relative volume, swings so far, undercut, drop speed, 0DTE delta) and shown for
+5 minutes with its quintile's holdout rate of 2R before the stop (38.8 / 41.7 / 40.5 / 38.8 / 44.3%, base 41.6%).
+Between setups the pill shows the live context it scores on: dealer gamma, the biggest gamma wall within 1% of price
+(0-7 day chain read once after 10:00, gamma at the live price), today's swing structure (HH/HL, LH/LL...) and the other
+two indices' 15-min move. The bot's RULE regime stays the prior close (it gates on that); this is the live view.
+Logged as "pullback" / "pullback_res". DISPLAY ONLY: ranks out of sample (IC +0.032, partly clean), did not pay.
+
     python strike_cue.py                 (service loop)
     python strike_cue.py --build-tables  (once, on the PC: freezes strike_cue_tables.json from _sixpack_cache)
     python strike_cue.py --build-thru    (once, on the PC: strike_cue_thru.json from _breach_cache)
@@ -51,6 +62,90 @@ PUSH_OTM_TK = ("SPY", "IWM")            # P7: SPY and IWM carried it, QQQ ~0
 # THRU: the study's breach window (t_in 09:45-15:30) and how long the pill shows a breach
 THRU_MIN_MOD, THRU_MAX_MOD, THRU_SHOW_S = 9 * 60 + 45, 15 * 60 + 30, 300
 FRZ = THRU = None                       # breach_model_frozen.json / strike_cue_thru.json, loaded by run()
+PB = None                               # pullback_model_frozen.json, loaded by run()
+PB_MODEL = os.path.join(HERE, "pullback_model_frozen.json")
+PB_R, PB_TURN, PB_BUF, PB_WAIT, PB_HOLD = 0.0010, 0.0002, 0.0000667, 1800, 1800
+PB_LO, PB_HI = 9 * 60 + 35, 15 * 60 + 30
+TICKERS = {}                            # tk -> Ticker, for the cross-index input
+PB_LABELS = {  # (raises the odds, lowers them)
+    "s_risk": ("tight stop", "wide stop"),
+    "g_total": ("negative gamma", "positive gamma"),
+    "g_mag": ("no big gamma wall at price", "big gamma wall at price"),
+    "x_ret15": ("{w} moving with you", "{w} moving against you"),
+    "v_rvol": ("heavy volume", "light volume"),
+    "s_swings": ("busy tape (many swings)", "quiet tape (few swings)"),
+    "s_under": ("deep undercut", "shallow undercut"),
+    "s_speed": ("fast drop into the low", "slow drop into the low"),
+    "f_delta5": ("0DTE delta with you (5m)", "0DTE delta against you (5m)"),
+}
+
+
+def zigzag(mc, R):
+    """[(type, value, minute)] confirmed pivots on {minute: value}, alternating (check_structure.zigzag)."""
+    ms = sorted(mc)
+    if not ms:
+        return []
+    piv, d = [], 0
+    hi_v = lo_v = mc[ms[0]]
+    hi_m = lo_m = ms[0]
+    for m in ms[1:]:
+        v = mc[m]
+        if d == 0:
+            if v > hi_v: hi_v, hi_m = v, m
+            if v < lo_v: lo_v, lo_m = v, m
+            if hi_v - v >= R:
+                piv.append(("H", hi_v, hi_m)); d, lo_v, lo_m = -1, v, m
+            elif v - lo_v >= R:
+                piv.append(("L", lo_v, lo_m)); d, hi_v, hi_m = 1, v, m
+        elif d == 1:
+            if v > hi_v: hi_v, hi_m = v, m
+            elif hi_v - v >= R:
+                piv.append(("H", hi_v, hi_m)); d, lo_v, lo_m = -1, v, m
+        else:
+            if v < lo_v: lo_v, lo_m = v, m
+            elif v - lo_v >= R:
+                piv.append(("L", lo_v, lo_m)); d, hi_v, hi_m = 1, v, m
+    return piv
+
+
+def pb_rank(g, v):
+    import bisect
+    return (bisect.bisect_left(g, v) + bisect.bisect_right(g, v)) / (2.0 * len(g))
+
+
+def chain_rows(uw, tk, d):
+    """0-7 calendar-day chain (strike, T years, iv, oi, is_call) for the gamma wall, read once after 10:00."""
+    import positioning_map as P
+    rows = []
+    for k in range(0, 8):
+        e = d + timedelta(days=k)
+        if e.weekday() >= 5:
+            continue
+        try:
+            data = uw.get(f"/stock/{tk}/option-contracts", expiry=e.isoformat()).get("data") or []
+        except Exception:
+            continue
+        for x in data:
+            o = P.parse_occ(x.get("option_symbol"))
+            iv, oi = P.num(x.get("implied_volatility")), P.num(x.get("open_interest"))
+            if o and iv and oi and 0.01 < iv < 5:
+                rows.append((o[3], max(k, 0) / 365.0 + 6.0 / (24 * 365), iv, oi, o[2] == "C"))
+    return rows
+
+
+def strike_gex(rows, spot):
+    import numpy as np
+    if not rows:
+        return {}
+    K = np.array([r[0] for r in rows]); T = np.array([r[1] for r in rows]); iv = np.array([r[2] for r in rows])
+    oi = np.array([r[3] for r in rows]); sg = np.where(np.array([r[4] for r in rows]), 1.0, -1.0)
+    sd = iv * np.sqrt(T)
+    d1 = (np.log(spot / K) + 0.5 * sd * sd) / sd
+    g = np.exp(-0.5 * d1 * d1) / np.sqrt(2 * np.pi) / (spot * sd) * oi * 100 * spot * spot * 0.01 * sg
+    out = {}
+    for k, v in zip(K, g):
+        out[float(k)] = out.get(float(k), 0.0) + float(v)
+    return out
 BREACHES = deque(maxlen=200)            # (tk, side, epoch) every confirmed breach, for the cross-index input
 LABELS = {  # driver -> (label when it RAISES the odds, label when it LOWERS them); the sign is the contribution's
     "a_speed": ("fast approach", "slow approach"),
@@ -182,6 +277,9 @@ class Ticker:
         self.bars = deque(maxlen=60); self.cur_b = self.cur_c = None
         self.barm = {}                       # K -> (side, armed at epoch, median then)
         self.thru = None; self.last_breach = 0.0
+        # PULLBACK (check_structure live)
+        self.mclose = {}; self.medhist = []; self.pb_m = None; self.piv = {1: [], -1: []}; self.pb_done = set()
+        self.pb_arm = []; self.pullback = None; self.chain = None; self.chain_tried = False
 
     # flow ---------------------------------------------------------------
     def add_snap(self, ts, rows):
@@ -295,6 +393,8 @@ class Ticker:
         if len(self.bars) < 3: return
         med = sorted(c for _b, c in list(self.bars)[-3:])[1]
         self._breach_step(med, t, now, logf)
+        try: self._pull_step(med, self.bars[-2][0], t, now, logf)
+        except Exception as e: self.err = f"pullback: {type(e).__name__}"      # noqa: BLE001 -- never stop the cue
 
     def _breach_step(self, med, t, now, logf):
         Rr, m = self.p0 * R_BP / 1e4, mod_of(t)
@@ -357,6 +457,140 @@ class Ticker:
                      "rates": THRU["quintiles"][q], "drivers": drv, "with": others, "res": None,
                      "inputs": {k: (None if v is None else round(float(v), 4)) for k, v in x.items()}}
         if logf: logf({"ev": "breach", "tk": self.tk, **{k: v for k, v in self.thru.items() if k not in ("t0", "rates")}})
+
+    # PULLBACK: lower low -> lower high (and the mirror) --------------------------------------------
+    def _pull_step(self, med, cb, t, now, logf):
+        """med = the median of the last three 5-s closes, CENTRED on the bar that started at epoch cb (the study's
+        med[k]); it is stamped with that bar's minute, so minute closes match check_structure's exactly."""
+        if not PB or self.day0 is None:
+            return
+        m = mod_of(t)
+        mm_c = int((cb - self.day0) // 60)
+        self.mclose[mm_c] = med                           # that minute's latest centred median = its close so far
+        self.medhist.append((cb, mm_c, med))
+        p0 = self.p0
+        if self.pb_m is None or mm_c > self.pb_m:         # a minute is complete: re-read the swings on CLOSED minutes
+            self.pb_m = mm_c
+            closed = {mm: v for mm, v in self.mclose.items() if mm < mm_c}
+            for o in (1, -1):
+                piv = zigzag({mm: o * v for mm, v in closed.items()}, PB_R * p0)
+                self.piv[o] = piv
+                for i in range(2, len(piv)):
+                    Le, Hd, Lc = piv[i], piv[i - 1], piv[i - 2]
+                    key = (o, Le[2], i)
+                    if key in self.pb_done or Le[0] != "L" or Hd[0] != "H" or not Le[1] < Lc[1]:
+                        continue
+                    self.pb_done.add(key)
+                    if i != len(piv) - 1:
+                        continue                          # only the newest confirmed low can still be a live setup
+                    fb = i >= 4 and piv[i - 3][0] == "H" and piv[i - 4][0] == "L" and Lc[1] > piv[i - 4][1] and Hd[1] > piv[i - 3][1]
+                    M = max(o * v for _cb, mm, v in self.medhist if mm >= Le[2])
+                    self.pb_arm.append(dict(o=o, Hd=Hd, Le=Le, Lc=Lc, fb=fb, swings=i + 1, M=M, armed=now))
+        keep = []
+        for a in self.pb_arm:                             # armed setups: wait for the turn off a LOWER high
+            z = a["o"] * med
+            a["M"] = max(a["M"], z)
+            if a["M"] >= a["Hd"][1] or now - a["armed"] > PB_WAIT:
+                continue
+            if a["M"] - z >= PB_TURN * p0:
+                if PB_LO <= m <= PB_HI:
+                    self._pull_fire(a, z, med, t, now, logf)
+                continue
+            keep.append(a)
+        self.pb_arm = keep
+        pb = self.pullback
+        if pb and pb.get("res") is None:                  # resolve: 2R before the stop, 30 minutes
+            z = pb["o"] * med
+            res = "2R" if pb["z_e"] - z >= 2 * pb["risk"] else ("stop" if z >= pb["z_s"] else ("time" if now - pb["t0"] >= PB_HOLD else None))
+            if res:
+                pb["res"], pb["res_at"] = res, t.strftime("%H:%M:%S")
+                if logf: logf({"ev": "pullback_res", "tk": self.tk, "side": pb["side"], "at": pb["at"], "res": res,
+                               "res_at": pb["res_at"], "q": pb["q"]})
+
+    def med_at(self, T):
+        """the median known at epoch T (centre bar + 10 s <= T); the earliest if T is before the session's start."""
+        import bisect
+        if not self.medhist:
+            return None
+        i = bisect.bisect_right([h[0] for h in self.medhist], T - 10) - 1
+        return self.medhist[max(i, 0)][2]
+
+    def _wall(self, spot):
+        """(strike, share) of the biggest single-strike |gamma| within 1% of spot, as a share of all within 5%."""
+        if not self.chain or not spot:
+            return None, None, None
+        sg = strike_gex(self.chain, spot)
+        near = {k: v for k, v in sg.items() if abs(k / spot - 1) <= 0.01}
+        wide = sum(abs(v) for k, v in sg.items() if abs(k / spot - 1) <= 0.05)
+        if not near or wide <= 0:
+            return None, None, None
+        km = max(near, key=lambda k: abs(near[k]))
+        return km, abs(near[km]) / wide, sg.get(float(round(spot)))
+
+    def _pull_fire(self, a, z, med, t, now, logf):
+        o, side, p0 = a["o"], -a["o"], self.p0
+        z_s = a["M"] + PB_BUF * p0
+        risk = z_s - z
+        p_e = o * z
+        m = mod_of(t)
+        x = dict.fromkeys(PB["coef"])
+        x["s_risk"] = risk / p0
+        x["g_total"] = self.gex
+        km, share, _gs = self._wall(p_e)
+        x["g_mag"] = share
+        xr, names = [], []
+        for tk2, X2 in TICKERS.items():
+            if tk2 == self.tk:
+                continue
+            a2, b2 = X2.med_at(now - 900), X2.med_at(now)
+            if a2 and b2:
+                v = side * (b2 / a2 - 1) * 1e4
+                xr.append(v); names.append(tk2)
+        x["x_ret15"] = sum(xr) / len(xr) if xr else None
+        x["v_rvol"] = self.rvol
+        x["s_swings"] = a["swings"]
+        x["s_under"] = (a["Lc"][1] - a["Le"][1]) / (PB_R * p0)
+        x["s_speed"] = (a["Hd"][1] - a["Le"][1]) / p0 / max(a["Le"][2] - a["Hd"][2], 1)
+        for m_eff in (m, m - 1):
+            fl = self.delta_flow(m_eff - 5, m_eff, self.day0, self.open_ts)
+            if fl is not None:
+                x["f_delta5"] = side * fl
+                break
+        zsc, contrib = PB["intercept"], []
+        for k, c in PB["coef"].items():
+            r = 0.5 if x.get(k) is None else pb_rank(PB["grids"][self.tk][k], x[k])
+            zsc += c * (r - 0.5); contrib.append((k, c * (r - 0.5)))
+        import bisect
+        q = bisect.bisect_right(PB["cuts"], zsc)
+        w = "/".join(n for n, v in zip(names, xr) if v > 0) if (x["x_ret15"] or 0) > 0 else "/".join(n for n, v in zip(names, xr) if v < 0)
+        drv = [[PB_LABELS[k][0 if v > 0 else 1].replace("{w}", w or "others"), round(v, 4)]
+               for k, v in sorted(contrib, key=lambda kv: -abs(kv[1])) if k in PB_LABELS and abs(v) >= 0.002][:3]
+        self.pullback = {"side": side, "o": o, "fb": a["fb"], "at": t.strftime("%H:%M:%S"), "t0": now, "z": round(zsc, 4),
+                         "q": q + 1, "rate": PB["holdout"][q], "drivers": drv, "entry": round(p_e, 2),
+                         "stop": round(o * z_s, 2), "target": round(p_e + side * 2 * risk, 2), "z_e": z, "z_s": z_s, "risk": risk,
+                         "res": None, "inputs": {k: (None if v is None else round(float(v), 6)) for k, v in x.items()}}
+        if logf: logf({"ev": "pullback", "tk": self.tk, **{k: v for k, v in self.pullback.items() if k not in ("t0", "rate", "z_e", "z_s", "o")}})
+
+    def pull_cue(self):
+        """the PULLBACK pill: the live context, and the latest setup for 5 minutes."""
+        out = {"gamma": self.gex}
+        km, share, gs = self._wall(self.price)
+        out["wall"] = None if km is None else {"K": km, "share": round(share, 3)}
+        hs = [v for ty, v, _m in self.piv.get(1, []) if ty == "H"][-2:]
+        ls = [v for ty, v, _m in self.piv.get(1, []) if ty == "L"][-2:]
+        out["trend"] = (("HH" if hs[1] > hs[0] else "LH") + "/" + ("HL" if ls[1] > ls[0] else "LL")) if len(hs) == 2 and len(ls) == 2 else None
+        others, now = {}, time.time()
+        for tk2, X2 in TICKERS.items():
+            if tk2 == self.tk:
+                continue
+            a2, b2 = X2.med_at(now - 900), X2.med_at(now)
+            if a2 and b2: others[tk2] = round((b2 / a2 - 1) * 1e4, 1)
+        out["others"] = others
+        pb = self.pullback
+        if pb and time.time() - pb["t0"] <= THRU_SHOW_S:
+            out["setup"] = dict({k: v for k, v in pb.items() if k not in ("t0", "inputs", "z_e", "z_s", "o", "risk")},
+                                age=int(time.time() - pb["t0"]))
+        return out
 
     def thru_cue(self):
         th = self.thru
@@ -496,6 +730,8 @@ def run():
     global FRZ, THRU
     try:
         FRZ, THRU = json.load(open(MODEL)), json.load(open(THRU_TABLE))
+        global PB
+        PB = json.load(open(PB_MODEL))
     except (OSError, ValueError) as e:
         print(f"  THRU off: {type(e).__name__} loading {os.path.basename(MODEL)} / {os.path.basename(THRU_TABLE)}", flush=True)
     uw = P.UW()
@@ -513,6 +749,7 @@ def run():
         close_m = MC.close_mod(d)
         T = {tk: Ticker(tk, tables) for tk in TK}
         BREACHES.clear()
+        TICKERS.clear(); TICKERS.update(T)
         for X in T.values(): X.day0, X.open_ts = day0, open_ts
         os.makedirs(LOGDIR, exist_ok=True)
         logp = os.path.join(LOGDIR, f"{d.isoformat()}.jsonl")
@@ -567,11 +804,18 @@ def run():
                     except Exception as e:
                         T[tk].err = f"regime: {type(e).__name__}"
                 write_market_tide(uw, d)
+                if PB and m >= 600:
+                    for tk in TK:
+                        if not T[tk].chain_tried:
+                            T[tk].chain_tried = True
+                            try: T[tk].chain = chain_rows(uw, tk, d)
+                            except Exception as e: T[tk].err = f"chain: {type(e).__name__}"
             # write every 2 s
             if time.time() - last_write >= 2:
                 last_write = time.time()
                 out = {"ts": time.time(), "at": t.strftime("%H:%M:%S"), "live": True, "day": d.isoformat(), "R_bp": R_BP, "zone": BZ,
                        "thru_base": THRU["base"] if THRU else None, "thru_source": THRU["source"] if THRU else None,
+                       "pullback_base": PB["base"] if PB else None,
                        "T_min": T_MIN, "source": tables["source"], "calls": uw.calls - calls0, "poll_age": round(time.time() - last_poll, 1), "tickers": {}}
                 for tk, X in T.items():
                     o = {"spot": X.price, "p0": X.p0, "lag": X.lag, "gex": X.gex, "gex_at": X.gex_at, "gs": X.gs(),
@@ -586,6 +830,7 @@ def run():
                             logf({"ev": "at", "tk": tk, "K": X.touch["K"], "side": X.touch["side"], "since": X.touch["since"], "gs": X.gs(),
                                   "rvol": X.rvol, "at": o["touch"]})
                     o["thru"] = X.thru_cue()
+                    o["pullback"] = X.pull_cue()
                     out["tickers"][tk] = o
                 jdump(out, OUT)
             time.sleep(0.5)
