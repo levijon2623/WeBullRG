@@ -430,6 +430,7 @@
   <div id="sideWrap"><div id="sideBox">
     <h2 id="sideH">You sidelined yourself</h2>
     <div class="ctx" id="sideCtx"></div>
+    <div class="ctx" id="sideGive" style="font-size:12px;line-height:1.5;margin:6px 0 10px"></div>
     <div class="q">Are you trying to give back profits or increase losses?</div>
     <textarea id="sideWhy" placeholder="what has changed since you sidelined? (optional — logged with your answer)"></textarea>
     <div class="foot">
@@ -2424,8 +2425,53 @@ function openSide(){
     LIVE.sideline_at)/60)} min ago` : '';
   $('#sideWhy').value = '';
   $('#sideMsg').textContent = 'esc to cancel';
+  $('#sideGive').innerHTML = giveTodayHtml();
   $('#sideWrap').style.display = 'flex';
   setTimeout(() => $('#sideWhy').focus(), 30);
+  loadGiveStats();
+}
+
+/* GIVE-BACK (user, 2026-11-17: "my biggest problem is still giving back profits intraday"). Shown when you try to
+   lift the sideline: today's day P&L against its peak and how many closes you've made, then your own record from
+   the Webull order export (make_giveback_stats.py -> live/giveback_stats.json, git-ignored): which of the day's
+   trades made the money and which gave it back. Descriptive, your own history -- not a test. */
+let GIVE = null;
+function giveTodayHtml(){
+  const g = LIVE && LIVE.day, cl = (LIVE && LIVE.manual_day && LIVE.manual_day.closes) || [];
+  const pc = v => `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toFixed(1)}%`;
+  let s = '';
+  if(g && g.peak_pct != null){
+    const gave = Math.max(0, (g.peak_pct || 0) - (g.pct || 0));
+    s += `<b>Today</b>: day ${pc(g.pct)} · peak ${pc(g.peak_pct)}${g.peak_at ? ' at ' + etClock(g.peak_at) : ''}` +
+      (gave >= 0.001 ? ` · <span style="color:#f0883e">given back ${(gave * 100).toFixed(1)} pts</span>` : '') + '<br>';
+  }
+  if(cl.length){
+    let c = 0, pk = 0;
+    for(const x of cl){ c += (x.pnl || 0); pk = Math.max(pk, c); }
+    s += `${cl.length} close${cl.length > 1 ? 's' : ''} booked today (realized ${c >= 0 ? '+' : '−'}$${Math.abs(c).toFixed(0)}, best ${pk > 0 ? '+$' + pk.toFixed(0) : '—'}) · ` +
+      `the next trade would be your <b>#${cl.length + 1}</b> of the day<br>`;
+  }
+  return s + '<span id="sideGiveHist" class="d"></span>';
+}
+async function loadGiveStats(){
+  try { const r = await fetch('live/giveback_stats.json?t=' + Date.now()); GIVE = r.ok ? await r.json() : null; }
+  catch { GIVE = null; }
+  const el = $('#sideGiveHist');
+  if(!el) return;
+  if(!GIVE){ el.textContent = ''; return; }
+  const usd = v => `${v >= 0 ? '+' : '−'}$${Math.abs(v).toFixed(0)}`;
+  const b = GIVE.by_trade_no || {}, t = GIVE.by_entry_time || {};
+  const row = (lab, x) => x ? `${lab} <b>${usd(x.net)}</b> (${x.n}, won ${x.won}%)` : '';
+  const curNo = ((LIVE && LIVE.manual_day && LIVE.manual_day.closes) || []).length + 1;
+  const hot = curNo >= 4 && curNo <= 6 ? ' style="color:#f0883e"' : '';
+  el.innerHTML = `<br><b>Your record</b> (Webull fills, ${esc(GIVE.first)}..${esc(GIVE.last)}, ${GIVE.days} days):<br>` +
+    `by trade # in the day: ${row('#1-3', b['1-3'])} · <span${hot}>${row('#4-6', b['4-6'])}</span> · ${row('#7+', b['7+'])}<br>` +
+    `by entry time: ${['09:30-10:30', '10:30-11:30', '11:30-13:30', '13:30-16:00'].map(k => row(k, t[k])).filter(Boolean).join(' · ')}<br>` +
+    `${GIVE.green_then_red_days} days went green and finished red. Stopping at the first losing close once green: ` +
+    `<b>${usd(GIVE.first_loss_rule)}</b> instead of ${usd(GIVE.actual)}.` +
+    (GIVE.kept_of_peak && GIVE.kept_of_peak.median != null
+      ? `<br>Your exits are fine: trades that reached +20% kept a median ${GIVE.kept_of_peak.median}% of their best bid. The leak is trading on after a good start.`
+      : '');
 }
 function closeSide(){ $('#sideWrap').style.display = 'none'; }
 
