@@ -50,6 +50,11 @@ RUN LOG
     BUG found after the run (E2 only): a setup that hit the VOID (back to the previous strike) after E2 had fired
     dropped the E2 trade -- that run IS E2's stop-out, so E2's worst trades were excluded (look-ahead). E1 is
     unaffected (its void always precedes its entry), so the scored H1-H4 stand. E2 rebuilt in run 2 (--e2).
+  2026-11-17 run 2 (E2 fixed; E1 rebuilt identical, 10,529 trades): E2 SIZING n=12,312 -$0.30 [-0.95, +0.33],
+    TP 20% / stop 71%, win 27%, 41% of days positive; CONFIRM n=912 +$0.87 [-2.47, +4.15]. The run-1 edge was the
+    bug. Tide aligned +1.17 [-0.27, +2.54] (sizing) / +0.30 (confirm); trend -0.32 / +2.58; K-flow sold +0.034
+    [+0.016, +0.052] (sizing, the predicted sign, tiny) / -0.008. VERDICT: neither the second break nor the
+    retest turn pays mechanically; Tide, trend and the strike-contract selling do not change that.
 
 Usage:  python check_retest.py --build | --sizing | --confirm | --e2
 """
