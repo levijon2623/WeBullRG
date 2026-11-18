@@ -58,6 +58,20 @@ PASS RULES
   P3 MONEY: the holdout's TOP score quintile (cut points from discovery) traded at T2: mean P&L > 0, CI above 0.
   OVERALL PASS = P2 and P3 -> a forward paper log. Nothing deployed on it.
 
+RUN LOG
+  2026-11-17. DISCOVERY 10,140 entries / 336 sessions, 2R-first 41.7%.
+    P1 IC: 1 of 32 passes -- g_total -0.035 (more dealer gamma -> fewer 2R runs). Near misses: x_ret15 +0.026, s_risk
+       -0.024, v_rvol +0.024, s_swings +0.023, g_strike -0.021, g_mag -0.020 (a big gamma wall near price -> worse).
+       THRU context: t_score +0.007, t_fell +0.003 -- nothing. Tide -0.001, VWAP -0.001, 30-min trend +0.006.
+    P2 LASSO keeps 9: s_risk -0.039, g_total -0.036, x_ret15 +0.022, g_mag -0.017, v_rvol +0.009, s_swings +0.008,
+       s_under +0.006, s_speed +0.003, f_delta5 +0.001. Discovery quintiles 2R-first 37.0 -> 46.5%, T2 -$0.62 -> +$1.16.
+    HOLDOUT (6,059 / 211 sessions; partly clean): IC +0.032 [+0.003, +0.060] -> P2 PASS (barely).
+       The score shifted up in 2026 (more negative gamma): 2,323 of 6,059 land in the discovery top quintile.
+       Quintiles 2R-first 38.7 / 41.7 / 40.6 / 38.8 / 44.3%; T2 +0.49 / +0.27 / -0.80 / -2.07 / +0.52.
+       P3 top quintile T2 +$0.52 [-0.47, +1.49] -> FAIL. OVERALL FAIL.
+    READ: as with the breaches, the inputs rank which entries run (negative gamma, small stops, other indices
+    moving the same way, no big gamma wall at price), but not by enough to pay through the option.
+
 Usage:  python check_structure_ic.py --build | --discovery | --holdout
 """
 from __future__ import annotations
