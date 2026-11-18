@@ -33,6 +33,20 @@ SAMPLES  DISCOVERY 2024-08-20 .. 2025-12-31 (target choice, everything reported)
          scored once (--holdout writes _structure_cache/RESULT-holdout.txt and refuses to run again). 2026-11-16 (the
          origin) and later are forward only. Entries 09:35-15:30, SPY / QQQ / IWM.
 
+RUN LOG
+  2026-11-17 (552 sessions built). 2R before 1R within 30 min:
+    DISCOVERY  failed breakout 42.5% (n 2,439) | plain pullback 41.4% (n 7,701) | random same-day 37.2%
+               setup - pullback +1.1 pts [-1.4, +3.4]; setup - random +5.3 [+2.8, +7.8]; target chosen T2 (2R)
+               money $/contract: T1 +0.36, T2 +1.32, T3 +0.85, T4 (fast/slow) +0.32
+    HOLDOUT    failed breakout 43.0% (n 1,424) | plain pullback 41.1% | random 35.7%
+               setup - pullback +1.9 [-1.0, +4.6]; setup - random +7.3 [+4.2, +10.6]
+               T2 mean +$0.60 [-0.76, +2.11]; (T1 +0.75, T3 +1.26, T4 +0.59)
+    PRIMARY FAIL (beats random, NOT the plain pullback); MONEY FAIL.
+    READ: a lower-low -> lower-high pullback entry with a tight stop does beat a random entry by ~5-7 points of
+    "2R first" -- with or without the failed breakout before it; the failed-breakout part adds ~1-2 points (noise).
+    In option money it is worth about +$0.5-1.3 a contract, inside zero. Tide / 30-min trend: no difference.
+    First hour: 39.9% (discovery) vs 47.8% (holdout, n 230) -- inconsistent.
+
 Usage:  python check_structure.py --build | --discovery | --holdout
 """
 from __future__ import annotations
