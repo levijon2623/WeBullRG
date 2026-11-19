@@ -218,7 +218,9 @@ def build_day(d):
             rows.append(dict(kind="align", d=d, t=r["t"], side=r["side"], fb=r["struct"] == "fb", t_in=r["t_in"],
                              hit2=r["hit2"], aligned=al, T2=r["T2"]))
     os.makedirs(EV, exist_ok=True)
-    json.dump(rows, open(f, "w"))
+    tmp = f + ".tmp"
+    json.dump(rows, open(tmp, "w"), default=lambda o: o.item() if hasattr(o, "item") else str(o))   # numpy bools / floats
+    os.replace(tmp, f)
     return d, len(rows)
 
 
