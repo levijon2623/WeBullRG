@@ -1,0 +1,30 @@
+# /etc/systemd/system/cleanbot-futlive.service
+#
+# Live CME futures aggressor delta for the flow viewer's TIDE face (user, 2026-11-19): futures_live.py polls UW's
+# /futures/flow every ~2.5 s for ES / NQ / RTY and writes live/futures_cvd.json (per-minute buy / sell / delta / CVD of
+# the front contract, plus arrival delay). Idles outside 09:25-16:05 ET on trading days. DISPLAY ONLY -- feeds nothing,
+# never touches the bot, orders or Webull.
+#
+#   sudo cp deploy/futlive.service /etc/systemd/system/cleanbot-futlive.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cleanbot-futlive
+
+[Unit]
+Description=Cleanbot live futures delta (UW futures tape) for the viewer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/bot_engine/venv/bin/python futures_live.py
+Restart=on-failure
+RestartSec=30
+Nice=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-futlive
+
+[Install]
+WantedBy=multi-user.target

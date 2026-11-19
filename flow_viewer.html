@@ -714,9 +714,34 @@ async function pollTide(){
   try { const r = await fetch('live/market_tide.json?t='+Date.now()); TIDE = r.ok ? await r.json() : null; }
   catch { TIDE = null; }
 }
+/* FUTURES DELTA, the lower half of the TIDE face (user, 2026-11-19): CME aggressor volume per
+   minute (buy - sell, bars) and its running total (CVD, line) for the product behind this
+   ticker, front contract, blocks excluded -- futures_live.py (cleanbot-futlive) from UW's
+   futures tape, live/futures_cvd.json. DISPLAY ONLY, untested as a signal: earlier delta work
+   found futures/stock/options alignment mostly AFTER the move (11-07). TIDE face only; the
+   FLOW face keeps its full height for the bot's own trigger line.                        */
+const FUT_OF = {SPY:'ES', QQQ:'NQ', IWM:'RTY'};
+let FUT = null;
+async function pollFut(){
+  if(PANE !== 'tide') return;
+  try { const r = await fetch('live/futures_cvd.json?t='+Date.now()); FUT = r.ok ? await r.json() : null; }
+  catch { FUT = null; }
+}
+function futProduct(){ return FUT_OF[liveTk] || 'ES'; }
+function futLegend(){
+  const p = futProduct(), F = FUT && FUT.products ? FUT.products[p] : null;
+  if(!F) return `<span style="color:var(--dim)">futures delta (${esc(p)}): no data yet — futures_live.py writes it 09:30–16:00 ET</span>`;
+  const age = Math.round(Date.now()/1000 - FUT.ts), last = F.rows.length ? F.rows[F.rows.length-1] : null;
+  const lag = F.lag ? ` · arrives ~${F.lag.median}s after the print (p90 ${F.lag.p90}s)` : '';
+  return `<span><i style="background:#3fb950"></i><i style="background:#f85149;margin-left:-2px"></i>${esc(F.sym)} ` +
+    `aggressor delta per minute${FUT_OF[liveTk] ? '' : ` (ES — ${esc(liveTk)} has no future mapped)`}</span>` +
+    `<span><i style="background:#d2a8ff"></i>CVD from 09:30${last ? ` <b>${last[4] > 0 ? '+' : ''}${Number(last[4]).toLocaleString()}</b>` : ''} contracts${lag}` +
+    `${age > 30 ? ` · <b style="color:var(--put)">⚠ ${age}s old</b>` : ''} — display only, untested as a signal ` +
+    `(earlier delta studies: futures/stock/options agree mostly after the move)</span>`;
+}
 function paneToggle(){
   PANE = PANE === 'tide' ? 'flow' : 'tide'; uiSet('fv_pane', PANE === 'tide' ? 'tide' : null);
-  pollTide().then(() => { if(LIVE && liveTk) liveDraw(LIVE, LIVE.tickers[liveTk]); });
+  Promise.all([pollTide(), pollFut()]).then(() => { if(LIVE && liveTk) liveDraw(LIVE, LIVE.tickers[liveTk]); });
 }
 function paneBtn(){
   const tip = PANE === 'tide'
@@ -1138,6 +1163,24 @@ function liveDraw(d, s){
     const rows = tide && TIDE && TIDE.rows ? TIDE.rows.filter(([t]) => Math.floor(t / 86400) === pxDay) : [];
     liveSeries.tideC.setData(rows.filter(r => r[1] != null).map(([t, c]) => ({time:t, value:c})));
     liveSeries.tideP.setData(rows.filter(r => r[2] != null).map(([t, , p]) => ({time:t, value:p})));
+    /* pane 2 exists only on the TIDE face: created on the way in, removed on the way out. */
+    if(tide && !liveSeries.fd){
+      liveSeries.fd = chart.addSeries(LWC.HistogramSeries, {priceFormat:{type:'volume'},
+        title:'fut delta/min', lastValueVisible:false, priceLineVisible:false}, 2);
+      liveSeries.fc = chart.addSeries(LWC.LineSeries, {color:'#d2a8ff', lineWidth:2, priceScaleId:'cvd',
+        priceFormat:{type:'volume'}, title:'CVD', lastValueVisible:false, priceLineVisible:false}, 2);
+    } else if(!tide && liveSeries.fd){
+      chart.removeSeries(liveSeries.fd); chart.removeSeries(liveSeries.fc);
+      liveSeries.fd = liveSeries.fc = null;
+      if(chart.panes().length > 2 && chart.removePane) chart.removePane(2);
+    }
+    if(liveSeries.fd){
+      const F = FUT && FUT.products ? FUT.products[futProduct()] : null;
+      const fr = F ? F.rows.filter(([t]) => Math.floor(t / 86400) === pxDay) : [];
+      liveSeries.fd.setData(fr.map(([t, , , dl]) => ({time:t, value:dl,
+        color: dl >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)'})));
+      liveSeries.fc.setData(fr.map(([t, , , , c]) => ({time:t, value:c})));
+    }
   }
   /* The magnitude gate is on |cum flow|, so it is a BAND, not a line. This is
      the number check_flow_threshold showed is load-bearing, and it MOVES
@@ -1251,7 +1294,14 @@ function liveDraw(d, s){
       title: sg>0 ? `p${s.min_flow_pct??'?'} gate ±${fmtM(s.thr)}` : ''}));
   const lp = chart.panes();
   if(lp[0]) lp[0].setHeight(300);
-  if(lp[1]) lp[1].setHeight(220);
+  if(lp[2] && lp[2].setStretchFactor){
+    /* TIDE face, split: sequential setHeight calls take space from the neighbouring pane (the
+       tide half shrank to a sliver), so the three panes are sized by proportion instead. */
+    lp[0].setStretchFactor(3); lp[1].setStretchFactor(1); lp[2].setStretchFactor(1);
+  } else {
+    if(lp[0] && lp[0].setStretchFactor){ lp[0].setStretchFactor(1); lp[1] && lp[1].setStretchFactor(1); }
+    if(lp[1]) lp[1].setHeight(220);
+  }
   chart.timeScale().fitContent();
 
   /* The RVOL number, at the bar. Hovering reads that minute; not hovering
@@ -1361,7 +1411,8 @@ function liveDraw(d, s){
       s.gex && s.gex.src ? ` (${s.gex.src})` : ''}</span>`}
     ${PANE === 'tide' ? `
     <span><i style="background:#3fb950"></i>market net call premium</span>
-    <span><i style="background:#f85149"></i>market net put premium — UW Market Tide: all US options, running totals for the day (UW counts from 07:30 ET); context only: its 15-min slope leaned the next 30–60 min of SPY/QQQ by +0.08..+0.10 (weak), and added nothing to the bot's rules · t or FLOW ⇄ to switch back</span>` : d.flow_src !== null ? `
+    <span><i style="background:#f85149"></i>market net put premium — UW Market Tide: all US options, running totals for the day (UW counts from 07:30 ET); context only: its 15-min slope leaned the next 30–60 min of SPY/QQQ by +0.08..+0.10 (weak), and added nothing to the bot's rules · t or FLOW ⇄ to switch back</span>
+    ${futLegend()}` : d.flow_src !== null ? `
     <span><i style="background:#58a6ff"></i>cumulative net premium</span>
     <span><i style="background:#a371f7"></i>EMA(5) — crossings are the trigger</span>` : `
     <span style="color:var(--dim)">cumulative flow, EMA and the gate: need Unusual Whales —
@@ -1462,9 +1513,9 @@ $('#liveBtn').onclick = () => {
   $('#liveBtn').textContent = '■ STOP LIVE';
   liveSeries = null;
   $('#telem').style.display = 'flex'; $('#side').classList.add('live');
-  Promise.all([pollStrikes(), pollTide()]).then(livePoll); pollEvents(); pollBeat();
+  Promise.all([pollStrikes(), pollTide(), pollFut()]).then(livePoll); pollEvents(); pollBeat();
   // 2.5 s since 2026-11-19 (was 5 s): the strike cue now refreshes every 5 s and writes every 2 s; news stays ~30 s
-  liveTimer = setInterval(() => { pollStrikes(); pollTide(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 12 === 0) pollNews(); }, 2500);
+  liveTimer = setInterval(() => { pollStrikes(); pollTide(); pollFut(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 12 === 0) pollNews(); }, 2500);
   pollNews();
 };
 
