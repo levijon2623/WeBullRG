@@ -188,6 +188,11 @@ def run_session(day):
         # backfilled prints are not live arrivals: their lags would swamp the delay reading
         for f in feeds.values(): f.lag.clear()
         print(f"futures live {day}: backfilled from 09:30 in {time.time() - t0:.0f}s, {P.calls} calls", flush=True)
+        # the first live poll catches up on the minutes the backfill took: those are not live arrivals either
+        for p, f in feeds.items():
+            if f.cursor is not None:
+                f.add(P.since(p, f.cursor - dt.timedelta(seconds=OVERLAP)), time.time())
+            f.lag.clear()
     while True:
         now = dt.datetime.now(NY)
         if now.date() != day or now.hour * 60 + now.minute >= OFF:
