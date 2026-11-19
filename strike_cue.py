@@ -14,7 +14,7 @@ THROUGH (5 bp past), REVERSE (5 bp back) or STALL. What passed:
   The rates shown are the holdout's own (in-sample now), looked up by the frozen tercile cuts in strike_cue_tables.json.
 
 LIVE MEASUREMENT, matched to the test: same-day contracts' cumulative ask / bid / total volume from /stock/{t}/option-contracts
-(one call per ticker, every 15 s on fixed marks), differenced at minute boundaries into the same 1-minute windows; regime = sign of
+(one call per ticker, every 5 s on fixed marks since the Advanced tier 2026-11-19; was 15 s), differenced at minute boundaries into the same 1-minute windows; regime = sign of
 /spot-exposures gamma_per_one_percent_move_oi (latest minute); relative volume = stock volume 09:30..last closed minute over the median
 of the same for the prior 20 sessions; price = the bot's live price (live/state.json, ~5 s), UW stock-state if that goes stale.
 Every touch is logged with its cue values to live/strikes/DATE.jsonl (a forward record; the cue itself is never retuned).
@@ -51,7 +51,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 TK = ("SPY", "QQQ", "IWM")
 R_BP, BZ, T_MIN = 5, 0.10, 10
-POLL_MARKS = (1, 16, 31, 46)            # seconds past each minute
+POLL_MARKS = tuple(range(1, 60, 5))     # seconds past each minute: every 5 s since the UW Advanced tier (2026-11-19, was 15 s)
 PRICE_S = 2
 START_MOD, MIN_TOUCH_MOD, MAX_TOUCH_MOD = 9 * 60 + 10, 9 * 60 + 35, 15 * 60 + 45
 TABLES = os.path.join(HERE, "strike_cue_tables.json")
@@ -261,7 +261,7 @@ def jdump(obj, path):
 class Ticker:
     def __init__(self, tk, tables):
         self.tk, self.T = tk, tables["tickers"][tk]
-        self.snaps = deque(maxlen=200)       # (as-of epoch, {(K, cp): (ask, bid, vol)}) cumulative
+        self.snaps = deque(maxlen=600)       # (as-of epoch, {(K, cp): (ask, bid, vol)}) cumulative; 5-s polls -> ~50 min kept
         self.lag = None                      # seconds UW's tape trails the clock (poll time - newest last_tape_time)
         self.price = None; self.price_at = 0.0; self.p0 = None
         self.armed = {}                      # K -> +1 (was below, R away) / -1 (was above)

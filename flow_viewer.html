@@ -872,7 +872,7 @@ function strikePill(){
   const reg = `gamma ${o.gs === 'pos' ? 'positive' : o.gs === 'neg' ? 'negative' : '—'}${o.gex_at ? ' (' + o.gex_at + ')' : ''} · ` +
     `relative volume ${o.rvol ?? '—'}${o.rvol_t != null ? ' (' + T3[o.rvol_t] + ' third)' : ''}`;
   const foot = `\n\nHistory: ${STRK.source}. Touch = price comes from ${STRK.R_bp} bp away into ${'±'}${STRK.zone.toFixed(2)} of the strike; ` +
-    `outcome within ${STRK.T_min} min. UW tape lag ${o.lag ?? '—'}s (REST every 15 s). Display only: the effects are a few points, context not a signal.`;
+    `outcome within ${STRK.T_min} min. UW tape lag ${o.lag ?? '—'}s (REST every 5 s). Display only: the effects are a few points, context not a signal.`;
   const th = thruCell(o);
   const thBody = th ? th.body + '<span class="k">|</span>' : '', thTip = th ? th.tip + '\n\n' : '';
   if(o.touch){
@@ -1463,7 +1463,8 @@ $('#liveBtn').onclick = () => {
   liveSeries = null;
   $('#telem').style.display = 'flex'; $('#side').classList.add('live');
   Promise.all([pollStrikes(), pollTide()]).then(livePoll); pollEvents(); pollBeat();
-  liveTimer = setInterval(() => { pollStrikes(); pollTide(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 6 === 0) pollNews(); }, 5000);
+  // 2.5 s since 2026-11-19 (was 5 s): the strike cue now refreshes every 5 s and writes every 2 s; news stays ~30 s
+  liveTimer = setInterval(() => { pollStrikes(); pollTide(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 12 === 0) pollNews(); }, 2500);
   pollNews();
 };
 
