@@ -12,15 +12,21 @@ rvLen     = input.int(21, "Realized-vol window (sessions)", minval = 5)
 gapLen    = input.int(10, "Minimum sessions between episodes", minval = 1)
 fwdLen    = input.int(5, "Forward window for the stats (sessions)", minval = 1)
 statsFrom = input.time(timestamp("2007-01-01T00:00:00"), "Count episodes from")
+statsTo   = input.time(timestamp("2099-01-01T00:00:00"), "Count episodes until")
 showTable = input.bool(true, "Show table")
 showBg    = input.bool(true, "Shade the forward window")
 
 if not timeframe.isdaily
     runtime.error("Fuel Check is defined on daily closes: switch the chart to 1D.")
 
-// ----------------------------- daily data (closed bars only, so nothing repaints)
-vix = request.security(vixSym, "D", close, lookahead = barmerge.lookahead_off)
-ref = request.security(refSym, "D", close, lookahead = barmerge.lookahead_off)
+// ----------------------------- daily data, matched BY DATE
+// VIX's daily bar closes at 16:15 ET, after SPY's 16:00. With lookahead_off, request.security hands the SPY bar of day D
+// the VIX close of day D-1 (the D bar has not closed yet at 16:00) -- a one-day lag that shifted every episode a day
+// (found 2026-11-19 in the parity check). lookahead_on pairs the two closes of the SAME date, as the published test does.
+// On the live bar the VIX value is still moving until 16:15; episodes are only stamped on confirmed bars.
+refT = ticker.modify(refSym, adjustment = adjustment.none)      // raw closes, as in the test (ignores the chart's ADJ)
+vix = request.security(vixSym, "D", close, lookahead = barmerge.lookahead_on)
+ref = request.security(refT, "D", close, lookahead = barmerge.lookahead_on)
 
 rv  = ta.stdev(math.log(ref / ref[1]), rvLen, biased = false) * math.sqrt(252) * 100.0   // annualised %, sample st. dev.
 chg = vix / vix[lookback] - 1.0
@@ -61,7 +67,7 @@ if barstate.isconfirmed and array.size(pBar) > 0
     for i = array.size(pBar) - 1 to 0
         if bar_index - array.get(pBar, i) == fwdLen
             r = math.log(ref / array.get(pClose, i)) * 10000.0
-            if array.get(pTime, i) >= statsFrom
+            if array.get(pTime, i) >= statsFrom and array.get(pTime, i) <= statsTo
                 if array.get(pSpent, i)
                     array.push(rSpent, r)
                 else
