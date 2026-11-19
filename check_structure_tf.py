@@ -35,6 +35,17 @@ AMENDMENT 2026-11-19 (before any outcome was computed; the smoke day showed 0 fi
 structure): swings on tf-bars CARRY OVER from the prior session -- its tf-bar closes (minutes - 1440) are prepended
 before today's, as a trader reads a 5-15 minute chart across days. Setups still fire, and are scored, only today.
 
+RUN LOG
+  2026-11-19 (552 sessions). 2R-first setup vs random | T2 $/contract [95% CI]:
+    DISCOVERY  5m 37.4 vs 35.3% | +0.27 [-2.02, +2.59] (n 2,180; SPY stop ~$0.40)
+               10m 33.6 vs 33.7% | -4.31 [-7.80, -0.79] (n 1,006; ~$0.55)
+               15m 34.3 vs 31.8% | +0.49 [-4.56, +5.54] (n 620; ~$0.66)
+               align (1m setups): with the 15m structure 41.5% / +0.03, against 41.0% / -0.34
+    HOLDOUT    5m 38.0 vs 34.6% | -0.39 [-3.32, +2.64]   10m 35.5 vs 32.3% | +1.58 [-4.02, +8.16]
+               15m 36.4 vs 31.4% | +1.89 [-5.09, +9.64]  align 41.4% / -0.18 [-1.63, +1.30] vs against 41.2% / -1.01
+    H1-H4 all FAIL (q 0.816). Wider stops did not rescue the money: the edge over random stays ~2-5 points while the
+    longer holds pay more decay; 15-minute structure alignment changes nothing for 1-minute entries.
+
 Usage:  python check_structure_tf.py --build | --discovery | --holdout
 """
 from __future__ import annotations
