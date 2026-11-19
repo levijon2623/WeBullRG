@@ -1,0 +1,26 @@
+# /etc/systemd/system/cleanbot-futures.service
+#
+# Daily UW CME futures tape collector (user, 2026-11-19): uw_futures_tape.py --refresh pulls the last week's sessions
+# that are missing (ES / NQ / RTY, 09:25-16:00 ET, every print with aggressor side) into lake/bronze/futures-flow and
+# the per-second silver. UW keeps this tape on a rolling ~2.5-4 month window, so the box collects every day even when
+# the PC is off. Oneshot, run by cleanbot-futures.timer. Never touches the bot, orders or Webull.
+#
+#   sudo cp deploy/futures-tape.service /etc/systemd/system/cleanbot-futures.service
+#   sudo cp deploy/futures-tape.timer   /etc/systemd/system/cleanbot-futures.timer
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cleanbot-futures.timer
+
+[Unit]
+Description=Cleanbot daily UW futures tape collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/bot_engine/venv/bin/python uw_futures_tape.py --refresh --workers 2
+Nice=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-futures

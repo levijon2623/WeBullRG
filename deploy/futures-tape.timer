@@ -1,0 +1,12 @@
+# /etc/systemd/system/cleanbot-futures.timer -- see futures-tape.service. Weekdays 16:40 ET (after the 15:55-16:15
+# sweep window; the box clock is New York time). --refresh skips sessions already collected.
+
+[Unit]
+Description=Cleanbot daily UW futures tape (Mon-Fri 16:40 ET)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 16:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
