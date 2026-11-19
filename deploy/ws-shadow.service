@@ -1,0 +1,29 @@
+# /etc/systemd/system/cleanbot-wsshadow.service
+#
+# UW websocket SHADOW logger (user, 2026-11-19, Advanced tier): uw_ws_shadow.py records net_flow ticks and SPY / QQQ /
+# IWM 0DTE option trades 09:25-16:05 ET into live/ws_shadow/DATE/ so compare_ws_rest.py can check them against REST
+# before anything switches to the socket. Feeds nothing; never touches the bot, orders or Webull.
+#
+#   sudo cp deploy/ws-shadow.service /etc/systemd/system/cleanbot-wsshadow.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cleanbot-wsshadow
+
+[Unit]
+Description=Cleanbot UW websocket shadow logger
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/bot_engine/venv/bin/python uw_ws_shadow.py
+Restart=always
+RestartSec=30
+Nice=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-wsshadow
+
+[Install]
+WantedBy=multi-user.target
