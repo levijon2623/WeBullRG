@@ -31,6 +31,10 @@ SAMPLES  DISCOVERY 2024-08-20 .. 2025-12-31 (everything reported; nothing chosen
          PARTLY CLEAN (the 1-minute version of this setup was scored on it 11-17); forward from 2026-11-16 is the real
          confirmation. --holdout writes _structure_tf_cache/RESULT-holdout.txt and refuses to run again.
 
+AMENDMENT 2026-11-19 (before any outcome was computed; the smoke day showed 0 fifteen-minute setups and no 15m
+structure): swings on tf-bars CARRY OVER from the prior session -- its tf-bar closes (minutes - 1440) are prepended
+before today's, as a trader reads a 5-15 minute chart across days. Setups still fire, and are scored, only today.
+
 Usage:  python check_structure_tf.py --build | --discovery | --holdout
 """
 from __future__ import annotations
@@ -60,22 +64,25 @@ EOD = 955 * 60
 SEED = 20261119
 
 
-def tf_closes(sc, z, tf):
-    """{bar_start_minute: (value, known_at)} closes of tf-minute bars (from 09:30) of the 5-second series z."""
+def tf_closes(sc, z, tf, prev=None):
+    """{bar_start_minute: (value, known_at)} closes of tf-minute bars (from 09:30) of the 5-second series z; prev =
+    (sc, z) of the prior session, whose bars come first at minute - 1440 (amendment 2026-11-19)."""
     out = {}
-    for s, v in zip(sc, z):
-        m = int(s // 60)
-        if 570 <= m < 960:
-            b = 570 + ((m - 570) // tf) * tf
-            out[b] = v
+    for shift, (ss, zz) in ((-1440, prev), (0, (sc, z))):
+        if ss is None:
+            continue
+        for s, v in zip(ss, zz):
+            m = int(s // 60)
+            if 570 <= m < 960:
+                out[570 + ((m - 570) // tf) * tf + shift] = v
     return {b: (v, (b + tf) * 60 + 10) for b, v in out.items()}
 
 
-def setups_tf(sc, med, kt, p0, orient, tf):
+def setups_tf(sc, med, kt, p0, orient, tf, prev=None):
     k = math.sqrt(tf)
     R, TURN, BUF, WAIT = S.R_FRAC * k * p0, S.TURN_FRAC * k * p0, S.BUF_FRAC * k * p0, 30 * tf * 60
     z = orient * med
-    piv = S.zigzag(tf_closes(sc, z, tf), R)
+    piv = S.zigzag(tf_closes(sc, z, tf, None if prev is None else (prev[0], orient * prev[1])), R)
     out = []
     for i in range(2, len(piv)):
         Le, Hd, Lc = piv[i], piv[i - 1], piv[i - 2]
@@ -83,9 +90,9 @@ def setups_tf(sc, med, kt, p0, orient, tf):
             continue
         fb = i >= 4 and piv[i - 3][0] == "H" and piv[i - 4][0] == "L" and Lc[1] > piv[i - 4][1] and Hd[1] > piv[i - 3][1]
         Tc = Le[3]
-        if Tc > S.T_HI:
+        if Tc > S.T_HI or Tc < 570 * 60:                 # confirmed today (prior-session pivots only as context)
             continue
-        k0 = int(np.searchsorted(sc, Le[2] * 60))
+        k0 = int(np.searchsorted(sc, max(Le[2], 570) * 60))
         j = int(np.searchsorted(kt, Tc, side="left"))
         if j >= len(sc):
             continue
@@ -150,9 +157,9 @@ def money_t2(tq, tk, orient, t_in, z_e, z_s, hold, sc, med, kt):
     return ((x[0] + x[1]) / 2 - B.SELL_C - ((e[0] + e[1]) / 2 + B.BUY_C) - B.FEE_RT) * 100
 
 
-def structure15(sc, med, p0, t):
-    """the 15-minute swing structure known at t: 'down' (LH/LL), 'up' (HH/HL), or None."""
-    mc = {b: v for b, v in tf_closes(sc, med, 15).items() if v[1] <= t}
+def structure15(sc, med, p0, t, prev=None):
+    """the 15-minute swing structure known at t: 'down' (LH/LL), 'up' (HH/HL), or None (prior session carried over)."""
+    mc = {b: v for b, v in tf_closes(sc, med, 15, prev).items() if v[1] <= t}
     piv = S.zigzag(mc, S.R_FRAC * math.sqrt(15) * p0)
     piv = [p for p in piv if p[3] <= t]
     hs = [p[1] for p in piv if p[0] == "H"][-2:]
@@ -176,7 +183,14 @@ def build_day(d):
         return d, f"skip {type(e).__name__}"
     rng = np.random.default_rng(abs(hash(d)) % (2 ** 32))
     rows = []
-    meds = {}
+    meds, prevs = {}, {}
+    pdays = [x for x in L.lake_days("2024-06-01", d) if x < d]
+    try:
+        pp = L.price_path(pdays[-1]) if pdays else {}
+    except Exception:
+        pp = {}
+    for tk, (sc2, _h, _l, cl2) in pp.items():
+        prevs[tk] = (sc2, np.median(np.vstack([np.r_[cl2[:1], cl2[:-1]], cl2, np.r_[cl2[1:], cl2[-1:]]]), axis=0))
     for tk, (sc, hi, lo, cl) in path.items():
         if sc[-1] < 57300 or len(sc) < 200:
             continue
@@ -186,7 +200,7 @@ def build_day(d):
         meds[tk] = (sc, med, kt, p0)
         for tf in TFS:
             for orient in (1, -1):
-                for s in setups_tf(sc, med, kt, p0, orient, tf):
+                for s in setups_tf(sc, med, kt, p0, orient, tf, prevs.get(tk)):
                     o = outcome(sc, med, kt, orient, s["t_in"], s["z_e"], s["z_s"], s["hold"])
                     if o is None:
                         continue
@@ -213,7 +227,7 @@ def build_day(d):
             if r["t"] not in meds:
                 continue
             sc, med, kt, p0 = meds[r["t"]]
-            st = structure15(sc, med, p0, r["t_in"])
+            st = structure15(sc, med, p0, r["t_in"], prevs.get(r["t"]))
             al = None if st is None else ((st == "down" and r["side"] < 0) or (st == "up" and r["side"] > 0))
             rows.append(dict(kind="align", d=d, t=r["t"], side=r["side"], fb=r["struct"] == "fb", t_in=r["t_in"],
                              hit2=r["hit2"], aligned=al, T2=r["T2"]))
