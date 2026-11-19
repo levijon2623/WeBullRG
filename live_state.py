@@ -2074,7 +2074,12 @@ def snapshot(eng):
                    for r in _rules()}
         today = _dt.datetime.now(_NY).date()
         lq = eng.webull.tick_builder.live_option_quotes or {}
-        for oid, q in lq.items():
+        subs = set(getattr(eng.webull, "active_option_subs", None) or ())
+        for oid, q in list(lq.items()):
+            # streaming contracts only: a cached quote for an unsubscribed contract is frozen
+            # (2026-11-19: SPY 722P showed 3.54/3.57 for an hour after its release)
+            if subs and oid not in subs:
+                continue
             tk, exp, right, strike = parse_occ(oid)
             if tk not in manual_orders.ALLOWED or strike is None:
                 continue

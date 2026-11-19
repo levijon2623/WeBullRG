@@ -411,7 +411,11 @@ class WebullGammaClient:
                         ask_match = re.search(r'asks:\s*\[.*?price:([\d\.]+)', quote_str)
                         bid_match = re.search(r'bids:\s*\[.*?price:([\d\.]+)', quote_str)
                         
-                        if ask_match and bid_match:
+                        # 🚨 ONLY WHILE SUBSCRIBED (2026-11-19). A quote already in flight
+                        # when we unsubscribe arrives AFTER unsubscribe_from_option deleted the
+                        # cache entry and re-created it -- frozen for good (SPY 722P sat at
+                        # 3.54/3.57 in the viewer's strip from 14:50 to the close, worth ~5.20).
+                        if ask_match and bid_match and symbol in self.active_option_subs:
                             self.tick_builder.process_option_quote(
                                 occ_symbol=symbol, 
                                 bid_price=float(bid_match.group(1)), 
@@ -457,15 +461,18 @@ class WebullGammaClient:
             return True
 
         print(f"📡 [MQTT] Subscribing to live quotes for {occ_symbol}...")
+        # added BEFORE the call: quotes are only kept for subscribed symbols (see the
+        # MQTT handler), so the first quote must not beat the bookkeeping
+        self.active_option_subs.add(occ_symbol)
         try:
             self.stream_client.subscribe(
                 symbols=[occ_symbol],
                 category=Category.US_OPTION.name,
                 sub_types=[SubscribeType.QUOTE.name]
             )
-            self.active_option_subs.add(occ_symbol)
             return True
         except Exception as e:
+            self.active_option_subs.discard(occ_symbol)
             print(f"  🚨 Failed to subscribe to {occ_symbol}: {e}")
             return False
 
@@ -477,14 +484,14 @@ class WebullGammaClient:
         print(f"🔌 [MQTT] Unsubscribing from {occ_symbol}...")
         try:
             self.stream_client.unsubscribe(
-                symbols=[occ_symbol], 
-                category=Category.US_OPTION.name, 
+                symbols=[occ_symbol],
+                category=Category.US_OPTION.name,
                 sub_types=[SubscribeType.QUOTE.name]
             )
-            self.active_option_subs.remove(occ_symbol)
-            # Clear it from local memory
-            if occ_symbol in self.tick_builder.live_option_quotes:
-                del self.tick_builder.live_option_quotes[occ_symbol]
+            # out of the set FIRST, then the quote: a late in-flight quote is now dropped by
+            # the MQTT handler instead of re-creating the entry (2026-11-19, SPY 722P)
+            self.active_option_subs.discard(occ_symbol)
+            self.tick_builder.live_option_quotes.pop(occ_symbol, None)
         except Exception as e:
             print(f"  🚨 Failed to unsubscribe from {occ_symbol}: {e}")
 
