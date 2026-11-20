@@ -48,6 +48,14 @@ PASS (per test): S1 BH q < 0.10 across the 14 AND S2 95% CI excludes 0 with the 
 WHAT A PASS BUYS: the passing input(s) are frozen (definition, sign) for a forward read on new sessions (lake refreshes
   after 2026-11-13) at 60 sessions (~2027-02-18) and 125 sessions (~2027-05-21). Nothing on the viewer or the bot.
 
+DEVIATION (2026-11-19, after machinery run 1, BEFORE any real input was scored): run 1 stopped at M2 -- PULL's
+  planted input shuffled WITHIN session kept IC +0.053 (THRU +0.019). Not a data bug: a within-session shuffle keeps
+  the planted input's between-day part (days with more 2R winners still carry higher planted values; ~23 PULL events a
+  session), so it is not a null. Fixed: M2 shuffles across ALL events (|IC| < 0.03). Added, descriptive only: the
+  within-day IC (input and Y each minus their session mean), to show how much of any pooled IC is day-level.
+  Run 1's output kept as _futscreen_cache/RESULT-machinery-run1.txt. Inputs, targets, statistics and pass rules
+  unchanged.
+
 Usage:  python check_futures_screen.py --build   (inputs per event -> _futscreen_cache/inputs.json; no targets read)
         python check_futures_screen.py --score   (once: writes _futscreen_cache/RESULT.txt and refuses to run again)
 """
@@ -240,9 +248,13 @@ def test(xs, ys, zs, ds, rng, half_of):
     pc = pspear(x, y, z)
     bp = boot(d, lambda i: pspear(x[i], y[i], z[i]), rng)
     h = [spear(x[np.array([half_of[v] == k for v in d])], y[np.array([half_of[v] == k for v in d])]) for k in (0, 1)]
+    # descriptive (DEVIATION): within-day IC -- input and Y minus their session means
+    xw, yw = x.copy(), y.copy()
+    for dd in np.unique(d):
+        i = d == dd; xw[i] -= xw[i].mean(); yw[i] -= yw[i].mean()
     return dict(n=int(m.sum()), ic=ic, p=p, ci=[float(np.quantile(b, .025)), float(np.quantile(b, .975))],
                 partial=pc, pci=[float(np.quantile(bp, .025)), float(np.quantile(bp, .975))], halves=h,
-                with_score=spear(x, z))
+                with_score=spear(x, z), within=spear(xw, yw))
 
 
 def score():
@@ -283,14 +295,11 @@ def score():
         y = np.array(Y)
         planted = y + mrng.normal(0, np.std(y) * 10.0, len(y))          # corr ~ 1 / sqrt(1 + 100) ~ 0.10
         t1 = test(list(planted), Y, Z, D, rng, half_of)
-        sh = planted.copy()
-        Dn = np.array(D)
-        for d in set(D):
-            i = np.where(Dn == d)[0]; sh[i] = sh[mrng.permutation(i)]
+        sh = planted[mrng.permutation(len(planted))]                    # DEVIATION: across all events
         t2 = test(list(sh), Y, Z, D, rng, half_of)
         ok = t1["ic"] >= 0.05 and t1["p"] < 0.01 and abs(t2["ic"]) < 0.03
         mach_ok &= ok
-        lines.append(f"  {fam} M1 planted IC {t1['ic']:+.3f} p {t1['p']:.4f} | M2 shuffled-in-day IC {t2['ic']:+.3f} -> {'ok' if ok else 'FAIL'}")
+        lines.append(f"  {fam} M1 planted IC {t1['ic']:+.3f} p {t1['p']:.4f} | M2 shuffled IC {t2['ic']:+.3f} -> {'ok' if ok else 'FAIL'}")
     if not mach_ok:
         lines.append("MACHINERY FAIL (M1/M2): not scored")
         open(out, "w").write("\n".join(lines)); print("\n".join(lines)); return
@@ -301,7 +310,7 @@ def score():
     q = bh([t["p"] for _, _, t in res])
     lines.append("")
     lines.append(f"{'fam':5s} {'input':9s} {'n':>5s} {'IC':>7s} {'95% CI':>17s} {'p':>6s} {'q':>6s} {'partial':>8s} {'95% CI':>17s} "
-                 f"{'half1':>6s} {'half2':>6s} {'vs score':>8s}  verdict")
+                 f"{'half1':>6s} {'half2':>6s} {'vs score':>8s} {'in-day':>7s}  verdict")
     passes = []
     for (fam, k, t), qq in zip(res, q):
         ok = (qq < 0.10 and (t["pci"][0] > 0 or t["pci"][1] < 0) and np.sign(t["partial"]) == np.sign(t["ic"])
@@ -310,7 +319,7 @@ def score():
             passes.append(f"{fam}:{k}")
         lines.append(f"{fam:5s} {k:9s} {t['n']:5d} {t['ic']:+7.3f} [{t['ci'][0]:+.3f}, {t['ci'][1]:+.3f}] {t['p']:6.3f} {qq:6.3f} "
                      f"{t['partial']:+8.3f} [{t['pci'][0]:+.3f}, {t['pci'][1]:+.3f}] {t['halves'][0]:+6.3f} {t['halves'][1]:+6.3f} "
-                     f"{t['with_score']:+8.3f}  {'PASS' if ok else '-'}")
+                     f"{t['with_score']:+8.3f} {t['within']:+7.3f}  {'PASS' if ok else '-'}")
     # descriptive: Y by input quintile
     lines.append("")
     lines.append("Y by input quintile (descriptive):")
