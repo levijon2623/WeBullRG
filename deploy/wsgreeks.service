@@ -1,0 +1,30 @@
+# /etc/systemd/system/cleanbot-wsgreeks.service
+#
+# UW greek-exposure websocket COLLECTOR (user, 2026-11-20): uw_ws_greeks.py joins gex:SPY/QQQ/IWM,
+# gex_strike_expiry:SPY/QQQ/IWM and periscope (SPX/VIX dealer gamma/charm/vanna by strike), 09:25-16:05 ET on trading
+# days, into lake/bronze/uw-ws-greeks (+ live/ws_greeks/DATE/stats.json). Feeds nothing; never touches the bot,
+# orders or Webull. Its own connection, separate from cleanbot-wsshadow.
+#
+#   sudo cp deploy/wsgreeks.service /etc/systemd/system/cleanbot-wsgreeks.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cleanbot-wsgreeks
+
+[Unit]
+Description=Cleanbot UW greek-exposure websocket collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/bot_engine/venv/bin/python uw_ws_greeks.py
+Restart=on-failure
+RestartSec=30
+Nice=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-wsgreeks
+
+[Install]
+WantedBy=multi-user.target
