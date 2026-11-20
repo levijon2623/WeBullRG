@@ -85,6 +85,12 @@ def flow(day, uw):
         tk = d["ticker"]
         ws.setdefault(tk, {}).setdefault(m, 0.0)
         ws[tk][m] += (P.num(d["net_call_prem"]) or 0.0) - (P.num(d["net_put_prem"]) or 0.0)
+    # reconnect-gap minutes refilled from REST by the shadow (2026-11-20 on): they replace the WS sums
+    pp = os.path.join(SH, day.isoformat(), "net_flow_patch.json")
+    patch = json.load(open(pp)) if os.path.exists(pp) else {}
+    for tk, mm in patch.items():
+        for m, v in mm.items():
+            ws.setdefault(tk, {})[int(m)] = v
     out = {}
     for tk in sorted(ws):
         rows = uw.get(f"/stock/{tk}/net-prem-ticks", date=day.isoformat()).get("data") or []
@@ -198,8 +204,15 @@ def main():
     day = dt.date.fromisoformat(a.day) if a.day else dt.datetime.now(P.NY).date()
     uw = P.UW()
     opt = json.load(open(os.path.join(SH, day.isoformat(), "opt_minutes.json")))
-    res = {"day": day.isoformat(), "flow": flow(day, uw), "option_totals": option_totals(day, uw, opt),
+    gp = os.path.join(SH, day.isoformat(), "gaps.json")
+    res = {"day": day.isoformat(), "gaps": json.load(open(gp)) if os.path.exists(gp) else None,
+           "flow": flow(day, uw), "option_totals": option_totals(day, uw, opt),
            "option_minutes": option_minutes(day, uw, opt), "latency": latency(day), "uw_calls": uw.calls}
+    lt = os.path.join(SH, day.isoformat(), "latency_tk.json")
+    if os.path.exists(lt):                           # which ticker carried the late trades (2026-11-20 on)
+        L = json.load(open(lt))
+        res["late_by_ticker"] = {tk: {"trades": sum(v[0] for v in mm.values()), "late_5s": sum(v[1] for v in mm.values()),
+                                      "worst_s": max((v[2] for v in mm.values()), default=0)} for tk, mm in L.items()}
     json.dump(res, open(os.path.join(SH, day.isoformat(), "compare.json"), "w"), indent=1)
     print(json.dumps(res, indent=1))
 
