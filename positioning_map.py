@@ -532,8 +532,13 @@ def events_update(uw, day):
         name = (r.get("event") or "").strip()
         short, tier = next(((s, k) for rx, s, k in UW_EVENTS if re.search(rx, name)), (None, 2))
         per = r.get("reported_period")
-        seen[(t.date().isoformat(), t.strftime("%H:%M"), name)] = dict(
-            d=t.date().isoformat(), t=t.strftime("%H:%M"), name=name + (f" ({per})" if per else ""),
+        # 🚨 KEY ON THE NAME AS STORED (2026-11-20). The key used the bare name ("Weekly Jobless Claims") while the
+        # entry saved the display name ("Weekly Jobless Claims (November)") -- so on the next refresh the saved copy
+        # (keyed by its display name, above) never matched the incoming one, and every event with a reporting
+        # period showed twice in the map's column headers.
+        disp = name + (f" ({per})" if per else "")
+        seen[(t.date().isoformat(), t.strftime("%H:%M"), disp)] = dict(
+            d=t.date().isoformat(), t=t.strftime("%H:%M"), name=disp,
             short=short or name[:8], kind="fed" if short == "FOMC" else "data", tier=tier, src="uw",
             prev=r.get("prev"), forecast=r.get("forecast"))
     try:
