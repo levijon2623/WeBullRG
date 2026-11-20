@@ -56,6 +56,22 @@ DEVIATION (2026-11-19, after machinery run 1, BEFORE any real input was scored):
   Run 1's output kept as _futscreen_cache/RESULT-machinery-run1.txt. Inputs, targets, statistics and pass rules
   unchanged.
 
+RUN LOG
+  2026-11-19 run 2 (scored once): 71 sessions, THRU 3,363 breaches, PULL 1,617 entries. Machinery ok (M1 planted
+    +0.104 / +0.094, M2 shuffled -0.006 / -0.005, M3 >= 4 s). PASSES: NONE.
+    THRU near misses (both fail only on BH q < 0.10):
+      u_big60  IC -0.045 [-0.074, -0.013], q 0.112; partial (beyond the frozen score) -0.045 [-0.075, -0.013]; halves
+               -0.043 / -0.044; corr with the frozen score +0.015 (new information); in-day -0.034. Big futures prints
+               WITH the breach -> it fails more often (Y by quintile -0.32 .. -0.44). The same direction as the option
+               side (s_kcall -0.034, f_delta5 -0.030 in check_breach_ic): aggressive one-sided flow into a strike
+               stalls / fails.
+      u_ret60  IC +0.044 [+0.007, +0.080], q 0.119; partial +0.032 [-0.007, +0.068]; corr with the frozen score +0.53
+               -- mostly what a_speed already carries (Y by quintile -0.40 .. -0.23).
+      u_imb60  IC -0.033 (p 0.052), same sign as u_big60.
+    PULL: nothing (all |IC| <= 0.031, every CI spans 0).
+    READ: futures order flow adds no detectable edge to PULLBACK entries; on breaches it hints at the same "flow into
+    the strike = stall" effect the option tape showed, too small to clear the screen on 71 sessions. Nothing frozen.
+
 Usage:  python check_futures_screen.py --build   (inputs per event -> _futscreen_cache/inputs.json; no targets read)
         python check_futures_screen.py --score   (once: writes _futscreen_cache/RESULT.txt and refuses to run again)
 """
