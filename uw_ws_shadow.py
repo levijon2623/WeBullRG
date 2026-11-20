@@ -9,6 +9,8 @@ to wss://api.unusualwhales.com/socket (the bot does not: UW_WEBSOCKET=false in .
                                          from REST option-contracts polls
   live/ws_shadow/DATE/latency.json       receive time - executed time, per minute (median / p90)
   live/ws_shadow/DATE/samples.jsonl      the first 30 raw messages of each channel (schema record)
+  live/ws_shadow/DATE/latency_tk.json    per ticker per minute [trades, late > 5 s, worst lag s] (added 2026-11-19)
+  live/ws_shadow/DATE/late_samples.jsonl up to 200 raw option trades that arrived > 30 s late
 compare_ws_rest.py checks them against REST after the close.
 
     python uw_ws_shadow.py          (service: idles outside 09:25-16:05 ET on trading days)
@@ -52,6 +54,11 @@ class Shadow:
         self.lock = threading.Lock()
         self.opt = defaultdict(lambda: defaultdict(lambda: [0.0, 0.0, 0.0, 0.0]))   # minute -> occ -> [ask, bid, other, total]
         self.lat = defaultdict(list)
+        # per ticker per minute: [trades, late > 5 s, worst lag] + up to 200 raw late trades (2026-11-19: a subset
+        # arrived up to 11 min late 14:48-15:09 while the median stayed 0.09 s -- which ticker / kind was unknown)
+        self.late = defaultdict(lambda: defaultdict(lambda: [0, 0, 0.0]))
+        self.late_n = 0
+        self.lsm = open(os.path.join(self.dir, "late_samples.jsonl"), "a")
         self.samples = defaultdict(int)
         self.nf = open(os.path.join(self.dir, "net_flow.jsonl"), "a")
         self.smp = open(os.path.join(self.dir, "samples.jsonl"), "a")
@@ -92,13 +99,22 @@ class Shadow:
                 row = self.opt[mod][occ]
                 row[k] += size; row[3] += size
                 self.lat[mod].append(now - ex)
+                lt = self.late[str(d.get("underlying_symbol") or ch.split(":")[-1])][mod]
+                lt[0] += 1
+                if now - ex > 5:
+                    lt[1] += 1
+                    lt[2] = max(lt[2], round(now - ex, 1))
+                    if now - ex > 30 and self.late_n < 200:
+                        self.late_n += 1
+                        self.lsm.write(json.dumps({"rx": now, "lag": round(now - ex, 1), "data": d}) + "\n"); self.lsm.flush()
 
     def flush(self):
         with self.lock:
             opt = {str(m): {o: v for o, v in c.items()} for m, c in self.opt.items()}
             lat = {str(m): {"n": len(v), "median": round(st.median(v), 3), "p90": round(sorted(v)[int(0.9 * (len(v) - 1))], 3)}
                    for m, v in self.lat.items() if v}
-        for name, obj in (("opt_minutes.json", opt), ("latency.json", lat)):
+            ltk = {tk: {str(m): list(v) for m, v in mm.items()} for tk, mm in self.late.items()}
+        for name, obj in (("opt_minutes.json", opt), ("latency.json", lat), ("latency_tk.json", ltk)):
             p = os.path.join(self.dir, name)
             json.dump(obj, open(p + ".tmp", "w"))
             os.replace(p + ".tmp", p)
