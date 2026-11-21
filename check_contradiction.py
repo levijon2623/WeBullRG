@@ -17,7 +17,7 @@ PAIRS (same ticker; both events from the existing caches; nothing re-detected)
 TARGET  D = +1 the PULLBACK side wins (its Y = 2R first) and the breach does not reach its next strike;
             -1 the THRU side wins (next strike) and the pullback does not reach 2R; 0 otherwise (both lose ~ / both
             win ~2%). Each side keeps its own pre-registered outcome definition.
-INPUTS (66) every THRU input (28, prefix T.) and every PULLBACK input (32, prefix P.) as stamped at each event's own
+INPUTS (64) every THRU input (28, prefix T.) and every PULLBACK input (32, prefix P.) as stamped at each event's own
   time (both <= the decision moment), + T.score and P.score (the frozen breach / pullback scores), + gap (seconds
   between the two), + typeBP (1 = breach first). Signs need no alignment: in every pair the two sides are opposite,
   so "+ with the breach" always means "- with the pullback". Ranked within ticker against the DISCOVERY distribution
@@ -28,9 +28,9 @@ SAMPLES DISCOVERY 2024-08-20 .. 2025-12-31 (halves split 2025-04-30). HOLDOUT 20
   discovery only. Futures inputs exist only from 2026-07-27 -> not in the model; reported on that subset.
 PASS RULES
   M1 machinery: a planted input (D + noise, IC ~0.10) must reach IC >= 0.05 with p < 0.01 on discovery.
-  P1 IC (discovery): Spearman(input, D), day-block bootstrap p (1,000), BH q < 0.10 across the 66, same sign in both
+  P1 IC (discovery): Spearman(input, D), day-block bootstrap p (1,000), BH q < 0.10 across the 64, same sign in both
      halves. Reported.
-  P2 LASSO: LassoCV (GroupKFold by ISO week, 5 folds) on the 66 ranks -> D, fit on discovery. PASS = keeps >= 1 input
+  P2 LASSO: LassoCV (GroupKFold by ISO week, 5 folds) on the 64 ranks -> D, fit on discovery. PASS = keeps >= 1 input
      AND holdout Spearman(score, D) > 0 with the day-block (2,000) 95% CI above 0.
   OVERALL PASS = P2 -> the viewer note names the kept drivers and the side the score favours, labelled "in-sample +
   holdout", with a forward read from the live logs. FAIL -> the note says neither side wins more often, with the
