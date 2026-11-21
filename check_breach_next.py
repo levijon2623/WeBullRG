@@ -40,6 +40,16 @@ STATISTICS / PASS
 WHAT A PASS BUYS: the confirmed input(s) shown in the THRU pill's tooltip as context with their holdout rates, and a
   forward read from the live strike cue. The frozen breach score is not refit.
 
+RUN LOG
+  2026-11-20 build: 27,126 breaches / 552 sessions, 0 errors, 0 M3 violations. DISCOVERY 15,576 / 336 sessions; M1
+    planted +0.096 ok, M2 +0.001 ok. NO SURVIVOR: every |IC| <= 0.016, every CI spans 0, partials ~0 (n_dir -0.016,
+    n_spread -0.015, n_delta5 -0.009, n_surge +0.008, n_oi +0.008 ...). HOLDOUT: nothing to confirm -> FAIL.
+    The two quintile patterns that look strong on the next-strike rate are SPEED, not direction: wide K2 spreads
+    (cheap, late, slow) Q1 -> Q5 next 33 -> 7% but "neither in 15 min" 3 -> 41% and fail-back flat 53-66%; K2's share of
+    the volume Q1 -> Q5 next 10 -> 27% with neither 34 -> 10%. Both track the frozen score (-0.39 / +0.30: a_speed, c_tod,
+    c_rvol already carry it). K2 directional delta (user) ~0, correlated +0.34 with the 0DTE-wide f_delta5.
+    READ: positioning at the strike two out says nothing about carry-through beyond what the THRU score knows.
+
 Usage:  python check_breach_next.py --build | --discovery | --holdout
 """
 from __future__ import annotations
