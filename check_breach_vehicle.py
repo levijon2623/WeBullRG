@@ -30,6 +30,20 @@ PASS RULES (holdout, day-block bootstrap 2,000, BH q < 0.10 across each family)
   Either way the result goes in the THRU pill's tooltip as "which contract, at your fills". Nothing changes in the bot.
 Reported: coverage (how often each contract is priced), win rate, mean entry price, $ per contract.
 
+RUN LOG
+  2026-11-20 build 27,126 breaches, 0 errors. Coverage K0 99-100%, K1 98-100%, K2 91-96%.
+    DISCOVERY (common subset 14,144): exit A R% K0 -0.21, K1 -0.22, K2 +0.39; K2-K0 +0.60 [+0.33, +0.87]; exit B all
+      CIs span 0; top fifth K0 +0.45 / K2 +0.79 (CIs span 0). Entry mids K0 $1.56, K1 $1.11, K2 $0.79.
+    HOLDOUT (scored once; common subset 11,078 / 211 sessions):
+      all, exit A  K0 -0.24% [-0.79, +0.31] -$0.40/contract | K1 -0.22% -$0.29 | K2 +0.27% [-0.50, +1.03] -$0.18
+                   K2 - K0 +0.52 pts [+0.21, +0.83]; K1 - K0 +0.02 [-0.13, +0.18]
+      all, exit B  K2 - K0 +0.40 [-0.17, +1.01]; top fifth A +0.36 [-0.09, +0.79]; top fifth B +1.04 [-0.11, +2.35]
+      win rates identical across contracts (31-33% A, 20-21% B): the same trades win; K2 wins/loses more per dollar.
+    V1 PASS: K2 - K0, exit A, all breaches (1 of 8). V2: none of 12 pays.
+    READ: per dollar of premium, the contract two strikes out is a slightly better vehicle than the breached strike
+    (about half a point of return per trade, both samples), and K+1 is no different from K. None of them makes money
+    at the user's fills -- the K2 edge is "loses less", not "pays".
+
 Usage:  python check_breach_vehicle.py --build | --discovery | --holdout
 """
 from __future__ import annotations

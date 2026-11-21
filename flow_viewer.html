@@ -842,7 +842,11 @@ function thruCell(o){
     (res ? `\nOutcome: ${res} at ${h.res_at}.` : '') +
     `\n\nHistory: ${STRK.thru_source || 'check_breach_ic holdout'}. Display only: the score ranks which breaches run on, ` +
     `but the failure rate barely moves with it, so as a trade it did not pay. "Chasing" flags are contrarian: calls / 0DTE delta ` +
-    `bought WITH the break came before it stalled.`;
+    `bought WITH the break came before it stalled.` +
+    `\n\nWhich contract, at your fills (check_breach_vehicle, 2026 holdout): the ${h.side > 0 ? 'call' : 'put'} two strikes out ` +
+    `(${h.K + 2 * h.side}) did about half a point better per dollar of premium than the breached strike (${h.K}) — ` +
+    `+0.52 pts [+0.21, +0.83] on the next-strike exit; ${h.K + h.side} was no different. None of the three paid on average: ` +
+    `the edge is "loses less", not "makes money".`;
   return {body, tip};
 }
 /* PULLBACK (user, 2026-11-18; strike_cue.py -> live/strikes.json). Between setups: the LIVE context the pullback
