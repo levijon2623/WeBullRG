@@ -38,6 +38,25 @@ PASS RULES
 REPORTED, not scored: D's distribution by pair type; on discovery, which inputs make a contradiction HAPPEN (PULL entries
   with vs without an opposite breach in the prior 120 s: Spearman of each P. input with that indicator).
 
+RUN LOG
+  2026-11-20 (count typo 66 -> 64 fixed before scoring, e9f503b)
+    DISCOVERY 2,313 pairs / 326 sessions: PULL side wins 29.7%, THRU 20.5%, neither/both 49.8%.
+      B>P (n 1,677) PULL 39.2% / THRU 19.3%; P>B (n 636) PULL 4.6% / THRU 23.6%. M1 planted +0.111 ok.
+      P1: 23 of 64 pass; typeBP +0.253, P.s_speed -0.153, P.k_entry -0.148, P.v_path30 -0.123, T.c_path30 -0.118,
+      P.k_high +0.093, gap -0.082, T.score -0.080 ...  LASSO keeps 12 (typeBP +0.601, P.k_entry -0.243, P.s_speed -0.140,
+      P.v_path30 -0.097, P.k_high +0.085, T.s_kcall +0.050, T.c_tide +0.029, T.c_gex -0.025, T.c_tr30 +0.021, ...).
+      Reported: a PULL entry follows an opposite breach 16.5% of the time, mostly when the entry is near a whole
+      dollar (k_entry -0.35) -- the bounce IS the breach.
+    HOLDOUT 1,667 pairs / 207 sessions: B>P PULL 39.1% / THRU 21.1%; P>B PULL 1.9% / THRU 29.2%.
+      P2 IC +0.303 [+0.260, +0.345] -> PASS. Quintiles PULL/THRU: 2/32, 24/34, 35/26, 43/17, 40/10 %.
+    READ (descriptive, after the score, holdout): most of it is ORDER -- the earlier signal has usually failed by the
+    time the opposite one fires (a breach against an open short pullback has run through its tight stop). Within
+    order the score still ranks (B>P +0.133 [+0.074, +0.185], P>B +0.172 [+0.083, +0.260]) and it ranks the BREACH:
+    B>P PULL stays 37-44% in every quintile while THRU goes 37% -> 9%; biggest driver k_entry -- pullback entry 0-2 bp
+    from the whole dollar (price back at the strike) THRU 13%, 2-5 bp 25%, 5-10 bp 34%, PULL ~39-40% throughout.
+    VIEWER NOTE: breach then pullback against it -> the pullback keeps its usual odds, the breach's odds depend on
+    whether price is back at the strike; pullback then breach against it -> the pullback has almost always failed.
+
 Usage:  python check_contradiction.py --discovery | --holdout
 """
 from __future__ import annotations
