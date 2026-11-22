@@ -2248,10 +2248,35 @@ function renderStage(){
   if(held) why.push(`${SEL.tk} already held manually — close it first`);
   const bot = (LIVE.tickers[SEL.tk] || {}).position;
   if(bot && !LIVE.dry_run) why.push(`${SEL.tk} is held by the BOT — the entry block will refuse`);
-  gate(why, null, c.right);
+  /* NO ENTRY WITHOUT A STOP (user, 2026-11-21; no override). The engine refuses it too -- this only says why. */
+  const u0 = UL_ON ? stagedUl() : null;
+  if(!u0 || u0.sl == null)
+    why.push('no stop — tick "Enable underlying TP/SL", hold S and click the price chart (every new position needs one)');
+  gate(why, null, c.right, u0 && u0.sl != null ? stopRiskWarn(c, u0.sl, qty) : '');
 }
 
-function gate(why, note, right){
+/* STOP vs TODAY'S ROOM (user, 2026-11-21: a WARNING, never a block). What the staged stop would cost if hit, against
+   what is left of the qualifying test's daily limit. Delta from the strip itself (the K-1 / K+1 mids, same right and
+   expiry; 0.5 if they are missing) x the stop distance x 100 x qty, + ~$0.24 a contract for fills and fees. */
+function stopRiskWarn(c, sl, qty){
+  if(!QT || QT.daily_limit == null) return '';
+  const s = LIVE && LIVE.tickers && LIVE.tickers[SEL.tk];
+  const spot = s && s.px_live ? s.px_live[1] : null;
+  if(!spot) return '';
+  const rows = ((LIVE.chains || {})[SEL.tk] || []).filter(x => x.right === c.right && x.expiry === c.expiry);
+  const mid = k => { const x = rows.find(r => r.strike === k); return x ? x.mid : null; };
+  const lo = mid(c.strike - 1), hi = mid(c.strike + 1);
+  const delta = lo != null && hi != null ? Math.min(1, Math.max(0.05, Math.abs(lo - hi) / 2)) : 0.5;
+  const risk = delta * Math.abs(spot - sl) * 100 * qty + 0.24 * qty;
+  const dayPnl = LIVE.day && LIVE.day.pnl != null ? LIVE.day.pnl : 0;
+  const room = QT.daily_limit + dayPnl;              // the limit is measured from the day's start: green adds room
+  return risk > room
+    ? `<span style="color:#f0883e">⚠ this stop risks ~$${risk.toFixed(0)} (Δ≈${delta.toFixed(2)} × $${Math.abs(spot - sl).toFixed(2)}` +
+      ` × ${qty}) — more than today's room of $${Math.max(0, room).toFixed(0)} under the $${QT.daily_limit.toFixed(0)} daily limit</span>`
+    : `<span style="color:var(--dim)">stop risks ~$${risk.toFixed(0)} of today's $${Math.max(0, room).toFixed(0)} room</span>`;
+}
+
+function gate(why, note, right, warn){
   const dead = why.length > 0;
   for(const [id, r] of [['#buyC','C'], ['#buyP','P']]){
     const b = $(id);
@@ -2263,11 +2288,12 @@ function gate(why, note, right){
     b.textContent = armFire === r ? `CONFIRM ${r==='C'?'BUY CALL':'BUY PUT'}`
                                   : (r === 'C' ? 'BUY CALL' : 'BUY PUT');
   }
-  $('#blk').innerHTML = note ? esc(note)
+  $('#blk').innerHTML = (note ? esc(note)
     : why.map(w => '⛔ ' + esc(w)).join('<br>') ||
       (right ? `<span style="color:var(--dim)">ready — sends a marketable
         limit for the contract above. The ${right==='C'?'PUT':'CALL'} button
-        needs a ${right==='C'?'put':'call'} row selected.</span>` : '');
+        needs a ${right==='C'?'put':'call'} row selected.</span>` : ''))
+    + (warn ? '<br>' + warn : '');
 }
 
 function disarmFire(){

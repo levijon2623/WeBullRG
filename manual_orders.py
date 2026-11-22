@@ -1315,6 +1315,15 @@ def swap(eng, tk, req, now_mod=None):
         return False, f"{tk} is pending, exiting or already swapping — not swapped"
     if pos.get("dry"):
         return False, f"{tk} is a DRY hold — swap needs a real position"
+    # the no-stop rule (user, 2026-11-21): the re-entry carries the closing hold's stop DISTANCE, mirrored to the
+    # other side of spot. No stop on the hold -> nothing to carry -> no swap (CLOSE, then buy with a stop).
+    spot_now = _spot(eng, tk)[0]
+    if pos.get("ul_sl") is None or not spot_now:
+        return False, (f"{tk} has no underlying SL to carry into the swap — not swapped "
+                       f"(set one, or CLOSE and buy with a stop)")
+    sl_dist = round(abs(spot_now - float(pos["ul_sl"])), 2)
+    if sl_dist < 0.05:
+        return False, f"{tk}: spot is at the SL ({pos['ul_sl']:.2f}) — not swapped"
     n = swaps_today()
     ans = str(req.get("answer") or "").lower()
     if n >= 1 and ans != "yes":
@@ -1354,7 +1363,7 @@ def swap(eng, tk, req, now_mod=None):
         how = "same count" if open_qty == held else f"{open_qty} chosen"
     open_qty = max(1, min(open_qty, 50))
     pos["swap"] = dict(at=time.time(), right=new, expiry=expiry,
-                       qty=open_qty, size=size, n=n + 1,
+                       qty=open_qty, size=size, n=n + 1, sl_dist=sl_dist,
                        note=str(req.get("note") or "")[:200])
     save_positions(eng)
     if not flatten(eng, tk, f"SWAP {old}->{new}", EXIT_MARKETABLE):
@@ -1390,8 +1399,16 @@ def _swap_enter(eng, tk, intent):
         _event(False, f"{tk} swap: closed, but one {k:g}{intent['right']} at "
                       f"{limit:.2f} is over the ${cap:,.0f} cap — re-entry NOT sent. Flat.")
         return
+    # the stop carried over: the same distance from spot, on the new position's losing side
+    spot, _a = _spot(eng, tk)
+    dist = intent.get("sl_dist")
+    if not dist or not spot:
+        _event(False, f"{tk} swap: closed, but no stop distance / live price to protect the re-entry — "
+                      f"re-entry NOT sent. Flat.")
+        return
+    ul_sl = round(spot - dist, 2) if intent["right"] == "C" else round(spot + dist, 2)
     req = dict(action="buy", ticker=tk, option_id=oid, qty=qty, strike=k,
-               expiry=intent["expiry"], right=intent["right"],
+               expiry=intent["expiry"], right=intent["right"], ul_sl=ul_sl,
                note=(f"swap #{intent.get('n')}" + (f" · {intent['note']}"
                                                    if intent.get("note") else "")))
     p = os.path.join(DIR, f"{int(time.time()*1e6)}-swap.json")
@@ -1465,6 +1482,8 @@ def place_trigger(eng, tk, req, now_mod=None):
         return False, "trigger level / qty / TP / SL must be numbers"
     if level is None or level <= 0:
         return False, "trigger needs a level"
+    if ul_sl is None:                           # the no-stop rule (user, 2026-11-21), checked when it is placed
+        return False, "no stop — stage an underlying SL with the trigger (S + click); every new position needs one"
     if qty < 1 or qty > MAX_CONTRACTS:
         return False, f"qty {qty} outside 1..{MAX_CONTRACTS}"
     spot, age = _spot(eng, tk)
@@ -1686,6 +1705,13 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
         ul_tps, ul_sl = _req_tps(req), _num_or_none(req.get("ul_sl"))
     except (TypeError, ValueError) as e:
         return _result(path, False, f"underlying TP/SL must be prices ({e})")
+    # 🚨 NO ENTRY WITHOUT A STOP (user, 2026-11-21: "I genuinely can't imagine a scenario in which having no stop
+    # loss could be advantageous"). No override, by the user's choice. Every new position from the viewer -- a buy,
+    # an entry trigger at its touch, a swap's re-entry -- carries an underlying SL or is refused here, before
+    # anything is sent. Trades placed in the Webull app are outside this guard.
+    if ul_sl is None:
+        return _result(path, False, "no stop — set an underlying SL first (S + click the chart); "
+                                    "every new position needs one")
     if ul_tps or ul_sl is not None:
         spot0 = _spot(eng, tk)[0]
         why = (validate_ladder(_right(oid), spot0, ul_tps, qty)
