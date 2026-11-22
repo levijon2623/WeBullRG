@@ -4,7 +4,8 @@ live/qual_test/ files, never in this repo.
 
 THE TEST (the user's rules, written down 2026-11-21 in live/qual_test/rules.json before the test ran on):
   score      = account balance + cumulative withdrawals - cumulative deposits   (profit kept, skims included)
-  max drawdown  the score must not fall more than drawdown_frac of its PEAK (floor: daily_limit), positions flat
+  max drawdown  the score must not fall more than drawdown_frac x (its PEAK + deposits) below that peak -- measured on
+                the whole account value at its peak, positions flat (user, 2026-11-21)
   daily limit   a day's P&L (balance change from the day's start, net of transfers) must not reach -daily_frac x deposits
   pass (end)    score >= pass_frac x deposits AND score >= keep_frac x peak score, no limit breached, and the
                 behaviour criteria (rules.json) met
@@ -133,7 +134,7 @@ def status():
         for s in S:                                       # intraday checks on flat samples
             sc = s["cash"] + w - dp
             peak = sc if peak is None else max(peak, sc)
-            lim = max(R["drawdown_frac"] * peak, daily_lim) if peak > 0 else daily_lim
+            lim = R["drawdown_frac"] * (peak + dep)        # 50% of the account value at its peak (user)
             if sc < peak - lim:
                 breaches.append({"date": d, "kind": "drawdown", "score": round(sc, 2), "peak": round(peak, 2)})
             if prev_eod is not None:
@@ -177,7 +178,7 @@ def status():
     doc = {"updated": time.time(), "start": R["start"], "end": R["end"], "deposits": dep,
            "score": score, "peak": None if peak is None else round(peak, 2), "target": target,
            "keep_line": None if peak is None else round(R["keep_frac"] * peak, 2),
-           "drawdown_floor": None if peak is None else round(peak - (max(R["drawdown_frac"] * peak, daily_lim) if peak > 0 else daily_lim), 2),
+           "drawdown_floor": None if peak is None else round(peak - R["drawdown_frac"] * (peak + dep), 2),
            "daily_limit": daily_lim, "sessions_done": len(hist), "sessions_left": left,
            "need_per_session": None if score is None or not left else round(max(0.0, target - score) / left, 2),
            "breaches": uniq, "checks": checks, "history": hist[-30:], "behaviour": beh_all, "behaviour_start": bstart,
