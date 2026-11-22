@@ -2629,7 +2629,7 @@ function renderQT(){
   el.title = `Qualifying test ${QT.start}..${QT.end} (your rules, written 2026-11-21).\n` +
     `score ${qtUsd(QT.score)} (balance + withdrawals − deposits) · peak ${qtUsd(QT.peak)}\n` +
     `pass at the end: ≥ ${qtUsd(QT.target)} AND ≥ ${qtUsd(QT.keep_line)} (75% of the peak so far)\n` +
-    `limits: score never below ${qtUsd(QT.drawdown_floor)} (a 50% drop of the account at its peak) · a day never ≤ −$${QT.daily_limit.toFixed(0)}` +
+    `limits: score never below ${qtUsd(QT.drawdown_floor)} (50% of deposits below the peak) · a day never ≤ −$${QT.daily_limit.toFixed(0)}` +
     (t && t.day_pnl != null ? `\ntoday ${qtUsd(t.day_pnl)} (flat balance samples)` : '') +
     (QT.pending ? `\npending: ${QT.pending}` : '');
 }
