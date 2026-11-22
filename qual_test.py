@@ -5,7 +5,8 @@ live/qual_test/ files, never in this repo.
 THE TEST (the user's rules, written down 2026-11-21 in live/qual_test/rules.json before the test ran on):
   score      = account balance + cumulative withdrawals - cumulative deposits   (profit kept, skims included)
   max drawdown  the score must not fall more than drawdown_frac x deposits below its PEAK, positions flat (user,
-                2026-11-21). Any limit breach FAILS the test (user, 2026-11-21).
+                2026-11-21). A max-drawdown breach FAILS the test; a daily-limit breach makes that day a
+                behavioural failure (counted as a broken day in the rule score) (user, 2026-11-21).
   daily limit   a day's P&L (balance change from the day's start, net of transfers) must not reach -daily_frac x deposits
   pass (end)    score >= pass_frac x deposits AND score >= keep_frac x peak score, no limit breached, and the
                 behaviour criteria (rules.json) met
@@ -153,6 +154,12 @@ def status():
             seen.add((b["date"], b["kind"])); uniq.append(b)
     beh_all = behaviour(R["start"], R["end"])
     bstart = R.get("behaviour_start", R["start"])            # behaviour is scored from the day the rules were written
+    # a DAILY-limit breach is a behavioural failure for that day (user, 2026-11-21): it counts in the rule score as a
+    # failed day, whether or not the first-loss rule was triggered (a day traded only in the app gets an entry too)
+    for b in uniq:
+        if b["kind"] == "daily":
+            v = beh_all.setdefault(b["date"], {"trades": 0, "realized": None, "peak": None, "kept": None, "rule": None})
+            v["rule"], v["daily_breach"] = "broken", True
     beh = {d: v for d, v in beh_all.items() if d >= bstart}
     rule_days = [v for v in beh.values() if v["rule"]]
     kept = [v["kept"] for v in beh.values() if v["kept"] is not None]
@@ -170,7 +177,7 @@ def status():
     checks = {
         "profit": None if score is None else score >= target,
         "keep_of_peak": None if score is None or not peak else score >= R["keep_frac"] * peak,
-        "no_breach": not uniq,
+        "no_breach": not any(b["kind"] == "drawdown" for b in uniq),     # the MAX drawdown fails the test (user)
         "rule_kept": None if not rule_days else sum(v["rule"] == "kept" for v in rule_days) / len(rule_days) >= B["rule_kept_frac"],
         "kept_of_peak_median": None if not kept else st.median(kept) >= B["kept_median"],
         "red_day_avg": None if not reds else -st.mean(reds) <= B["red_day_avg_max"],

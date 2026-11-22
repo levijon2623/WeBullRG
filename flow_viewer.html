@@ -2622,10 +2622,13 @@ function renderQT(){
   const el = $('#qtLine');
   if(!el) return;
   if(!QT || QT.score == null){ el.innerHTML = ''; return; }
-  const br = (QT.breaches || []).length, t = qtToday();
+  const t = qtToday();
+  const failed = (QT.breaches || []).some(b => b.kind === 'drawdown');
+  const dayHit = t && (QT.breaches || []).some(b => b.kind === 'daily' && b.date === t.date);
   const room = t && t.day_pnl != null ? QT.daily_limit + t.day_pnl : QT.daily_limit;
-  el.innerHTML = `test <b>${qtUsd(QT.score)}</b> of ${qtUsd(QT.target)} · ${QT.sessions_left} sessions · need ${qtUsd(QT.need_per_session)}/day` +
-    (br ? ` · <b style="color:var(--put)">limit breached</b>` : ` · today's room $${Math.max(0, room).toFixed(0)}`);
+  el.innerHTML = failed ? `<b style="color:var(--put)">TEST FAILED — max drawdown breached</b> · score ${qtUsd(QT.score)}`
+    : `test <b>${qtUsd(QT.score)}</b> of ${qtUsd(QT.target)} · ${QT.sessions_left} sessions · need ${qtUsd(QT.need_per_session)}/day` +
+      (dayHit ? ` · <b style="color:var(--put)">daily limit hit — behaviour fail today</b>` : ` · today's room $${Math.max(0, room).toFixed(0)}`);
   el.title = `Qualifying test ${QT.start}..${QT.end} (your rules, written 2026-11-21).\n` +
     `score ${qtUsd(QT.score)} (balance + withdrawals − deposits) · peak ${qtUsd(QT.peak)}\n` +
     `pass at the end: ≥ ${qtUsd(QT.target)} AND ≥ ${qtUsd(QT.keep_line)} (75% of the peak so far)\n` +
@@ -2641,7 +2644,8 @@ function qtHtml(){
   return `<br><b>Qualifying test</b> (to ${esc(QT.end)}): score <b>${qtUsd(QT.score)}</b> of ${qtUsd(QT.target)}, peak ${qtUsd(QT.peak)} · ` +
     `need ${qtUsd(QT.need_per_session)} a session for ${QT.sessions_left} sessions<br>` +
     `limits: never below ${qtUsd(QT.drawdown_floor)} · today ${t && t.day_pnl != null ? qtUsd(t.day_pnl) : '—'} of −$${QT.daily_limit.toFixed(0)} allowed` +
-    `${(QT.breaches || []).length ? ' · <b style="color:var(--put)">a limit was breached</b>' : ''}<br>` +
+    `${(QT.breaches || []).some(b => b.kind === 'drawdown') ? ' · <b style="color:var(--put)">TEST FAILED: max drawdown breached</b>' : ''}` +
+    `${(QT.breaches || []).filter(b => b.kind === 'daily').length ? ` · daily limit hit on ${(QT.breaches || []).filter(b => b.kind === 'daily').length} day(s) (behaviour fails)` : ''}<br>` +
     `behaviour (from ${esc(QT.behaviour_start)}): first loss once green → stop ${ok(c.rule_kept)} (${QT.rule_kept}/${QT.rule_days}) · ` +
     `kept of peak ${ok(c.kept_of_peak_median)}${QT.kept_median != null ? ' ' + Math.round(QT.kept_median * 100) + '%' : ''} · ` +
     `red days small ${ok(c.red_day_avg)}<br>`;
