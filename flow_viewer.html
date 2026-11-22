@@ -334,7 +334,8 @@
       <span id="liveInfo" class="d"></span>
       <div id="botStall" role="alert"></div>
       <button id="sideBtn" disabled>⏸ SIDELINE</button>
-      <span id="sideInfo" class="d"></span></div>
+      <span id="sideInfo" class="d"></span>
+      <span id="qtLine" class="d" style="display:block;margin-top:4px;font-size:11px"></span></div>
     <!-- replay filters: research, not trading -- folded away by default so the
          live desk gets the height (operator, 2026-10-17) -->
     <details id="filtBox"><summary id="filtSum">filters</summary>
@@ -1552,9 +1553,9 @@ $('#liveBtn').onclick = () => {
   $('#liveBtn').textContent = '■ STOP LIVE';
   liveSeries = null;
   $('#telem').style.display = 'flex'; $('#side').classList.add('live');
-  Promise.all([pollStrikes(), pollTide(), pollFut()]).then(livePoll); pollEvents(); pollBeat();
+  Promise.all([pollStrikes(), pollTide(), pollFut()]).then(livePoll); pollEvents(); pollBeat(); pollQT();
   // 2.5 s since 2026-11-19 (was 5 s): the strike cue now refreshes every 5 s and writes every 2 s; news stays ~30 s
-  liveTimer = setInterval(() => { pollStrikes(); pollTide(); pollFut(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 12 === 0) pollNews(); }, 2500);
+  liveTimer = setInterval(() => { pollStrikes(); pollTide(); pollFut(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 12 === 0) pollNews(); if(newsTick % 24 === 1) pollQT(); }, 2500);
   pollNews();
 };
 
@@ -2571,6 +2572,8 @@ function openSide(){
   $('#sideMsg').textContent = 'esc to cancel';
   $('#sideGive').innerHTML = giveTodayHtml();
   $('#sideWrap').style.display = 'flex';
+  // refresh the test numbers, then redraw the panel if it is still open
+  pollQT().then(() => { if($('#sideWrap').style.display === 'flex'){ $('#sideGive').innerHTML = giveTodayHtml(); loadGiveStats(); } });
   setTimeout(() => $('#sideWhy').focus(), 30);
   loadGiveStats();
 }
@@ -2595,7 +2598,53 @@ function giveTodayHtml(){
     s += `${cl.length} close${cl.length > 1 ? 's' : ''} booked today (realized ${c >= 0 ? '+' : '−'}$${Math.abs(c).toFixed(0)}, best ${pk > 0 ? '+$' + pk.toFixed(0) : '—'}) · ` +
       `the next trade would be your <b>#${cl.length + 1}</b> of the day<br>`;
   }
-  return s + '<span id="sideGiveHist" class="d"></span>';
+  return s + qtHtml() + '<span id="sideGiveHist" class="d"></span>';
+}
+
+/* QUALIFYING TEST (user, 2026-11-21): the user's account test to the last February session -- qual_test.py
+   (cleanbot-qualtest) -> live/qual_test/status.json, git-ignored. Score = balance + withdrawals - deposits; the
+   user's limits: the score may not fall 50% from its peak, a day may not lose 10% of deposits; pass = +100% of
+   deposits and >= 75% of the peak at the end, limits intact, behaviour criteria met. Shown in the sidebar and here,
+   where the decision to trade on is made. */
+let QT = null;
+async function pollQT(){
+  try { const r = await fetch('live/qual_test/status.json?t=' + Date.now()); QT = r.ok ? await r.json() : null; }
+  catch { QT = null; }
+  renderQT();
+}
+const qtUsd = v => v == null ? '—' : `${v >= 0 ? '+' : '−'}$${Math.abs(v).toFixed(0)}`;
+function qtToday(){
+  const h = QT && QT.history && QT.history.length ? QT.history[QT.history.length - 1] : null;
+  const today = new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
+  return h && h.date === today ? h : null;
+}
+function renderQT(){
+  const el = $('#qtLine');
+  if(!el) return;
+  if(!QT || QT.score == null){ el.innerHTML = ''; return; }
+  const br = (QT.breaches || []).length, t = qtToday();
+  const room = t && t.day_pnl != null ? QT.daily_limit + t.day_pnl : QT.daily_limit;
+  el.innerHTML = `test <b>${qtUsd(QT.score)}</b> of ${qtUsd(QT.target)} · ${QT.sessions_left} sessions · need ${qtUsd(QT.need_per_session)}/day` +
+    (br ? ` · <b style="color:var(--put)">limit breached</b>` : ` · today's room $${Math.max(0, room).toFixed(0)}`);
+  el.title = `Qualifying test ${QT.start}..${QT.end} (your rules, written 2026-11-21).\n` +
+    `score ${qtUsd(QT.score)} (balance + withdrawals − deposits) · peak ${qtUsd(QT.peak)}\n` +
+    `pass at the end: ≥ ${qtUsd(QT.target)} AND ≥ ${qtUsd(QT.keep_line)} (75% of the peak so far)\n` +
+    `limits: score never below ${qtUsd(QT.drawdown_floor)} (50% off the peak) · a day never ≤ −$${QT.daily_limit.toFixed(0)}` +
+    (t && t.day_pnl != null ? `\ntoday ${qtUsd(t.day_pnl)} (flat balance samples)` : '') +
+    (QT.pending ? `\npending: ${QT.pending}` : '');
+}
+function qtHtml(){
+  if(!QT || QT.score == null) return '';
+  const c = QT.checks || {};
+  const ok = v => v == null ? '<span class="k">—</span>' : v ? '<b style="color:var(--up)">✓</b>' : '<b style="color:var(--put)">✗</b>';
+  const t = qtToday();
+  return `<br><b>Qualifying test</b> (to ${esc(QT.end)}): score <b>${qtUsd(QT.score)}</b> of ${qtUsd(QT.target)}, peak ${qtUsd(QT.peak)} · ` +
+    `need ${qtUsd(QT.need_per_session)} a session for ${QT.sessions_left} sessions<br>` +
+    `limits: never below ${qtUsd(QT.drawdown_floor)} · today ${t && t.day_pnl != null ? qtUsd(t.day_pnl) : '—'} of −$${QT.daily_limit.toFixed(0)} allowed` +
+    `${(QT.breaches || []).length ? ' · <b style="color:var(--put)">a limit was breached</b>' : ''}<br>` +
+    `behaviour (from ${esc(QT.behaviour_start)}): first loss once green → stop ${ok(c.rule_kept)} (${QT.rule_kept}/${QT.rule_days}) · ` +
+    `kept of peak ${ok(c.kept_of_peak_median)}${QT.kept_median != null ? ' ' + Math.round(QT.kept_median * 100) + '%' : ''} · ` +
+    `red days small ${ok(c.red_day_avg)}<br>`;
 }
 async function loadGiveStats(){
   try { const r = await fetch('live/giveback_stats.json?t=' + Date.now()); GIVE = r.ok ? await r.json() : null; }

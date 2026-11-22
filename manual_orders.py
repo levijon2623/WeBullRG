@@ -253,6 +253,15 @@ def day_gain(eng):
     today, now = _et_today(), int(time.time())
     st = _read(DAY_FILE) or {}
     dirty = False
+    # 🚨 THE DAY STARTS AT 09:25 ET, NOT AT THE FIRST READ AFTER MIDNIGHT (2026-11-21). The bot runs all night, so
+    # the first read of the date used to be ~00:00; on 11-19 that was BEFORE a deposit posted, and at 03:46 the
+    # deposit read as the day's gain ("DAY GOAL +5232%") for the whole session. Transfers post
+    # overnight or pre-market, so measuring from the 09:25 read keeps them out. A transfer made DURING the session
+    # still reads as gain / loss -- make withdrawals before 09:25.
+    from zoneinfo import ZoneInfo
+    _n = _dt.datetime.now(ZoneInfo("America/New_York"))
+    if (st.get("date") != today or not st.get("start")) and _n.hour * 60 + _n.minute < 9 * 60 + 25:
+        return None
     if st.get("date") != today or not st.get("start"):
         booked = _realized_on(today)
         st = dict(date=today, start=round(nlv - booked, 2), start_at=now,

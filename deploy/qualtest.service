@@ -1,0 +1,28 @@
+# /etc/systemd/system/cleanbot-qualtest.service
+#
+# The user's qualifying-test tracker (2026-11-21): qual_test.py samples the account balance from live/state.json
+# while flat (09:25-16:30 ET on trading days) and writes live/qual_test/status.json for the flow viewer. Rules and
+# transfers live in git-ignored live/qual_test/{rules,cash}.json. Read-only: never touches the bot, orders or Webull.
+#
+#   sudo cp deploy/qualtest.service /etc/systemd/system/cleanbot-qualtest.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cleanbot-qualtest
+
+[Unit]
+Description=Cleanbot qualifying-test tracker
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/bot_engine/venv/bin/python qual_test.py
+Restart=on-failure
+RestartSec=60
+Nice=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-qualtest
+
+[Install]
+WantedBy=multi-user.target
