@@ -1800,6 +1800,15 @@ def _log_manual(kind, pos, ctx=None, **extra):
                    entry=pos.get("entry"), entry_limit=pos.get("limit"),
                    adopted=bool(pos.get("adopted")),
                    dry=bool(pos.get("dry")), note=pos.get("note") or "")
+        # STOP RECORDER (user, 2026-11-23): every row carries the stop as it stands; an entry also records spot at
+        # the fill and how far the stop sat from it ($ and bp). Stop MOVES are their own "stop" rows (_log_stop).
+        rec["ul_sl"] = pos.get("ul_sl")
+        if kind == "open":
+            sp, sl = pos.get("ul_at_fill"), pos.get("ul_sl")
+            rec["spot_at_fill"] = sp
+            if sp and sl is not None:
+                rec["sl_dist"] = round(abs(float(sp) - float(sl)), 2)
+                rec["sl_dist_bp"] = round(abs(float(sp) - float(sl)) / float(sp) * 1e4, 1)
         rec.update(extra)
         if ctx:
             rec["ctx"] = ctx
@@ -1809,6 +1818,16 @@ def _log_manual(kind, pos, ctx=None, **extra):
     except Exception as e:                      # noqa: BLE001 -- deliberate
         print(f"  ⚠️ manual ledger write failed ({kind}): "
               f"{type(e).__name__}: {e}")
+
+
+def _log_stop(eng, tk, pos, old, new, why):
+    """A stop MOVE (user, 2026-11-23): old -> new, spot at that moment and the new distance. Ledger kind "stop";
+    every ledger reader filters kind "open" / "close", so these rows never change a P&L."""
+    spot, _age = _spot(eng, tk)
+    _log_manual("stop", pos, None, sl_from=old, sl_to=new, why=why,
+                spot=round(spot, 2) if spot else None,
+                sl_dist=round(abs(spot - new), 2) if spot and new is not None else None,
+                sl_dist_bp=round(abs(spot - new) / spot * 1e4, 1) if spot and new is not None else None)
 
 
 def _context(eng, tk):
@@ -2192,6 +2211,7 @@ def _sl_to_entry(eng, tk, pos):
     if why:
         _event(False, f"{tk} SL NOT moved to the entry level {lv:.2f}: {why}")
         return
+    _log_stop(eng, tk, pos, cur, lv, "break-even after a TP")
     pos["ul_sl"] = lv
     pos.pop("ul_sl_since", None)
     _event(True, f"{tk} TP filled — SL moved to the entry level {lv:.2f} "
@@ -2238,6 +2258,8 @@ def set_levels(eng, tk, req):
         pos.pop("ul_tp", None)
         pos.pop("ul_tp_since", None)
     if "sl" in req:
+        if sl_new != pos.get("ul_sl"):
+            _log_stop(eng, tk, pos, pos.get("ul_sl"), sl_new, str(req.get("why") or "viewer")[:40])
         pos["ul_sl"] = sl_new
         pos.pop("ul_sl_since", None)
     if "be" in req:

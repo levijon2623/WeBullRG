@@ -1464,7 +1464,8 @@ function liveDraw(d, s){
                            : ' — waiting for alerts'} · ISO, single-leg, opening</span>`}
     <span><i style="background:#d29922"></i>p${s.min_flow_pct??'?'} magnitude gate (live, moves)</span>
     <span><i style="background:#56d364"></i>underlying TP · <i style="background:#ff6b6b"></i>SL
-      — T/S + click when enabled; dashed = staged with an order</span>
+      — T/S + click when enabled; dashed = staged with an order · hold S + R: ratchet the open position's SL to
+      $0.10 shy of spot (tighten only)</span>
     ${s.state==='holding' ? `<span style="color:var(--put)">⚠ flow tracking is
       PAUSED while a position is open (bot_runner.py:1708 skips busy tickers) —
       the series is frozen, not quiet</span>` : ''}
@@ -1795,6 +1796,29 @@ function stageRef(c, tk){
     return {px: t.level, name: 'entry'};
   return {px: LIVE ? (LIVE.tickers[tk] || {}).spot : null, name: 'spot'};
 }
+/* STOP RATCHET (user, 2026-11-23): hold S, press R -- the open position on the ticker on screen gets its underlying
+   SL moved to $0.10 shy of spot (spot - 0.10 for a call, + 0.10 for a put). TIGHTEN ONLY: a ratchet never loosens,
+   so a stop already closer to spot is left alone and the toast says so. The engine re-validates the level and
+   logs the move in the stop recorder (ledger kind "stop", why "ratchet S+R"). */
+const RATCHET_GAP = 0.10;
+async function stopRatchet(){
+  const tk = liveTk, hold = (LIVE.manual || {})[tk];
+  if(!hold) return ulToast(`no open position on ${tk} to ratchet`, true);
+  if(hold.pending) return ulToast(`${tk} entry has not filled yet`, true);
+  if(hold.exit_coid || hold.exit_retry) return ulToast(`${tk} is exiting — levels locked`, true);
+  const s = LIVE.tickers[tk] || {};
+  const spot = (s.px_live && s.px_live[1]) || s.spot;
+  if(!spot) return ulToast(`no live ${tk} price`, true);
+  const right = holdRight(hold), cur = hold.ul_sl != null ? Number(hold.ul_sl) : null;
+  const lv = Math.round((right === 'C' ? spot - RATCHET_GAP : spot + RATCHET_GAP) * 100) / 100;
+  if(cur != null && (right === 'C' ? lv <= cur : lv >= cur))
+    return ulToast(`${tk} SL ${cur.toFixed(2)} is already tighter than ${lv.toFixed(2)} (spot ${spot.toFixed(2)}) — not moved`, true);
+  const j = await postOrder({action:'levels', ticker:tk, sl: lv, why:'ratchet S+R'});
+  ulToast(j.ok ? `${tk} SL ratcheted ${cur != null ? cur.toFixed(2) + ' → ' : ''}${lv.toFixed(2)} (spot ${spot.toFixed(2)})`
+               : 'REFUSED: ' + (j.err || '?'), !j.ok);
+  pollEvents();
+}
+
 function ulToast(msg, bad){
   const t = $('#ulToast');
   t.textContent = msg; t.className = bad ? 'bad' : 'good'; t.style.display = 'block';
@@ -3016,6 +3040,7 @@ addEventListener('keydown', e => {
   if(e.key === 'Escape' && $('#legend').classList.contains('on')){
     e.preventDefault(); toggleKey(false); return; }
   if(e.key === 'Escape' && SEL){ e.preventDefault(); $('#stageX').click(); return; }
+  if(e.key === 'r' && UL_KEYS.has('s') && LIVE){ e.preventDefault(); stopRatchet(); return; }
   if(e.key === 't' || e.key === 's' || e.key === 'e'){ UL_KEYS.add(e.key); return; }
   if(e.key === 'k'){ e.preventDefault(); toggleKey(); return; }
   if(e.key === 'g' && LIVE){ e.preventDefault(); gxToggle(); return; }
