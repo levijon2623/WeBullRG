@@ -117,9 +117,17 @@ def status():
     dep = sum(t["amount"] for t in tr if t["kind"] == "deposit")
     days = sorted({s.get("day") or day_of(s["ts"]) for s in snaps if (s.get("day") or day_of(s["ts"])) >= R["start"]})
 
-    def transfers_through(d):
-        w = sum(t["amount"] for t in tr if t["kind"] == "withdrawal" and t["date"] <= d)
-        dp = sum(t["amount"] for t in tr if t["kind"] == "deposit" and t["date"] <= d)
+    def done_by(t, d, ts=None):
+        """has transfer t happened by sample time ts on day d? A transfer with its own "ts" counts from that moment;
+        one without counts from the start of its day (a pre-open transfer). 2026-11-23: a withdrawal of the day's
+        profit AFTER trading was credited to the whole day, so the morning's samples counted it twice (a false peak)."""
+        if t["date"] != d:
+            return t["date"] < d
+        return ts is None or t.get("ts") is None or t["ts"] <= ts
+
+    def transfers_through(d, ts=None):
+        w = sum(t["amount"] for t in tr if t["kind"] == "withdrawal" and done_by(t, d, ts))
+        dp = sum(t["amount"] for t in tr if t["kind"] == "deposit" and done_by(t, d, ts))
         return w, dp
 
     daily_lim = R["daily_frac"] * dep
@@ -133,13 +141,17 @@ def status():
         d_today = sum(t["amount"] for t in tr if t["kind"] == "deposit" and t["date"] == d and not t.get("base"))
         lo_day = None
         for s in S:                                       # intraday checks on flat samples
-            sc = s["cash"] + w - dp
+            ws, dps = transfers_through(d, s["ts"])       # only transfers already made at this sample
+            sc = s["cash"] + ws - dps
             peak = sc if peak is None else max(peak, sc)
             lim = R["drawdown_frac"] * dep                 # 50% of deposits below the peak score (user)
             if sc < peak - lim:
                 breaches.append({"date": d, "kind": "drawdown", "score": round(sc, 2), "peak": round(peak, 2)})
             if prev_eod is not None:
-                dpnl = s["cash"] - prev_eod + w_today - d_today
+                w_s = sum(t["amount"] for t in tr if t["kind"] == "withdrawal" and t["date"] == d and done_by(t, d, s["ts"]))
+                d_s = sum(t["amount"] for t in tr if t["kind"] == "deposit" and t["date"] == d and not t.get("base")
+                          and done_by(t, d, s["ts"]))
+                dpnl = s["cash"] - prev_eod + w_s - d_s
                 lo_day = dpnl if lo_day is None else min(lo_day, dpnl)
                 if dpnl <= -daily_lim:
                     breaches.append({"date": d, "kind": "daily", "pnl": round(dpnl, 2)})
