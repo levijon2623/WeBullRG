@@ -2712,10 +2712,10 @@ async function pollQT(){
   renderQT();
 }
 const qtUsd = v => v == null ? '—' : `${v >= 0 ? '+' : '−'}$${Math.abs(v).toFixed(0)}`;
+function qtTodayDate(){ return new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'}); }
 function qtToday(){
   const h = QT && QT.history && QT.history.length ? QT.history[QT.history.length - 1] : null;
-  const today = new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
-  return h && h.date === today ? h : null;
+  return h && h.date === qtTodayDate() ? h : null;
 }
 function renderQT(){
   const el = $('#qtLine');
@@ -2745,7 +2745,11 @@ function qtHtml(){
     `limits: never below ${qtUsd(QT.drawdown_floor)} · today ${t && t.day_pnl != null ? qtUsd(t.day_pnl) : '—'} of −$${QT.daily_limit.toFixed(0)} allowed` +
     `${(QT.breaches || []).some(b => b.kind === 'drawdown') ? ' · <b style="color:var(--put)">TEST FAILED: max drawdown breached</b>' : ''}` +
     `${(QT.breaches || []).filter(b => b.kind === 'daily').length ? ` · daily limit hit on ${(QT.breaches || []).filter(b => b.kind === 'daily').length} day(s) (behaviour fails)` : ''}<br>` +
-    `behaviour (from ${esc(QT.behaviour_start)}): first loss once green → stop ${ok(c.rule_kept)} (${QT.rule_kept}/${QT.rule_days}) · ` +
+    `behaviour (from ${esc(QT.behaviour_start)}): ${esc(QT.stop_rule_label || 'first loss once green → stop')} ${ok(c.rule_kept)} (${QT.rule_kept}/${QT.rule_days}) · ` +
+    (() => { const b = (QT.behaviour || {})[qtTodayDate()]; if(!b || b.stop_line == null) return '';
+      if(b.rule) return `<b style="color:var(--put)">today: rule hit — done</b> · `;
+      if(b.armed === false) return `today realized ${qtUsd(b.realized)}, peak ${qtUsd(b.peak)} · rule arms above ${qtUsd(b.min_peak)} · `;
+      return `today realized ${qtUsd(b.realized)}, peak ${qtUsd(b.peak)} → <b>stop at ${qtUsd(b.stop_line)}</b> · `; })() +
     `kept of peak ${ok(c.kept_of_peak_median)}${QT.kept_median != null ? ' ' + Math.round(QT.kept_median * 100) + '%' : ''} · ` +
     `red days small ${ok(c.red_day_avg)}<br>`;
 }

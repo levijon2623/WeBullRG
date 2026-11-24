@@ -68,8 +68,29 @@ def day_of(ts):
     return datetime.fromtimestamp(ts, NY).date().isoformat()
 
 
-def behaviour(lo, hi):
-    """per day from the viewer ledger: realized path, kept-of-peak, the first-loss-once-green rule."""
+def stop_rule_for(R, d):
+    """the stop rule in force on day d. rules.json behaviour.stop_rule is a dated list, newest last:
+      {"from": D, "kind": "first_loss"}                 the first losing close once the day is green -> stop
+      {"from": D, "kind": "giveback", "frac": f}        realized P&L falls to (1 - f) x the day's realized peak -> stop
+    (user, 2026-11-24: "stop when 25% of peak has been returned to the market"; a loss after any green was too strict
+    for the opening minutes. Written after the 11-24 session, so it applies from 11-25.) No list = first_loss."""
+    rules = ((R or {}).get("behaviour") or {}).get("stop_rule") or []
+    cur = {"kind": "first_loss"}
+    for r in sorted(rules, key=lambda r: r["from"]):
+        if r["from"] <= d:
+            cur = r
+    return cur
+
+
+def stop_rule_label(r):
+    if r.get("kind") == "giveback":
+        arm = f" (once the peak is above ${float(r['min_peak']):,.0f})" if r.get("min_peak") else ""
+        return f"stop after giving back {r['frac'] * 100:.0f}% of the day's peak{arm}"
+    return "first loss once green → stop"
+
+
+def behaviour(lo, hi, R=None):
+    """per day from the viewer ledger: realized path, kept-of-peak, and that day's stop rule (stop_rule_for)."""
     closes, opens = defaultdict(list), defaultdict(list)
     try:
         for line in open(LEDGER, encoding="utf-8"):
@@ -88,17 +109,29 @@ def behaviour(lo, hi):
     out = {}
     for d in sorted(set(closes) | set(opens)):
         cs = sorted(closes[d], key=lambda x: x["ts"]); os_ = sorted(opens[d], key=lambda x: x["ts"])
+        rule = stop_rule_for(R, d)
         cum, peak, stop_at = 0.0, 0.0, None
         for c in cs:
             if c.get("pnl") is None:
                 continue
-            if stop_at is None and cum > 0 and c["pnl"] < 0:
-                stop_at = c["ts"]                        # the first losing close once the day was green
-            cum += float(c["pnl"]); peak = max(peak, cum)
+            if rule.get("kind") == "giveback":
+                cum += float(c["pnl"]); peak = max(peak, cum)
+                if stop_at is None and peak > max(0.0, float(rule.get("min_peak") or 0)) and cum <= (1 - rule["frac"]) * peak:
+                    stop_at = c["ts"]                    # the close that handed back frac of the day's peak
+            else:
+                if stop_at is None and cum > 0 and c["pnl"] < 0:
+                    stop_at = c["ts"]                    # the first losing close once the day was green
+                cum += float(c["pnl"]); peak = max(peak, cum)
         broke = None if stop_at is None else any(o["ts"] > stop_at for o in os_)
         out[d] = {"trades": len(cs), "realized": round(cum, 2), "peak": round(peak, 2),
                   "kept": round(cum / peak, 3) if peak > 0 else None,
-                  "rule": None if stop_at is None else ("kept" if not broke else "broken")}
+                  "rule": None if stop_at is None else ("kept" if not broke else "broken"),
+                  "stop_rule": rule.get("kind"),
+                  # live aid: the realized level at which today's rule says stop (giveback only), and whether the
+                  # day's peak has cleared min_peak yet (user, 2026-11-24: a small early peak must not end the day)
+                  "stop_line": round((1 - rule["frac"]) * peak, 2) if rule.get("kind") == "giveback" and peak > 0 else None,
+                  "armed": (peak > float(rule.get("min_peak") or 0)) if rule.get("kind") == "giveback" else None,
+                  "min_peak": rule.get("min_peak") if rule.get("kind") == "giveback" else None}
     return out
 
 
@@ -164,7 +197,7 @@ def status():
     for b in breaches:                                    # one entry per day and kind
         if (b["date"], b["kind"]) not in seen:
             seen.add((b["date"], b["kind"])); uniq.append(b)
-    beh_all = behaviour(R["start"], R["end"])
+    beh_all = behaviour(R["start"], R["end"], R)
     bstart = R.get("behaviour_start", R["start"])            # behaviour is scored from the day the rules were written
     # a DAILY-limit breach is a behavioural failure for that day (user, 2026-11-21): it counts in the rule score as a
     # failed day, whether or not the first-loss rule was triggered (a day traded only in the app gets an entry too)
@@ -204,7 +237,9 @@ def status():
            "rule_days": len(rule_days), "rule_kept": sum(v["rule"] == "kept" for v in rule_days),
            "kept_median": None if not kept else round(st.median(kept), 3),
            "red_avg": None if not reds else round(st.mean(reds), 2),
-           "income_pace": R.get("income_per_session"), "pending": C.get("pending")}
+           "income_pace": R.get("income_per_session"), "pending": C.get("pending"),
+           "stop_rule": stop_rule_for(R, datetime.now(NY).date().isoformat()),
+           "stop_rule_label": stop_rule_label(stop_rule_for(R, datetime.now(NY).date().isoformat()))}
     dump("status.json", doc)
     return doc
 
