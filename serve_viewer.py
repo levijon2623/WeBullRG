@@ -80,6 +80,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.split("?")[0] == "/events":
             return self._json(_recent_events())
+        if self.path.split("?")[0] == "/trades":
+            from urllib.parse import parse_qs, urlparse
+            d = (parse_qs(urlparse(self.path).query).get("date") or [""])[0]
+            return self._json(_trades_day(d))
         if self.path.split("?")[0] == "/order-config":
             # served only to a loopback GET; it is the same machine either way
             return self._json({"key": _order_secret() or "",
@@ -281,6 +285,72 @@ def _order_secret():
             return (json.load(f).get("order_key") or "").strip() or None
     except (OSError, ValueError):
         return None
+
+
+LEDGER = "manual_executions.jsonl"
+
+
+def _trades_day(d):
+    """TRADES ON THE CHART (user, 2026-11-24): one ET session's viewer trades from the manual ledger, paired by
+    trade_id -- entry, every (partial) close, every stop move -- for flow_viewer's markers, stop step-line and hover
+    card. Read-only; the same exposure as live/state.json. Times: `ts` real epoch, `t` the chart's stamp (ET wall
+    clock written as UTC, like live_state._et_stamp). Trades placed in the Webull app are not in this ledger."""
+    import calendar
+    import re
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d or ""):
+        return {"ok": False, "err": "date=YYYY-MM-DD"}
+    NY = ZoneInfo("America/New_York")
+
+    def et(ts):
+        z = datetime.fromtimestamp(float(ts), NY)
+        return z, calendar.timegm(z.replace(tzinfo=None).timetuple())
+    tr = {}
+    try:
+        with open(LEDGER, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if not r.get("ts") or r.get("dry") or r.get("kind") not in ("open", "close", "stop"):
+                    continue
+                z, t = et(r["ts"])
+                if z.date().isoformat() != d:
+                    continue
+                k = r.get("trade_id") or f"{r.get('ticker')}|{r.get('option_id')}"
+                x = tr.setdefault(k, {"id": k, "tk": r.get("ticker"), "right": r.get("right"), "strike": r.get("strike"),
+                                      "expiry": r.get("expiry"), "closes": [], "stops": []})
+                spot = r.get("spot_at_fill") or r.get("spot") or (r.get("ctx") or {}).get("spot")
+                if r["kind"] == "open":
+                    x.update(t_in=t, ts_in=r["ts"], px_in=r.get("entry"), spot_in=spot, qty=r.get("qty"),
+                             sl0=r.get("ul_sl"), sl_dist=r.get("sl_dist"), slip=r.get("slip"), limit=r.get("entry_limit"),
+                             aggr=r.get("aggr"), ask_slip=r.get("ask_slip"), fill_s=r.get("fill_s"),
+                             note=r.get("note") or "", adopted=bool(r.get("adopted")), source=r.get("source"))
+                elif r["kind"] == "close":
+                    x["closes"].append({"t": t, "ts": r["ts"], "px": r.get("exit"), "qty": r.get("qty"),
+                                        "pnl": r.get("pnl"), "roe": r.get("roe_pct"), "why": r.get("exit_reason"),
+                                        "spot": spot, "held_s": r.get("held_s"), "partial": bool(r.get("partial"))})
+                    x.setdefault("px_in", r.get("entry"))
+                else:
+                    x["stops"].append({"t": t, "ts": r["ts"], "from": r.get("sl_from"), "to": r.get("sl_to"),
+                                       "why": r.get("why"), "spot": spot})
+    except OSError:
+        return {"ok": True, "date": d, "trades": []}
+    out = []
+    for x in tr.values():
+        if "t_in" not in x and not x["closes"]:
+            continue
+        cs = sorted(x["closes"], key=lambda c: c["ts"])
+        x["closes"] = cs
+        x["pnl"] = round(sum(float(c["pnl"] or 0) for c in cs), 2) if cs else None
+        x["t_out"] = cs[-1]["t"] if cs else None
+        x["open"] = not cs or cs[-1]["partial"]
+        x["stops"].sort(key=lambda s: s["ts"])
+        out.append(x)
+    out.sort(key=lambda x: x.get("ts_in") or x["closes"][0]["ts"])
+    return {"ok": True, "date": d, "trades": out}
 
 
 def _recent_events(limit=60):

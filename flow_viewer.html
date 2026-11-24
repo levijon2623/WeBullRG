@@ -258,6 +258,10 @@
   #ulPopX:hover{color:var(--fg)}
   #hold .ultag{color:var(--accent);border:1px solid var(--accent);border-radius:3px;
     padding:0 3px;font-size:9px;margin-left:4px}
+  #trTip{position:fixed;display:none;z-index:70;pointer-events:none;max-width:420px;padding:8px 10px;
+    background:var(--panel);border:1px solid var(--line);border-radius:6px;font-size:11.5px;line-height:1.5;
+    box-shadow:0 6px 18px rgba(0,0,0,.45)}
+  #trTip .k{color:var(--dim)}
   #ulToast{position:fixed;left:50%;top:52px;transform:translateX(-50%);z-index:80;
     background:#0b0f14ee;border:1px solid var(--line);border-radius:6px;padding:6px 12px;
     font-size:12px;display:none;max-width:70vw}
@@ -415,6 +419,7 @@
     <div id="newsWrap"><div id="news" title="latest relevant headline -- click for the list"></div>
       <div id="newsList"></div></div>
     <div id="chart"><div id="empty">loading <code>tape/index.json</code>…</div></div>
+    <div id="trTip"></div>
     <div id="legend"></div>
     <div id="ulToast"></div>
     <div id="keyHint" title="show the chart key">k · key</div>
@@ -1057,6 +1062,7 @@ function waitLights(d){
 function liveStop(){
   clearInterval(liveTimer); liveTimer = null; LIVE = null; liveSeries = null;
   clearInterval(tickTimer); tickTimer = null; LAST_TICK = null; TICK_AT = 0;
+  TR_SIG = ''; TR_PTS = []; { const tt = $('#trTip'); if(tt) tt.style.display = 'none'; }
   uiSet('fv_live', null);
   renderNews();                                  // hides the news strip
   $('#liveBtn').classList.remove('on'); $('#liveBtn').textContent = '● GO LIVE';
@@ -1204,8 +1210,11 @@ function liveDraw(d, s){
       priceFormat:{type:'volume'}, title:'market net call prem', visible:false}, 1);
     const tideP = chart.addSeries(LWC.LineSeries, {color:'#f85149', lineWidth:2, priceScaleId:'tide',
       priceFormat:{type:'volume'}, title:'market net put prem', visible:false}, 1);
-    liveSeries = {px, vw, vol, cum, ema, swp, tideC, tideP, lines:[], gexLines:[], ulLines:[]};
+    liveSeries = {px, vw, vol, cum, ema, swp, tideC, tideP, lines:[], gexLines:[], ulLines:[],
+                  trMk: LWC.createSeriesMarkers(px, []), trS: []};     // trades on the chart (drawTrades)
+    TR_SIG = '';
     chart.subscribeClick(ulClick);
+    chart.subscribeCrosshairMove(trHover);
   }
   /* Closed minutes PLUS the forming one. Without the forming point the line
      trailed the market by up to a minute while the `underlying` readout
@@ -1225,6 +1234,8 @@ function liveDraw(d, s){
       pxData.push({time:lt, value:lv});
   }
   liveSeries.px.setData(pxData);
+  LIVE_PX_T = pxData.map(p => p.time);                       // the minute grid trades snap to (drawTrades)
+  LIVE_PX_V = {}; for(const p of pxData) LIVE_PX_V[p.time] = p.value;
   /* 🚨 NO SEPARATE "live" PRICE LINE. There was one, and it printed the same
      number as the series' own `underlying` label one row above it. It made
      sense when _closed_px dropped the forming minute and the line trailed the
@@ -1441,6 +1452,7 @@ function liveDraw(d, s){
     ${waitLights(d)}
     <span id="volRead"></span>
     ${paneBtn()}
+    ${trBtn()}
     ${d.flow_src !== null ? '' : '<span class="tag" style="color:var(--dim)" title="no UW_API_KEY: the bot\'s flow, regimes and rules are off">manual-only</span>'}
     ${p ? `<span class="k">pos</span><b>${p.dir} ${p.strike} ${p.dte}DTE</b>
       <span class="k">entry</span>${p.entry} <span class="k">bid</span>${p.bid}
@@ -1451,6 +1463,7 @@ function liveDraw(d, s){
   const gb = $('#gxBtn'); if(gb) gb.onclick = gxToggle;
   const ib = $('#imBtn'); if(ib) ib.onclick = imToggle;
   const pb = $('#paneBtn'); if(pb) pb.onclick = paneToggle;
+  const tb = $('#trBtn'); if(tb) tb.onclick = tradesToggle;
   $('#legend').innerHTML = `
     <div class="hd"><span>chart key — live</span>
       <span>k or click to dismiss</span></div>
@@ -1524,6 +1537,183 @@ function liveDraw(d, s){
       forming minute, flow on closed bars · ${
       LIVE ? Math.max(0, Math.round(Date.now()/1000 - LIVE.ts)) : '?'}s since
       the engine wrote</span>`;
+  if(TRADES_ON) $('#legend').insertAdjacentHTML('beforeend',
+    `<span><b style="color:#3fb950">▲</b> call / <b style="color:#f85149">▼</b> put entry at spot · ● exit (green win, red
+      loss) · dotted = entry → exit · <b style="color:#f0883e">orange steps</b> = your stop while held · ■ grey = exit
+      not in the log (closed in the app) · hover a marker for the trade · TRADES button to hide</span>`);
+  drawTrades();
+}
+
+/* ---- TRADES ON THE CHART (user, 2026-11-24): today's viewer trades from the manual ledger (serve_viewer /trades,
+   one record per trade_id) drawn on the live price pane -- entry arrow and exit dot at their SPOT prices, a dotted
+   entry -> exit link, and the stop as a step line while the position was held (every move from the stop recorder).
+   Hovering a marker shows the trade. Times snap to the chart's minute grid so nothing inserts a new slot on the
+   time axis. Trades placed in the Webull app are not in the ledger, so they are not drawn. */
+let TRADES_ON = uiGet('fv_trades') !== '0', TRADES = null, TR_SIG = '', TR_PTS = [], LIVE_PX_T = [], LIVE_PX_V = {};
+async function pollTrades(){
+  try {
+    const r = await fetch('/trades?date=' + etYMD(new Date()) + '&t=' + Date.now());
+    if(!r.ok) return;
+    const j = await r.json();
+    if(j && j.ok){ TRADES = j; drawTrades(); }
+  } catch { /* the chart simply keeps the last trades */ }
+}
+function tradesToggle(){
+  TRADES_ON = !TRADES_ON; uiSet('fv_trades', TRADES_ON ? null : '0'); TR_SIG = '';
+  if(LIVE && liveTk) liveDraw(LIVE, LIVE.tickers[liveTk]);
+}
+function trBtn(){
+  return `<button id="trBtn" class="tag" title="your viewer trades on the price chart (entries, exits, stop steps); hover a marker"` +
+    ` style="width:auto;flex:none;margin:0;font:inherit;font-size:11px;cursor:pointer;background:transparent;color:var(--fg);` +
+    `border-color:${TRADES_ON ? '#f0883e' : 'var(--line)'}">TRADES ${TRADES_ON ? '✓' : '—'}</button>`;
+}
+function trSnap(t){
+  const a = LIVE_PX_T;
+  if(!a.length || t == null) return null;
+  if(t <= a[0]) return a[0];
+  let lo = 0, hi = a.length - 1;
+  while(lo < hi){ const m = (lo + hi + 1) >> 1; if(a[m] <= t) lo = m; else hi = m - 1; }
+  return a[lo];
+}
+function trHeld(x){
+  const h = ((LIVE && LIVE.manual) || {})[x.tk];
+  return !!(h && (h.trade_id === x.id || h.entry_coid === x.id));
+}
+// where a trade's lines end (chart stamp): its last close, now if still held, else (no exit logged) its last stop /
+// just before the next entry
+function trEnd(x, list, i){
+  if(trHeld(x)) return LIVE_PX_T[LIVE_PX_T.length - 1];
+  if(x.closes.length) return x.t_out;
+  const nx = list[i + 1], ls = Math.max(x.t_in || 0, ...x.stops.map(s => s.t));
+  return nx && nx.t_in ? Math.min(nx.t_in - 1, ls) : ls;
+}
+function drawTrades(){
+  if(!liveSeries || !chart || !liveSeries.trMk) return;
+  const list = TRADES_ON && TRADES ? (TRADES.trades || []).filter(x => x.tk === liveTk && x.t_in != null) : [];
+  const lastMin = Math.floor((LIVE_PX_T[LIVE_PX_T.length - 1] || 0) / 60);
+  const sig = JSON.stringify([liveTk, TRADES_ON, list, lastMin, list.map(trHeld)]);
+  if(sig === TR_SIG) return;
+  TR_SIG = sig;
+  for(const s of liveSeries.trS || []) { try { chart.removeSeries(s); } catch {} }
+  liveSeries.trS = [];
+  TR_PTS = [];
+  const pxAt = T => LIVE_PX_V[T];
+  // the day's running realized P&L after each trade's last close, and its peak (the give-back rule's view)
+  const all = (TRADES && TRADES.trades) || [];
+  const closes = all.flatMap(x => x.closes.map(c => [c.ts, Number(c.pnl) || 0, x.id])).sort((a, b) => a[0] - b[0]);
+  let cum = 0, peak = 0; const dayAt = {};
+  for(const [, p, id] of closes){ cum += p; peak = Math.max(peak, cum); dayAt[id] = [cum, peak]; }
+  const mk = [];
+  const opt = {lastValueVisible:false, priceLineVisible:false, crosshairMarkerVisible:false, title:''};
+  list.forEach((x, i) => {
+    const t0 = trSnap(x.t_in), held = trHeld(x), tEnd = trSnap(trEnd(x, list, i));
+    const spotIn = x.spot_in ?? pxAt(t0);
+    if(t0 == null || spotIn == null) return;
+    const win = x.pnl == null ? null : x.pnl >= 0;
+    mk.push({time:t0, position: x.right === 'C' ? 'atPriceBottom' : 'atPriceTop', price: spotIn,
+             shape: x.right === 'C' ? 'arrowUp' : 'arrowDown', color: x.right === 'C' ? '#3fb950' : '#f85149'});
+    TR_PTS.push({T:t0, price:spotIn, x});
+    x.closes.forEach((c, j) => {
+      const tc = trSnap(c.t), sp = c.spot ?? pxAt(tc);
+      if(tc == null || sp == null) return;
+      const last = j === x.closes.length - 1;
+      mk.push({time:tc, position:'atPriceMiddle', price:sp, shape:'circle',
+               color: (Number(c.pnl) || 0) >= 0 ? '#3fb950' : '#f85149',
+               text: last && x.pnl != null ? `${x.pnl >= 0 ? '+' : '−'}$${Math.abs(x.pnl).toFixed(0)}` : ''});
+      TR_PTS.push({T:tc, price:sp, x});
+    });
+    if(!x.closes.length && !held && tEnd != null){
+      const sp = pxAt(tEnd);
+      if(sp != null){ mk.push({time:tEnd, position:'atPriceMiddle', price:sp, shape:'square', color:'#8b949e', text:'?'});
+                      TR_PTS.push({T:tEnd, price:sp, x}); }
+    }
+    // entry -> exit link (needs two different minutes)
+    const tOut = x.closes.length ? trSnap(x.t_out) : null;
+    const spOut = x.closes.length ? (x.closes[x.closes.length - 1].spot ?? pxAt(tOut)) : null;
+    if(tOut != null && spOut != null && tOut > t0){
+      const ln = chart.addSeries(LWC.LineSeries, {...opt, color: win ? '#3fb950' : '#f85149', lineWidth:1,
+        lineStyle: LWC.LineStyle.Dotted}, 0);
+      ln.setData([{time:t0, value:spotIn}, {time:tOut, value:spOut}]);
+      liveSeries.trS.push(ln);
+    }
+    // the stop while held: the stop at fill, then every recorded move (a move inside a minute shows on that minute)
+    const stops = x.stops.filter(s => s.t > x.t_in && s.to != null);
+    const stopAt = T => { let v = x.sl0; for(const s of stops) if(s.t < T + 60) v = s.to; return v; };
+    if(x.sl0 != null && tEnd != null){
+      const pts = LIVE_PX_T.filter(T => T >= t0 && T <= Math.max(tEnd, t0)).map(T => ({time:T, value:stopAt(T)}))
+                           .filter(p => p.value != null);
+      if(pts.length){
+        const sl = chart.addSeries(LWC.LineSeries, {...opt, color:'#f0883e', lineWidth:1, lineStyle: LWC.LineStyle.Dashed,
+          lineType: LWC.LineType.WithSteps, pointMarkersVisible:true, pointMarkersRadius:2}, 0);
+        sl.setData(pts);
+        liveSeries.trS.push(sl);
+      }
+    }
+    x._day = dayAt[x.id];
+  });
+  mk.sort((a, b) => a.time - b.time);
+  liveSeries.trMk.setMarkers(mk);
+}
+function trHover(p){
+  const el = $('#trTip');
+  if(!el) return;
+  if(!TRADES_ON || !p || !p.point || !liveSeries || !TR_PTS.length){ el.style.display = 'none'; return; }
+  let best = null, bd = 15;
+  for(const q of TR_PTS){
+    const x = chart.timeScale().timeToCoordinate(q.T), y = liveSeries.px.priceToCoordinate(q.price);
+    if(x == null || y == null) continue;
+    const dd = Math.hypot(x - p.point.x, y - p.point.y);
+    if(dd < bd){ bd = dd; best = q; }
+  }
+  if(!best){ el.style.display = 'none'; return; }
+  el.innerHTML = trCard(best.x);
+  const r = $('#chart').getBoundingClientRect();
+  el.style.display = 'block';
+  const w = el.offsetWidth, h = el.offsetHeight;
+  let L = r.left + p.point.x + 16, T = r.top + p.point.y + 16;
+  if(L + w > window.innerWidth - 8) L = r.left + p.point.x - w - 16;
+  if(T + h > window.innerHeight - 8) T = r.top + p.point.y - h - 16;
+  el.style.left = Math.max(8, L) + 'px'; el.style.top = Math.max(8, T) + 'px';
+}
+function trCard(x){
+  const usd = v => `${v >= 0 ? '+' : '−'}$${Math.abs(v).toFixed(2)}`;
+  const n2 = v => v == null ? '—' : Number(v).toFixed(2);
+  const held = trHeld(x);
+  const dte = x.expiry && TRADES && x.expiry === TRADES.date ? '0DTE' : esc(x.expiry || '');
+  const cost = (Number(x.px_in) || 0) * 100 * (Number(x.qty) || 1);
+  const res = x.pnl != null
+    ? `<b style="color:${x.pnl >= 0 ? 'var(--up)' : 'var(--dn)'}">${usd(x.pnl)}</b>${cost ? ` (${x.pnl >= 0 ? '+' : ''}${(x.pnl / cost * 100).toFixed(1)}%)` : ''}`
+    : held ? '<b>open now</b>' : '<span class="k">exit not logged</span>';
+  const heldS = s => s == null ? '' : s < 120 ? `${s}s` : `${Math.round(s / 60)}m`;
+  const L = [`<div style="display:flex;justify-content:space-between;gap:14px"><b>${esc(x.tk)} ${x.strike}${esc(x.right)}</b>` +
+             `<span class="k">${dte} ×${x.qty ?? '?'}</span><span>${res}</span></div>`];
+  L.push(`<span class="k">in</span> ${etClock(x.ts_in, true)} @ ${n2(x.px_in)} · spot ${n2(x.spot_in)}${x.adopted ? ' · adopted' : ''}`);
+  for(const c of x.closes)
+    L.push(`<span class="k">out</span> ${etClock(c.ts, true)} @ ${n2(c.px)}${x.closes.length > 1 ? ` ×${c.qty}` : ''} · spot ${n2(c.spot)}` +
+           ` · held ${heldS(c.held_s)} · ${esc(c.why || '')} <b style="color:${(Number(c.pnl) || 0) >= 0 ? 'var(--up)' : 'var(--dn)'}">${usd(Number(c.pnl) || 0)}</b>`);
+  if(!x.closes.length && !held) L.push('<span class="k">out</span> not in the log — closed outside the viewer (the Webull app?)');
+  if(x.sl0 != null){
+    const mv = x.stops.filter(s => s.t > x.t_in && s.to != null)
+      .map(s => ` → ${n2(s.to)} <span class="k">${esc(s.why || '')} ${etClock(s.ts)}</span>`).join('');
+    L.push(`<span class="k">stop</span> ${n2(x.sl0)}${x.sl_dist != null ? ` (${n2(x.sl_dist)} from spot)` : ''}${mv}`);
+  }
+  const fill = [];
+  if(x.slip != null) fill.push(`fill ${x.slip > 0 ? '+' : ''}${n2(x.slip)} vs limit ${n2(x.limit)}`);
+  fill.push(x.aggr ? `AGGR${x.ask_slip != null ? ` ${x.ask_slip > 0 ? '+' : ''}${n2(x.ask_slip)} vs ask` : ''}` : 'AGGR off');
+  if(x.fill_s != null) fill.push(`${x.fill_s}s to fill`);
+  L.push(`<span class="k">${fill.join(' · ')}</span>`);
+  if(x.note) L.push(`<span class="k">note</span> ${esc(x.note)}`);
+  if(x._day){
+    const [c, pk] = x._day;
+    let rule = '';
+    const R = QT && QT.stop_rule;
+    if(R && R.kind === 'giveback' && pk > (Number(R.min_peak) || 0)){
+      const line = (1 - R.frac) * pk;
+      rule = ` · rule stop line ${usd(line)}${c <= line + 1e-9 ? ' <b style="color:var(--dn)">crossed</b>' : ''}`;
+    }
+    L.push(`<span class="k">day after this trade</span> ${usd(c)} · peak ${usd(pk)}${rule}`);
+  }
+  return L[0] + L.slice(1).join('<br>');           // the header is a block: no <br> after it
 }
 
 /* ---- news strip: live/news/latest.json, written by news_logger.py on the box.
@@ -1605,10 +1795,10 @@ $('#liveBtn').onclick = () => {
   $('#liveBtn').textContent = '■ STOP LIVE';
   liveSeries = null;
   $('#telem').style.display = 'flex'; $('#side').classList.add('live');
-  Promise.all([pollStrikes(), pollTide(), pollFut()]).then(livePoll); pollEvents(); pollBeat(); pollQT();
+  Promise.all([pollStrikes(), pollTide(), pollFut()]).then(livePoll).then(pollTrades); pollEvents(); pollBeat(); pollQT();
   tickTimer = setInterval(pollTick, 500);          // the 0.5-s price / quote channel (live/tick.json)
   // 2.5 s since 2026-11-19 (was 5 s): the strike cue now refreshes every 5 s and writes every 2 s; news stays ~30 s
-  liveTimer = setInterval(() => { pollStrikes(); pollTide(); pollFut(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 12 === 0) pollNews(); if(newsTick % 24 === 1) pollQT(); }, 2500);
+  liveTimer = setInterval(() => { pollStrikes(); pollTide(); pollFut(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 12 === 0) pollNews(); if(newsTick % 24 === 1) pollQT(); if(newsTick % 2 === 0) pollTrades(); }, 2500);
   pollNews();
 };
 
