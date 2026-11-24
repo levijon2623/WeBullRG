@@ -148,7 +148,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                                               and 1 <= x[1] <= 20))
                         for x in v):
                     return self._json({"ok": False, "err": f"{k}: up to 3 [price, qty 1..20]"}, 400)
-            for k in ("be", "ul_be"):
+            for k in ("be", "ul_be", "aggr"):
                 if req.get(k) is not None and not isinstance(req[k], bool):
                     return self._json({"ok": False, "err": f"{k} must be true/false"}, 400)
             if act == "unsideline":

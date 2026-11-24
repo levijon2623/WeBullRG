@@ -143,6 +143,8 @@
   #trgStaged{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0;color:var(--dim);font-size:11.5px}
   #trgStaged b{color:#79c0ff}
   #trgBtn{border-color:#79c0ff;color:#79c0ff;margin-top:4px}
+  #aggrBtn{margin-bottom:8px;font-size:11.5px}
+  #aggrBtn.on{border-color:#d29922;color:#d29922;font-weight:700;background:#2a2112}
   #hold .p.trg{color:#79c0ff;cursor:default}
   /* position age badge (ageBadge) */
   .age{font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:6px;
@@ -399,6 +401,7 @@
         <button id="trgBtn" disabled>PLACE TRIGGER</button>
       </div>
       <button id="armBtn" style="margin-bottom:8px">ARM</button>
+      <button id="aggrBtn" title="AGGR: entries (buy, trigger, swap re-entry) are sent at the ask + $0.05 instead of mid + 1c. A marketable limit still fills at the best ask on arrival — the cushion is only used when the ask just jumped.">AGGR +0.05: off</button>
       <input id="ordNote" placeholder="note (optional, stored with the fill)">
       <button class="bigbtn call" id="buyC" disabled>BUY CALL</button>
       <button class="bigbtn put" id="buyP" disabled>BUY PUT</button>
@@ -2384,12 +2387,12 @@ async function fire(right){
   if(LIVE && LIVE.armed && armFire !== right){
     armFire = right; renderStage();
     armTimer = setTimeout(() => { disarmFire(); renderStage(); }, 4000);
-    $('#ordMsg').textContent = 'click again within 4s to send — LIVE CAPITAL';
+    $('#ordMsg').textContent = 'click again within 4s to send — LIVE CAPITAL' + (AGGR ? ' · AGGR: ask + 0.05' : '');
     return;
   }
   disarmFire();
   const body = {ticker: SEL.tk, option_id: c.id, qty: qtyVal(),
-    strike: c.strike, expiry: c.expiry, right: c.right,
+    strike: c.strike, expiry: c.expiry, right: c.right, aggr: AGGR,
     note: $('#ordNote').value.trim().slice(0, 200)};
   const u = UL_ON ? stagedUl() : null;
   if(u){
@@ -2433,6 +2436,16 @@ $('#stageX').onclick = () => {
 };
 for(const id of ['#qtyR', '#qtyN'])
   $(id).oninput = () => { setQty($(id).value); disarmFire(); renderStage(); drawUl(); };
+/* AGGR (user, 2026-11-24): entries at the ask + $0.05 (manual_orders.AGGR_CUSHION -- the cushion lives on the
+   server; the page only sends aggr:true). Remembered per browser. */
+let AGGR = uiGet('aggr') === '1';
+function renderAggr(){
+  const b = $('#aggrBtn');
+  b.classList.toggle('on', AGGR);
+  b.textContent = AGGR ? 'AGGR +0.05: ON — entries at ask + 0.05' : 'AGGR +0.05: off';
+}
+$('#aggrBtn').onclick = () => { AGGR = !AGGR; uiSet('aggr', AGGR ? '1' : null); disarmFire(); renderAggr(); };
+renderAggr();
 
 /* ---- 3. guard telemetry ---- */
 async function pollEvents(){
@@ -2867,7 +2880,7 @@ async function sendSwap(answer, note){
   disarmSwap();
   $('#xSwap').disabled = true; $('#xSwap').textContent = 'swapping…';
   const j = await postOrder({ticker: t, action: 'swap', answer: answer || '', note: note || '',
-                             open_qty: SWAPQ.n, size: SWAPQ.dollars ? 'dollars' : 'count'});
+                             open_qty: SWAPQ.n, size: SWAPQ.dollars ? 'dollars' : 'count', aggr: AGGR});
   if(!j.ok) $('#panicMsg').textContent = 'REFUSED by the server: ' + (j.err || '?');
   pollEvents(); livePoll();
   return j;
@@ -2919,7 +2932,7 @@ $('#trgBtn').onclick = async () => {
     const u = (UL_ON && stagedUl()) || {};
     j = await postOrder({action:'trigger', ticker:SEL.tk, right:c.right, expiry:c.expiry,
       level:STAGE_TRG.level, qty:qtyVal(), ul_tps:fitTps(u.tps, qtyVal()), ul_sl:u.sl ?? null,
-      ul_be:!!u.be,
+      ul_be:!!u.be, aggr: AGGR,
       note:($('#ordNote').value || '').slice(0, 200)});
     if(j.ok) STAGE_TRG.level = null;
   }

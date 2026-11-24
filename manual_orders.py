@@ -355,6 +355,21 @@ STALE_ENTRY_S = 10.0
 # the book moved away -- the setup you pressed the button on is gone. Chasing
 # it is how you buy the top of the move you were trying to catch.
 ENTRY_CHASE_S = 20.0
+# AGGR (user, 2026-11-24: "late on the trigger at least twice this morning"). The normal entry limit is
+# min(mid + 0.01, ask) -- with SPY 0DTE spreads of 1-2c at the open that is already the ask, and the misses come from
+# the ask moving between the quote and the order's arrival. AGGR sends ask + AGGR_CUSHION instead: a marketable limit
+# still fills at the best ask on arrival, so the cushion is only spent when the ask has just jumped. Measured on the
+# 11-19/20/23 tape (SPY 0DTE within $1, 09:30-09:52): the ask rose >= 5c within 1 s 6-18% of the time, >= 10c 0-5%.
+# The cushion is fixed here, never taken from the request; the request only says aggr true/false. The 20 s
+# no-chase cancel, the premium cap and the spread collar all still apply.
+AGGR_CUSHION = 0.05
+
+
+def _entry_limit(bid, ask, aggr=False):
+    """the BUY limit for a new position: the bot's marketable limit, or ask + AGGR_CUSHION when aggr."""
+    if aggr:
+        return round(ask + AGGR_CUSHION, 2)
+    return min(round((bid + ask) / 2.0 + 0.01, 2), round(ask, 2))
 # 🚨 DO NOT HAMMER get_order_detail. poll() runs every loop pass, and checking
 # an in-flight order on every one of them earned a 429 TOO_MANY_REQUESTS from
 # Webull on 2026-09-23 -- which then read as "still working" (see below) and
@@ -1364,6 +1379,7 @@ def swap(eng, tk, req, now_mod=None):
     open_qty = max(1, min(open_qty, 50))
     pos["swap"] = dict(at=time.time(), right=new, expiry=expiry,
                        qty=open_qty, size=size, n=n + 1, sl_dist=sl_dist,
+                       aggr=req.get("aggr") is True,
                        note=str(req.get("note") or "")[:200])
     save_positions(eng)
     if not flatten(eng, tk, f"SWAP {old}->{new}", EXIT_MARKETABLE):
@@ -1390,7 +1406,7 @@ def _swap_enter(eng, tk, intent):
                       f"re-entry NOT sent. Flat.")
         return
     oid, k, b, a, _age = pick
-    limit = min(round((b + a) / 2.0 + 0.01, 2), round(a, 2))
+    limit = _entry_limit(b, a, intent.get("aggr") is True)
     cap, _basis = max_premium(eng)
     qty = int(intent.get("qty") or 1)
     if limit > 0 and limit * qty * 100 > cap:
@@ -1409,6 +1425,7 @@ def _swap_enter(eng, tk, intent):
     ul_sl = round(spot - dist, 2) if intent["right"] == "C" else round(spot + dist, 2)
     req = dict(action="buy", ticker=tk, option_id=oid, qty=qty, strike=k,
                expiry=intent["expiry"], right=intent["right"], ul_sl=ul_sl,
+               aggr=intent.get("aggr") is True,
                note=(f"swap #{intent.get('n')}" + (f" · {intent['note']}"
                                                    if intent.get("note") else "")))
     p = os.path.join(DIR, f"{int(time.time()*1e6)}-swap.json")
@@ -1503,6 +1520,7 @@ def place_trigger(eng, tk, req, now_mod=None):
     replaced = tk in d
     d[tk] = dict(right=right, expiry=expiry, level=level, dir="up" if up else "down",
                  qty=qty, ul_tps=ul_tps, ul_sl=ul_sl, ul_be=bool(req.get("ul_be")),
+                 aggr=req.get("aggr") is True,
                  placed_at=now, expires_at=now + ttl,
                  spot_at=spot, note=str(req.get("note") or "")[:200])
     _save_triggers(d)
@@ -1569,7 +1587,7 @@ def _trigger_enter(eng, tk, t, now_mod):
         _event(False, f"{tk} trigger: no live {t['expiry']} {t['right']} quote — NOT bought")
         return
     oid, k, b, a, _age = pick
-    limit = min(round((b + a) / 2.0 + 0.01, 2), round(a, 2))
+    limit = _entry_limit(b, a, t.get("aggr") is True)
     cap, _basis = max_premium(eng)
     qty = int(t.get("qty") or 1)
     if limit > 0 and limit * qty * 100 > cap:
@@ -1582,7 +1600,7 @@ def _trigger_enter(eng, tk, t, now_mod):
     _fit_ladder(fit)
     req = dict(action="buy", ticker=tk, option_id=oid, qty=qty, strike=k,
                expiry=t["expiry"], right=t["right"], ul_tps=fit["ul_tps"], ul_sl=t.get("ul_sl"),
-               ul_be=t.get("ul_be"),
+               ul_be=t.get("ul_be"), aggr=t.get("aggr") is True,
                note=f"trigger {'≥' if t.get('dir') == 'up' else '≤'} {float(t['level']):.2f}"
                     + (f" · {t['note']}" if t.get("note") else ""))
     _execute(eng, req, os.path.join(DIR, f"{int(time.time()*1e6)}-trigger.json"),
@@ -1690,8 +1708,9 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
                        f"spread {bid:.2f}/{ask:.2f} is "
                        f"{(ask-bid)/mid*100:.0f}% of mid (max "
                        f"{MAX_SPREAD_PCT:.0%}) — quote not trustworthy")
-    # the same marketable limit bot_runner._fire_entry uses (bot_runner.py:1416)
-    limit = min(round(mid + 0.01, 2), round(ask, 2))
+    # the same marketable limit bot_runner._fire_entry uses (bot_runner.py:1416), or ask + cushion with AGGR
+    aggr = req.get("aggr") is True
+    limit = _entry_limit(bid, ask, aggr)
     prem = limit * qty * 100
     cap, basis = max_premium(eng)
     if prem > cap:
@@ -1753,9 +1772,11 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
         strike=req.get("strike"), expiry=req.get("expiry"),
         right=req.get("right"), note=str(req.get("note", ""))[:200],
         ul_tps=ul_tps, ul_sl=ul_sl,     # watched once it fills (_check_levels)
-        be_after_tp=bool(req.get("ul_be")))
+        be_after_tp=bool(req.get("ul_be")),
+        aggr=aggr, ask0=round(ask, 2))  # the ask the limit was priced from (fill - ask0 = what AGGR cost)
     save_positions(eng)
-    lv = "".join([f" · TP {_tps_text(ul_tps)}" if ul_tps else "",
+    lv = "".join([f" · AGGR (ask {ask:.2f} + {AGGR_CUSHION:.2f})" if aggr else "",
+                  f" · TP {_tps_text(ul_tps)}" if ul_tps else "",
                   f" · SL {ul_sl:.2f}" if ul_sl is not None else "",
                   " · SL → entry after a TP" if req.get("ul_be") else ""])
     return _result(path, True,
@@ -2443,12 +2464,18 @@ def _check_entries(eng):
             slip = (fill - float(pos.get("limit") or fill))
             # context captured AT THE FILL, not at the click and not at the
             # exit -- it is the state the position was actually opened into
+            # vs the ask the limit was priced from: + = paid above it (what an AGGR cushion actually cost)
+            ask_slip = round(fill - float(pos["ask0"]), 4) if pos.get("ask0") else None
             _log_manual("open", pos, _context(eng, tk), source="viewer",
                         partial=(got < want), requested_qty=want,
-                        slip=round(slip, 4) if pos.get("limit") else None)
+                        slip=round(slip, 4) if pos.get("limit") else None,
+                        aggr=bool(pos.get("aggr")), ask0=pos.get("ask0"), ask_slip=ask_slip,
+                        fill_s=round(time.time() - float(pos.get("entry_at") or time.time()), 1))
             _event(True, f"{tk} entry FILLED {got}x @ {fill:.2f}"
                          + (f" (limit {pos['limit']:.2f}, "
                             f"{slip:+.2f} slip)" if pos.get("limit") else "")
+                         + (f" [AGGR: {ask_slip:+.2f} vs ask {pos['ask0']:.2f}]"
+                            if pos.get("aggr") and ask_slip is not None else "")
                          + (f" [PARTIAL of {want}]"
                             if got < want else ""))
             continue
