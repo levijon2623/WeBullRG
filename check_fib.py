@@ -34,6 +34,17 @@ PASS (per scale; BH q < 0.10 across the 4 tests = 2 questions x 2 scales)
 MACHINERY  M1 a planted series: pullbacks forced to end within +-0.01 of 0.618 on a third of discovery legs must give
    Q1 z > 3; M2 a sample with the Fib set replaced by a shifted set must not stand out (|z| < 2).
 
+RUN LOG
+  2026-11-23 machinery ok (M1 planted 0.618 z +16.0, M2 shifted set z +0.14).
+    DISCOVERY 1m: 2,803 legs / 22,630 touches. Q1 Fib mass 14.34% vs shifted 14.24% (z +0.06) -- pullbacks do NOT end at
+      Fib ratios. Q2 D +0.010 [+0.005, +0.015], halves +0.009 / +0.011 (e.g. 61.8%: 16.4% resume vs 15.4%).
+    DISCOVERY 5m: 281 legs. Q1 z +0.02; Q2 D -0.002 [-0.015, +0.011].
+    HOLDOUT (scored once) 1m: Q1 z +0.35; Q2 D +0.007 [-0.001, +0.015] q 0.30 -> FAIL (61.8% itself 12.2% vs 13.6%).
+      5m: Q1 z +0.85; Q2 D -0.018 [-0.035, -0.003] (the WRONG sign) -> FAIL. ALL FOUR FAIL.
+    READ: intraday SPY / QQQ / IWM pullbacks do not stop at Fibonacci ratios more than at any neighbouring ratio, and
+    price does not respect a Fib level in any way worth trading -- at most a ~1-point nudge on 1-minute swings that the
+    holdout did not confirm. The popular version ("buy the 61.8") had the weakest holdout of the five.
+
 Usage:  python check_fib.py --discovery | --holdout
 """
 from __future__ import annotations
