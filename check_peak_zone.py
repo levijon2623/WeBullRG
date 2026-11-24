@@ -84,6 +84,25 @@ SAMPLE  sessions = _breach_cache/events (2024-08-20..2026-11-13, 552). DISCOVERY
 NULL CHECK before scoring: on discovery, relabel a random placebo window as the "zone" (global shuffle across sessions,
   200 draws); the P1-P4 estimands must centre on 0.
 
+RESULT (2026-11-24; discovery _peakzone_cache/discovery_v2.txt, holdout scored once _peakzone_cache/RESULT-holdout.txt)
+  NO PEAK-GAMMA EFFECT. Holdout (276 sessions) vs discovery:
+    P1  + zones THROUGH   +0.034 [+0.004, +0.060]  (disc +0.013)  FAIL -- the OPPOSITE of the prediction: + zones are
+                          crossed slightly MORE than matched levels, not less. No dealer dampening.
+    P2  - zones THROUGH   +0.025 [-0.003, +0.055]  (disc +0.019)  fail (right sign both halves, CI spans 0)
+    P3a + zones IV15      -0.081 [-0.212, +0.042]  (disc +0.068)  fail;  P3b - zones -0.081 [-0.154, +0.002] fail
+    P4a SURGE             -0.282 [-0.468, -0.087] q 0.040 (disc -0.159)  meets the letter of the rule, BUT the
+                          discovery null check (global shuffle, a random frequently visited window as the "zone")
+                          centred at -0.31 [-0.57, -0.05], NOT on 0 as the pre-registration required: any level price
+                          keeps returning to is quieter on arrival than levels reached in passing. NOT a gamma effect.
+    P4b PUSH_IMB          +0.007 fail
+    P4c PUSH_IMB slope    -0.078 [-0.153, -0.006] q 0.096, but discovery +0.015 -- opposite sign: FAIL (the printed
+                          'PASS' does not check the discovery-sign condition).
+    P5  light - heavy     -0.069 [-0.099, +0.013] (disc -0.049)  fail (right sign both halves, CI spans 0)
+  Secondary: zone arrivals STALL more than matched (+ zones +11 / +12.5 pts, - zones +6 / +1) and the next 15 min moves
+    less -- consistent with the price-lives-here artefact above (no null run for stall). - zones in the FIRST 30 MIN:
+    through vs matched +0.120 [+0.069, +0.193] holdout, +0.030 [-0.004, +0.094] discovery -- unregistered, a lead only.
+    Futures (ES, ~40 sessions): zone = control; through 0% everywhere when futures push in. QQQ / IWM / ETF-only: same.
+
     python check_peak_zone.py --machinery      (rebuild-vs-live map check; needs the live/weekly_gex archives in --wk)
     python check_peak_zone.py --discovery
     python check_peak_zone.py --holdout        (once)
