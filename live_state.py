@@ -2227,9 +2227,71 @@ def _webull_stats():
         return None
 
 
+# ---- FAST TICK CHANNEL (user, 2026-11-23: "anything we can do to make the ticks faster in the viewer?") ----------
+# state.json is the whole chart (~375 KB) and is rebuilt every MIN_INTERVAL (5 s), so the viewer's price ran 3-7 s
+# behind the bot's own ticks. This writes a tiny live/tick.json every FAST_EVERY from a READ-ONLY daemon thread:
+# each ticker's latest Webull price (as px_live: [ET-as-UTC stamp, price, seconds since its last tick]) and the bid /
+# ask of every STREAMING option contract. The viewer polls it twice a second and patches only the fast parts (price
+# line, strip quotes, the hold's P&L, the stop risk); flow / GEX / volume stay on the 5-s state. It never touches
+# orders, and a failure only stops this file (the 5-s state carries on).
+FAST_OUT = os.path.join(os.path.dirname(OUT), "tick.json")
+FAST_EVERY = 0.5
+_fast_started = False
+
+
+def _fast_loop(eng):
+    fails = 0
+    while True:
+        try:
+            now = time.time()
+            tb = eng.webull.tick_builder
+            px = {}
+            if _px_minute_ok(int(now // 60)):
+                last = getattr(tb, "last_tick_at", None) or {}
+                for tk, bar in list((tb.live_bars or {}).items()):
+                    try:
+                        p = float(bar["close"])
+                    except (TypeError, ValueError, KeyError):
+                        continue
+                    if p > 0:
+                        px[tk] = [_et_stamp(int(now)), round(p, 4),
+                                  round(now - last[tk], 1) if tk in last else None]
+            subs = set(getattr(eng.webull, "active_option_subs", None) or ())
+            q = {}
+            for oid, v in list((tb.live_option_quotes or {}).items()):
+                if subs and oid not in subs:
+                    continue
+                b, a = float(v.get("bid") or 0), float(v.get("ask") or 0)
+                if b > 0 and a > 0:
+                    q[oid] = [round(b, 2), round(a, 2)]
+            if px or q:
+                _atomic_write(FAST_OUT, {"ts": round(now, 2), "px": px, "q": q})
+                time.sleep(FAST_EVERY)
+            else:
+                time.sleep(5.0)                         # outside the session: nothing moving, check rarely
+            fails = 0
+        except Exception:                               # noqa: BLE001 -- never raise into the bot
+            fails += 1
+            if fails >= 50:
+                return                                  # give up quietly; the 5-s state is unaffected
+            time.sleep(1.0)
+
+
+def _start_fast(eng):
+    global _fast_started
+    if _fast_started:
+        return
+    _fast_started = True
+    threading.Thread(target=_fast_loop, args=(eng,), daemon=True, name="live_state_fast").start()
+
+
 def tick(eng, path=OUT, force=False):
     """Throttled, atomic, never-raises. Call once per main-loop pass."""
     global _last, _fails, _off
+    try:
+        _start_fast(eng)
+    except Exception:                                   # noqa: BLE001
+        pass
     if _off:
         return False
     now = time.time()

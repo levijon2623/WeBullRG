@@ -1053,6 +1053,7 @@ function waitLights(d){
 
 function liveStop(){
   clearInterval(liveTimer); liveTimer = null; LIVE = null; liveSeries = null;
+  clearInterval(tickTimer); tickTimer = null; LAST_TICK = null; TICK_AT = 0;
   uiSet('fv_live', null);
   renderNews();                                  // hides the news strip
   $('#liveBtn').classList.remove('on'); $('#liveBtn').textContent = '● GO LIVE';
@@ -1084,6 +1085,52 @@ async function pollBeat(){
   el.textContent = msg; el.style.display = msg ? 'block' : 'none';
 }
 
+/* FAST TICK (user, 2026-11-23): live/tick.json is written by the bot every 0.5 s (live_state._fast_loop: latest
+   price per ticker + bid/ask of every streaming contract, a few KB). Polled twice a second and patched INTO the 5-s
+   state: the price line's live point, the strike strip's quotes, the hold's P&L and the stop risk. Flow / GEX /
+   volume stay on the 5-s state. A stale file (> 10 s) is ignored, so the page falls back to the old behaviour. */
+let TICK_AT = 0, tickBusy = false, tickTimer = null, PX_STAMP = {}, LAST_TICK = null;
+async function pollTick(){
+  if(tickBusy || !LIVE) return;
+  tickBusy = true;
+  try {
+    const r = await fetch('live/tick.json?t=' + Date.now());
+    if(!r.ok) return;
+    const k = await r.json();
+    if(!k || !k.ts || k.ts <= TICK_AT || Date.now()/1000 - k.ts > 10) return;
+    TICK_AT = k.ts; LAST_TICK = k;
+    applyTick(k);
+    const s = LIVE.tickers && LIVE.tickers[liveTk];
+    if(liveSeries && s && s.px_live && s.px_live[0] >= (PX_STAMP[liveTk] || 0)){
+      try { liveSeries.px.update({time: s.px_live[0], value: s.px_live[1]}); PX_STAMP[liveTk] = s.px_live[0]; }
+      catch { /* an older point than the series' last: the next full draw fixes it */ }
+    }
+    liveList(LIVE); renderHold();
+    if(SEL) renderStage();
+  } catch { /* the 5-s state carries on */ }
+  finally { tickBusy = false; }
+}
+/* patch a tick into LIVE (also called by livePoll on a fresh 5-s state, so the slower file can never pull the
+   price line back to an older value) */
+function applyTick(k){
+  if(!k || !LIVE) return;
+  if(Date.now()/1000 - k.ts > 10 || (LIVE.ts && k.ts < LIVE.ts)) return;
+  {
+    for(const [tk, v] of Object.entries(k.px || {})){
+      const s = LIVE.tickers && LIVE.tickers[tk];
+      if(s){ s.px_live = [v[0], v[1]]; s.spot = v[1]; }
+    }
+    for(const rows of Object.values(LIVE.chains || {})) for(const x of rows){
+      const q = (k.q || {})[x.id];
+      if(!q) continue;
+      const [b, a] = q;
+      x.bid = b; x.ask = a; x.mid = Math.round((b + a) / 2 * 100) / 100;
+      x.limit = Math.min(Math.round((x.mid + 0.01) * 100) / 100, a);
+      x.spread_pct = x.mid > 0 ? Math.round((a - b) / x.mid * 1000) / 10 : null;
+    }
+  }
+}
+
 async function livePoll(){
   let d;
   try { const r = await fetch('live/state.json?t='+Date.now());
@@ -1093,6 +1140,7 @@ async function livePoll(){
     return;
   }
   LIVE = d;
+  applyTick(LAST_TICK);                            // a newer 0.5-s tick wins over this 5-s file's price and quotes
   const age = Math.max(0, Math.round(Date.now()/1000 - d.ts));
   $('#liveInfo').textContent =
     `${d.session} · ${d.n_open} open · ${age}s ago` + (age > 60 ? ' ⚠ STALE' : '');
@@ -1555,6 +1603,7 @@ $('#liveBtn').onclick = () => {
   liveSeries = null;
   $('#telem').style.display = 'flex'; $('#side').classList.add('live');
   Promise.all([pollStrikes(), pollTide(), pollFut()]).then(livePoll); pollEvents(); pollBeat(); pollQT();
+  tickTimer = setInterval(pollTick, 500);          // the 0.5-s price / quote channel (live/tick.json)
   // 2.5 s since 2026-11-19 (was 5 s): the strike cue now refreshes every 5 s and writes every 2 s; news stays ~30 s
   liveTimer = setInterval(() => { pollStrikes(); pollTide(); pollFut(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 12 === 0) pollNews(); if(newsTick % 24 === 1) pollQT(); }, 2500);
   pollNews();
