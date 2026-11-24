@@ -313,9 +313,27 @@ PRE_OPEN_MSG = ("before the 09:30 open — no new positions (pre-market option "
 # ---- exits ---------------------------------------------------------------
 EXIT_MARKETABLE = "marketable"
 EXIT_911 = "911"
-# unfilled this long -> cancel and escalate. Was 20s; on 2026-09-28 a 0DTE
-# bid ran away from a marketable close in well under that, so 10s.
-EXIT_CHASE_S = 10.0
+EXIT_CHASE = "chase"
+# unfilled this long -> cancel and re-price. Was 20s; on 2026-09-28 a 0DTE
+# bid ran away from a marketable close in well under that, so 10s. 5s since
+# 2026-11-24: of 285 marketable exits filled since September, 93% filled within
+# 4s (the 3s status poll is most of that) and 98% within 8s -- a stall past 5s
+# is the bid running away, not an order on its way.
+EXIT_CHASE_S = 5.0
+# 🚨 THE CHASE FOLLOWS THE BID; IT DOES NOT DIVE (user, 2026-11-24). Until today
+# a stalled exit was re-sent ONCE at the 911 price (half the bid), and of 26
+# such re-prices since September Webull CANCELLED 17 within ~2.6s (no reason
+# given -- consistent with option exchanges' limit-order price protection,
+# which rejects a sell priced far below the bid) and 9 filled. A cancelled
+# re-price restored the hold and WAITED for a click, so the position sat with
+# no working exit (2026-11-24 09:35: 28s). Now each
+# stall cancels and re-sells at the LIVE bid less a small cushion, round after
+# round, and an exit the broker kills is re-sent at once (BROKER_RESEND_MAX).
+CHASE_CUSHION = (0.05, 0.10)      # bid - max($0.05, 10% of bid)
+CUSHION_911 = (0.10, 0.20)        # 911: bid - max($0.10, 20%), floored at EXIT_FLOOR_FRAC of the bid
+CHASE_WARN_ROUNDS = 5             # from this round on, every re-price also says CHECK THE BROKER
+BROKER_RESEND_MAX = 3             # exits cancelled by the broker (not by us) re-sent this many times
+REPLACE_POLL_S = 1.5              # status poll while a cancel-for-re-price is in flight (else STATUS_POLL_S)
 # 🚨 A REPLACE IS CANCEL -> CONFIRMED -> PLACE, NEVER CANCEL + PLACE. Until the
 # broker confirms the cancel, the contract is still committed to the old SELL,
 # and a second SELL for the same quantity is refused as "in excess of current
@@ -1658,11 +1676,18 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
             n = int(req["qty"]) if req.get("qty") not in (None, "") else None
         except (TypeError, ValueError):
             return _result(path, False, "qty must be a whole number of contracts")
+        hp = load_positions(eng)[tk]
+        if not hp.get("exit_coid") and not hp.get("replacing"):
+            for k in _CHASE_KEYS:                  # a fresh close starts its own chase count
+                hp.pop(k, None)
         ok = flatten(eng, tk, "viewer close" if n is None else f"viewer scale-out {n}x",
                      mode, qty=n)
         return _result(path, ok, (f"{tk} close sent ({mode})" if n is None
                                   else f"{tk} closing {n}x ({mode})") if ok
                        else f"{tk} close FAILED — position still open")
+    if act == "chase":
+        # exit-side, like close: not gated on ARMED or the sideline
+        return _result(path, *bid_chase(eng, tk))
     if act == "overnight":
         # exit-side bookkeeping: not gated on ARMED or the sideline
         return _result(path, *set_overnight(eng, tk, req))
@@ -1899,13 +1924,20 @@ def _exit_price(bid, ask, mode):
                  arithmetic as the shutdown flatten (bot_runner.py:879) and
                  the startup reconcile -- bid less FILL_COST spreads, floored
                  at EXIT_FLOOR_FRAC of the bid.
-    911        : the floor itself.
+    chase      : a stalled exit's re-price: bid - max($0.05, 10%) (CHASE_CUSHION).
+    911        : bid - max($0.10, 20%) (CUSHION_911), floored at EXIT_FLOOR_FRAC
+                 of the bid. It WAS the floor itself (half the bid) until
+                 2026-11-24 -- deep enough that Webull cancelled 17 of 26 such
+                 orders within seconds (see CHASE_CUSHION).
     """
     from config import EXIT_FLOOR_FRAC, FILL_COST
     b = float(bid or 0.0)
     floor = max(0.01, round(b * EXIT_FLOOR_FRAC, 2))
-    if mode == EXIT_911 or b <= 0:
+    if b <= 0:
         return floor
+    if mode in (EXIT_CHASE, EXIT_911):
+        lo, frac = CHASE_CUSHION if mode == EXIT_CHASE else CUSHION_911
+        return max(floor, round(b - max(lo, b * frac), 2))
     spread = max(0.0, float(ask or 0.0) - b)
     return max(floor, round(b - spread * FILL_COST, 2))
 
@@ -2348,7 +2380,7 @@ def _check_levels(eng):
                       f"(spot {spot:.2f}, held {now - since:.1f}s)")
             _event(True, f"{tk} {reason} — closing "
                          + (f"{n} of {int(pos.get('qty') or 0)}" if n else "all")
-                         + ", marketable then 911")
+                         + ", marketable, then chasing the bid")
             pos.pop(key, None)
             flatten(eng, tk, reason, EXIT_MARKETABLE, qty=n)
             break
@@ -2362,7 +2394,9 @@ def _poll_due(pos, key):
     blocked the first exit status check for STATUS_POLL_S, and on a fast
     close the exit looked unconfirmed for no reason.
     """
-    if time.time() - float(pos.get(key) or 0) < STATUS_POLL_S:
+    # a cancel-for-re-price in flight is polled faster, for those few seconds only
+    gap = REPLACE_POLL_S if (key == "last_exit_poll" and pos.get("replacing")) else STATUS_POLL_S
+    if time.time() - float(pos.get(key) or 0) < gap:
         return False
     pos[key] = time.time()
     return True
@@ -2571,6 +2605,14 @@ def _shadow_tick(eng, now_mod=None):
 
 _EXIT_KEYS = ("exit_coid", "exit_at", "exit_px", "exit_mode", "exit_reason",
               "exit_qty", "exit_booked", "replacing", "cancel_at", "blind")
+# per-CLOSE counters that must outlive each re-price (popped when the close ends or a new one starts)
+_CHASE_KEYS = ("chase_n", "bk_resend")
+
+
+def _base_reason(reason):
+    """'viewer close CHASE 2' / '... RE-SENT' / '... ESCALATED' -> 'viewer close'."""
+    import re
+    return re.sub(r"( (ESCALATED|RE-SENT|CHASE \d+))+$", "", str(reason or "EXIT")).strip() or "EXIT"
 
 
 def _book_exit(eng, tk, pos, fq, fpx, st):
@@ -2690,7 +2732,7 @@ def _check_exits(eng):
                     # the hold is gone, so the ticker is free: the swap's entry leg
                     _swap_enter(eng, tk, intent)
             else:
-                for k in _EXIT_KEYS + ("swap",):
+                for k in _EXIT_KEYS + ("swap",) + _CHASE_KEYS:
                     pos.pop(k, None)
                 save_positions(eng)
                 if intent:
@@ -2709,15 +2751,38 @@ def _check_exits(eng):
                 pos.pop(k, None)
             save_positions(eng)
             if rest > 0 and int(pos.get("qty") or 0) > 0:
-                flatten(eng, tk, f"{reason} ESCALATED", mode,
+                flatten(eng, tk, f"{_base_reason(reason)} CHASE {int(pos.get('chase_n') or 1)}", mode,
                         qty=min(rest, int(pos["qty"])))
             continue
         if st in ("CANCELLED", "FAILED"):
-            # re-arm: the next flatten() call (EOD sweep or a button) re-sends
+            # 🚨 THE BROKER KILLED AN EXIT WE DID NOT CANCEL (2026-11-24: 17 of 26
+            # deep re-prices since September, ~2.6s after they were accepted).
+            # This used to restore the hold and wait for a click -- a live 0DTE
+            # with no working exit. Now it is re-sold at the live bid at once,
+            # up to BROKER_RESEND_MAX times, and only then handed back to you.
+            # (A cancel YOU make in the Webull app lands here too: the close you
+            # asked for in the viewer is re-sent, at most that many times.)
+            reason, mode0 = pos.get("exit_reason", "EXIT"), pos.get("exit_mode")
+            rest = max(0, want - int(round(float(pos.get("exit_booked") or 0))))
             for k in _EXIT_KEYS:
                 pos.pop(k, None)
+            held = int(pos.get("qty") or 0)
+            k = int(pos.get("bk_resend") or 0) + 1
+            if rest > 0 and held > 0 and k <= BROKER_RESEND_MAX:
+                pos["bk_resend"] = k
+                pos["chase_n"] = int(pos.get("chase_n") or 0) + 1
+                save_positions(eng)
+                _event(False, f"{tk} exit {st} by the broker (not by us) — re-selling at the live bid "
+                              f"({k}/{BROKER_RESEND_MAX})")
+                flatten(eng, tk, f"{_base_reason(reason)} RE-SENT",
+                        EXIT_911 if mode0 == EXIT_911 else EXIT_CHASE, qty=min(rest, held))
+                continue
+            for k2 in _CHASE_KEYS:
+                pos.pop(k2, None)
             save_positions(eng)
-            _event(False, f"{tk} exit {st} — hold RESTORED, {pos.get('qty')} still open")
+            _event(False, f"{tk} exit {st} — hold RESTORED, {held} still open"
+                          + (f" — the broker cancelled it {BROKER_RESEND_MAX}x: CLOSE IT IN THE BROKER APP"
+                             if k > BROKER_RESEND_MAX else ""))
             continue
         if pos.get("replacing"):
             # cancel sent, not yet confirmed: never place over it. Nudge the
@@ -2732,43 +2797,69 @@ def _check_exits(eng):
                 _event(False, f"{tk} exit cancel not yet confirmed — cancel re-sent")
             continue
         if time.time() - float(pos.get("exit_at") or 0) > EXIT_CHASE_S:
-            if pos.get("exit_mode") == EXIT_911:
-                # Before warning again: is the position even there? A 911 that
-                # cannot fill is usually a book problem, but on 2026-09-23 it
-                # was a hold that had been closed by the user's own bracket --
-                # and the loop warned six times about an order that could
-                # never fill because there was nothing to sell.
-                if _position_gone(eng, pos["option_id"]) is True:
-                    _event(True, f"{tk} 911 could not fill because the "
-                                 f"position is already GONE at the broker — "
-                                 f"releasing the stale hold")
-                    load_positions(eng).pop(tk, None)
-                    save_positions(eng)
-                    continue
-                # already at the floor; nothing left to give. Say so LOUDLY
-                # rather than escalating into a market order on a 0DTE book.
-                _event(False, f"{tk} 911 exit unfilled after "
-                              f"{time.time()-float(pos['exit_at']):.0f}s at "
-                              f"limit {float(pos.get('exit_px') or 0):.2f} — "
-                              f"CLOSE IT IN THE BROKER APP")
-                pos["exit_at"] = time.time()    # re-warn, do not spam
+            n = int(pos.get("chase_n") or 0) + 1
+            # Before a third round: is the position even there? On 2026-09-23 a
+            # 911 could never fill because the user's own bracket had already
+            # closed the position, and the loop warned six times about nothing.
+            if n >= 3 and _position_gone(eng, pos["option_id"]) is True:
+                _event(True, f"{tk} exit could not fill because the position is already "
+                             f"GONE at the broker — releasing the stale hold")
+                load_positions(eng).pop(tk, None)
                 save_positions(eng)
                 continue
             # 🚨 CANCEL REGARDLESS OF DRY_RUN. This used to be `if not DRY_RUN`,
             # so for a REAL hold under a paper bot the stalled order was never
             # cancelled here -- only by flatten's cancel_resting a moment
             # before the new SELL, which is the race described above. A real
-            # position's exit is real (see flatten). Then WAIT: the 911 order
+            # position's exit is real (see flatten). Then WAIT: the re-price
             # goes out from the CANCELLED branch once the cancel is confirmed.
             try:
                 eng.webull.cancel_option_order(coid)
             except Exception as e:                  # noqa: BLE001
                 print(f"  ⚠️ cancel exit {tk}: {type(e).__name__}: {e}")
-            pos["replacing"] = EXIT_911
+            pos["replacing"] = EXIT_911 if pos.get("exit_mode") == EXIT_911 else EXIT_CHASE
+            pos["chase_n"] = n
             pos["cancel_at"] = time.time()
             save_positions(eng)
-            _event(False, f"{tk} exit stalled {EXIT_CHASE_S:.0f}s — cancelling; "
-                          f"911 re-price goes out once the cancel is confirmed")
+            _event(False, f"{tk} exit unfilled {EXIT_CHASE_S:.0f}s at {float(pos.get('exit_px') or 0):.2f} — "
+                          f"cancelling; re-selling at the live bid once the cancel is confirmed (round {n})"
+                          + (" — CHECK THE BROKER" if n >= CHASE_WARN_ROUNDS else ""))
+
+
+def bid_chase(eng, tk):
+    """BID CHASE, the viewer's X + B (user, 2026-11-24: "my exit got stale fast"). Sell at the bid NOW:
+      an exit working     -> cancel it this instant and re-sell at the live bid once the cancel is confirmed
+                             (the same cancel -> confirmed -> place as a stall, without waiting EXIT_CHASE_S)
+      a re-price in flight-> nothing to add; it is already on its way
+      no exit working     -> a fresh marketable close (exactly the Close button)
+      an entry pending    -> flatten cancels the entry, as Close does
+    One replace round trip is ~3s (the broker's cancel confirmation); by hand in the app it is a cancel, a new
+    order and a price to type."""
+    pos = load_positions(eng).get(tk)
+    if not pos:
+        return False, f"no manual hold on {tk} to chase"
+    if pos.get("replacing"):
+        return True, f"{tk} exit is already being re-priced — it goes out at the live bid once the cancel is confirmed"
+    coid = pos.get("exit_coid")
+    if coid and not pos.get("pending"):
+        try:
+            eng.webull.cancel_option_order(coid)
+        except Exception as e:                      # noqa: BLE001
+            return False, f"{tk} bid chase: cancel FAILED ({type(e).__name__}) — the old exit is still working"
+        n = int(pos.get("chase_n") or 0) + 1
+        pos["replacing"] = EXIT_911 if pos.get("exit_mode") == EXIT_911 else EXIT_CHASE
+        pos["chase_n"] = n
+        pos["cancel_at"] = time.time()
+        pos["last_exit_poll"] = 0                   # check the cancel on the very next pass
+        save_positions(eng)
+        _event(False, f"{tk} BID CHASE — cancelling the exit at {float(pos.get('exit_px') or 0):.2f}; "
+                      f"re-selling at the live bid once the cancel is confirmed (round {n})")
+        return True, f"{tk} bid chase: cancelling, re-selling at the live bid"
+    if not coid:
+        for k in _CHASE_KEYS:
+            pos.pop(k, None)
+    ok = flatten(eng, tk, "viewer bid chase", EXIT_MARKETABLE)
+    return ok, (f"{tk} bid chase: close sent at the bid" if ok else f"{tk} bid chase FAILED — position still open")
 
 
 def panic(eng, reason="911"):
@@ -2777,12 +2868,12 @@ def panic(eng, reason="911"):
     A paper position stays with the bot (operator, 2026-11-05): there is nothing
     at the broker to flatten, and a 911 exit would land in the measured record.
 
-    Manual holds go out at the 911 price. Bot positions go through
-    bot_runner._fire_exit instead -- not because they deserve a softer price,
-    but because that path keeps the ledger, the allocator release and
-    active_snipes consistent, and hands the order to _manage_exit_order, which
-    cancels and re-prices if it stalls. A manual hold has no such loop, which
-    is precisely why it needs the deep limit and the bot's does not.
+    Manual holds go out at the 911 price (bid - max($0.10, 20%) since
+    2026-11-24; half the bid before, which Webull cancelled 17 times in 26) and
+    are chased by _check_exits like any exit. Bot positions go through
+    bot_runner._fire_exit instead -- that path keeps the ledger, the allocator
+    release and active_snipes consistent, and hands the order to
+    _manage_exit_order, which cancels and re-prices if it stalls.
 
     A position already mid-exit is LEFT ALONE. Firing a second SELL on top of
     an in-flight one is how you end up short a contract you never owned.

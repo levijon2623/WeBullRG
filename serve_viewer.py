@@ -121,7 +121,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             act = str(req.get("action") or "buy").lower()
             if act not in ("buy", "close", "panic", "arm", "disarm", "levels",
                            "sideline", "unsideline", "swap", "trigger", "untrigger",
-                           "overnight", "sync"):
+                           "overnight", "sync", "chase"):
                 return self._json({"ok": False, "err": "action"}, 400)
             if act == "swap":
                 # the answer to the sideline question, required by the engine

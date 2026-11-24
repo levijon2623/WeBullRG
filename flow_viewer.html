@@ -1528,7 +1528,8 @@ function liveDraw(d, s){
                            : ' — waiting for alerts'} · ISO, single-leg, opening</span>`}
     <span><i style="background:#d29922"></i>p${s.min_flow_pct??'?'} magnitude gate (live, moves)</span>
     <span><i style="background:#56d364"></i>underlying TP · <i style="background:#ff6b6b"></i>SL
-      — T/S + click when enabled; dashed = staged with an order · hold S + R: ratchet the open position's SL to
+      — T/S + click when enabled; dashed = staged with an order · hold X + B: BID CHASE, sell the open position at
+      the bid now (re-prices a working exit at once) · hold S + R: ratchet the open position's SL to
       $0.10 shy of spot (tighten only)</span>
     ${s.state==='holding' ? `<span style="color:var(--put)">⚠ flow tracking is
       PAUSED while a position is open (bot_runner.py:1708 skips busy tickers) —
@@ -2058,6 +2059,19 @@ async function stopRatchet(){
   const j = await postOrder({action:'levels', ticker:tk, sl: lv, why:'ratchet S+R'});
   ulToast(j.ok ? `${tk} SL ratcheted ${cur != null ? cur.toFixed(2) + ' → ' : ''}${lv.toFixed(2)} (spot ${spot.toFixed(2)})`
                : 'REFUSED: ' + (j.err || '?'), !j.ok);
+  pollEvents();
+}
+
+/* BID CHASE (user, 2026-11-24): hold X, press B -- sell the open position at the bid NOW. With an exit already
+   working, the engine cancels it this instant and re-sells at the live bid once the cancel is confirmed (~3 s)
+   instead of waiting out the 5-s stall; with none working it is a plain marketable close. Exit-side, so like
+   Close it is not gated on arming. The position on the ticker on screen, else the selected hold. */
+async function bidChase(){
+  const m = (LIVE && LIVE.manual) || {};
+  const tk = m[liveTk] ? liveTk : (HOLDSEL && m[HOLDSEL] ? HOLDSEL : null);
+  if(!tk) return ulToast(`no open position on ${liveTk} to chase`, true);
+  const j = await postOrder({action:'chase', ticker:tk});
+  ulToast(j.ok ? `${tk} BID CHASE sent — the bot confirms in telemetry` : 'REFUSED: ' + (j.err || '?'), !j.ok);
   pollEvents();
 }
 
@@ -3311,6 +3325,8 @@ addEventListener('keydown', e => {
     e.preventDefault(); toggleKey(false); return; }
   if(e.key === 'Escape' && SEL){ e.preventDefault(); $('#stageX').click(); return; }
   if(e.key === 'r' && UL_KEYS.has('s') && LIVE){ e.preventDefault(); stopRatchet(); return; }
+  if(e.key === 'b' && UL_KEYS.has('x') && LIVE){ e.preventDefault(); bidChase(); return; }
+  if(e.key === 'x'){ UL_KEYS.add('x'); return; }
   if(e.key === 't' || e.key === 's' || e.key === 'e'){ UL_KEYS.add(e.key); return; }
   if(e.key === 'k'){ e.preventDefault(); toggleKey(); return; }
   if(e.key === 'g' && LIVE){ e.preventDefault(); gxToggle(); return; }
