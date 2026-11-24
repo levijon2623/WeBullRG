@@ -2142,13 +2142,21 @@ async function ulClick(p){
       STAGE_UL = {tk, right:c.right, tps:[], sl:null, be:false};
     const ref = stageRef(c, tk);
     const why = ulWhy(c.right, ref.px, kind, px, ref.name);
-    if(why) return ulToast(why, true);
+    /* A STOP ON THE WRONG SIDE OF SPOT MAY BE STAGED (user, 2026-11-24): "so that it's ready to fire as soon as spot
+       crosses back". Checked at the moment of the BUY instead -- renderStage blocks the button while spot is still on
+       the wrong side, and the engine (validate_levels at _execute) refuses it regardless. Only a plain order measured
+       from SPOT: a stop staged against an entry TRIGGER is still checked against the trigger level here, TPs keep
+       their check, and a stop on a position already HELD is still refused (it would fire at once). */
+    const deferred = why && kind === 'sl' && ref.name === 'spot';
+    if(why && !deferred) return ulToast(why, true);
     if(kind === 'tp'){
       const nt = tierClick(fitTps(STAGE_UL.tps, qtyVal()), px, qtyVal(), c.right);
       if(typeof nt === 'string') return ulToast(nt, true);
       STAGE_UL.tps = nt;
     } else STAGE_UL.sl = px;
-    ulToast(`staged ${kind.toUpperCase()} ${px.toFixed(2)} — sent with the ${
+    if(deferred) ulToast(`staged SL ${px.toFixed(2)} — on the wrong side of spot ${ref.px.toFixed(2)} for a ${
+      c.right === 'C' ? 'call' : 'put'}: BUY stays blocked until spot crosses back ${c.right === 'C' ? 'above' : 'below'} it`, true);
+    else ulToast(`staged ${kind.toUpperCase()} ${px.toFixed(2)} — sent with the ${
       ref.name === 'entry' ? 'trigger' : 'order'}`, false);
     renderTrg(c);
     renderUlStage(); drawUl();
@@ -2328,6 +2336,12 @@ function renderStage(){
   const u0 = UL_ON ? stagedUl() : null;
   if(!u0 || u0.sl == null)
     why.push('no stop — tick "Enable underlying TP/SL", hold S and click the price chart (every new position needs one)');
+  else {
+    /* a stop staged on the wrong side of spot waits here (user, 2026-11-24); re-checked on every 0.5-s tick */
+    const sp = (LIVE.tickers[SEL.tk] || {}).spot;
+    const w = sp != null ? ulWhy(c.right, sp, 'sl', u0.sl) : null;
+    if(w) why.push(`stop on the wrong side — ${w}; BUY unlocks when spot crosses back`);
+  }
   gate(why, null, c.right, u0 && u0.sl != null ? stopRiskWarn(c, u0.sl, qty) : '');
 }
 
