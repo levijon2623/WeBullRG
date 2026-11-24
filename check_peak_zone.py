@@ -215,7 +215,7 @@ def zone_map(d, tk, mod=SNAP_MOD, blend=True):
 
 
 # ================================================================ scoring (written after the pre-registration, 3ab2aab)
-CACHE = os.path.join(ROOT, "_peakzone_cache", "v2")   # v2: every non-overlapping window kept (control rule applied at scoring)
+CACHE = os.environ.get("PEAKZONE_CACHE") or os.path.join(ROOT, "_peakzone_cache", "v2")   # v2: every non-overlapping window kept (control rule applied at scoring)
 T0_MIN, T0_MAX = 9 * 3600 + 32 * 60, 15 * 3600 + 30 * 60
 VARIANTS = (("SPY", True), ("QQQ", True), ("IWM", True), ("SPY", False))
 
