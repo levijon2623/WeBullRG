@@ -919,13 +919,13 @@ function contraPill(){
     tip = `THRU and PULLBACK disagree: the breach came first (${tA} at ${c.thru_at}), then a pullback the other way ` +
       `(${c.pull_at}, ${c.gap}s later).\n  The pullback keeps its usual odds: 2R before the stop ${c.pull_rate}% (all setups ~42%).` +
       `\n  The breach's odds depend on where price is: the pullback entry is ${c.k_entry_bp} bp from the whole dollar — ${where}` +
-      ` — next strike ${c.thru_rate}% (back at the strike 13%, 2–5 bp 25%, 5+ bp 34%).`;
+      ` — next strike ${c.thru_rate}% (back at the strike 15%, 2–5 bp 26%, 5+ bp 40%; all breaches 24%).`;
   } else {
     body = `<span style="color:${COL}">⇄</span><span class="k">${pA} then ${tA}</span>` +
       `<b>pullback likely failed</b><span class="k">·</span><b>THRU ${c.thru_rate}%</b>`;
     tip = `THRU and PULLBACK disagree: the pullback came first (${c.pull_at}), then a breach the other way ` +
       `(${tA} at ${c.thru_at}, ${c.gap}s later).\n  By the time a breach fires against a pullback, the pullback has almost ` +
-      `always failed: 2R ${c.pull_rate}% (1–3% across the cells).\n  The breach: next strike ${c.thru_rate}% (all breaches ~21%).`;
+      `always failed: 2R ${c.pull_rate}% (2–8% across the cells).\n  The breach: next strike ${c.thru_rate}% (all breaches 24%).`;
   }
   tip += `\n\nFrom check_contradiction.py: opposite pairs within 120 s, 2024-08..2025-12 discovery and the 2026 holdout ` +
     `(scored once, IC +0.303). Most of it is ORDER: the earlier signal has usually already failed when the opposite one ` +

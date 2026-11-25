@@ -61,10 +61,11 @@ PUSH_ATM_TK = ("SPY",)                  # P4 passed on SPY only
 PUSH_OTM_TK = ("SPY", "IWM")            # P7: SPY and IWM carried it, QQQ ~0
 # THRU: the study's breach window (t_in 09:45-15:30) and how long the pill shows a breach
 THRU_MIN_MOD, THRU_MAX_MOD, THRU_SHOW_S = 9 * 60 + 45, 15 * 60 + 30, 300
-# CONTRADICTION note (check_contradiction.py, holdout 2026-01..11-13, PASS IC +0.303): (pullback 2R %, breach next-strike %)
+# CONTRADICTION note (check_contradiction.py, holdout 2026-01..11-13, PASS IC +0.303): each cue's OWN hit rate (pullback 2R %,
+# breach next-strike %). Corrected 2026-11-25: the first version held OUTRIGHT-WIN rates (one hit and the other missed).
 # by order and by the pullback entry's distance from the whole dollar (< 2 / 2-5 / >= 5 bp). Discovery agreed.
 CONTRA_WIN = 120
-CONTRA_RATES = {"B>P": [(39, 13), (39, 25), (39, 34)], "P>B": [(3, 22), (2, 32), (1, 33)]}
+CONTRA_RATES = {"B>P": [(42, 15), (41, 26), (44, 40)], "P>B": [(8, 27), (3, 33), (2, 34)]}
 FRZ = THRU = None                       # breach_model_frozen.json / strike_cue_thru.json, loaded by run()
 PB = None                               # pullback_model_frozen.json, loaded by run()
 PB_MODEL = os.path.join(HERE, "pullback_model_frozen.json")

@@ -54,6 +54,9 @@ RUN LOG
     order the score still ranks (B>P +0.133 [+0.074, +0.185], P>B +0.172 [+0.083, +0.260]) and it ranks the BREACH:
     B>P PULL stays 37-44% in every quintile while THRU goes 37% -> 9%; biggest driver k_entry -- pullback entry 0-2 bp
     from the whole dollar (price back at the strike) THRU 13%, 2-5 bp 25%, 5-10 bp 34%, PULL ~39-40% throughout.
+    CORRECTION 2026-11-25: the 13 / 25 / 34 and ~39 above are OUTRIGHT-WIN rates (D: one side hit AND the other missed). Each side's
+    own hit rate (PULL 2R / THRU next strike): B>P <2 bp 41.7 / 15.4 (n 571), 2-5 40.8 / 26.5 (431), >=5 44.3 / 39.7 (237);
+    P>B 7.9 / 27.0 (126), 3.4 / 33.3 (177), 2.4 / 34.4 (125). The viewer pill showed the former labelled as the latter until today.
     VIEWER NOTE: breach then pullback against it -> the pullback keeps its usual odds, the breach's odds depend on
     whether price is back at the strike; pullback then breach against it -> the pullback has almost always failed.
 
