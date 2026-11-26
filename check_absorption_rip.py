@@ -169,7 +169,7 @@ def build():
     os.makedirs(CACHE, exist_ok=True)
     cp = os.path.join(CACHE, "events.parquet")
     if os.path.exists(cp):
-        return pl.read_parquet(cp)
+        return pl.read_parquet(cp).with_columns(pl.col("rip").cast(pl.Boolean))
     days = sorted(os.path.basename(p)[5:] for p in glob.glob(os.path.join(LAKE, "ext-1m", "date=*")))
     A = {tk: {} for tk in TKS}
     for d in days:
@@ -201,7 +201,7 @@ def build():
                 rows.append(e)
         if d_i % 50 == 0:
             print(f"  built {d_i}/{len(days)} sessions, {len(rows)} base events", flush=True)
-    ev = pl.DataFrame(rows)
+    ev = pl.DataFrame(rows, infer_schema_length=None).with_columns(pl.col("rip").cast(pl.Boolean))
     ev.write_parquet(cp)
     return ev
 
@@ -212,7 +212,8 @@ def half(ev, which):
 
 
 def rate(x):
-    return float(np.mean(x)) if len(x) else np.nan
+    x = x.to_numpy() if isinstance(x, pl.Series) else np.asarray(x)
+    return float(np.mean(x.astype(float))) if len(x) else np.nan
 
 
 def q_est(ev, q, cuts):
