@@ -328,11 +328,13 @@ EXIT_CHASE_S = 5.0
 # re-price restored the hold and WAITED for a click, so the position sat with
 # no working exit (2026-11-24 09:35: 28s). Now each
 # stall cancels and re-sells at the LIVE bid less a small cushion, round after
-# round, and an exit the broker kills is re-sent at once (BROKER_RESEND_MAX).
+# round. An exit cancelled by anyone but us (the Webull app, or the broker)
+# restores the hold and is NOT re-sent: the user confirmed 2026-11-26 that the
+# stalled exits of 11-24/25 were cancelled by hand, so a re-send would fight
+# a cancel made on purpose (the 11-24 BROKER_RESEND_MAX path, removed).
 CHASE_CUSHION = (0.05, 0.10)      # bid - max($0.05, 10% of bid)
 CUSHION_911 = (0.10, 0.20)        # 911: bid - max($0.10, 20%), floored at EXIT_FLOOR_FRAC of the bid
 CHASE_WARN_ROUNDS = 5             # from this round on, every re-price also says CHECK THE BROKER
-BROKER_RESEND_MAX = 3             # exits cancelled by the broker (not by us) re-sent this many times
 REPLACE_POLL_S = 1.5              # status poll while a cancel-for-re-price is in flight (else STATUS_POLL_S)
 # 🚨 A REPLACE IS CANCEL -> CONFIRMED -> PLACE, NEVER CANCEL + PLACE. Until the
 # broker confirms the cancel, the contract is still committed to the old SELL,
@@ -468,6 +470,16 @@ SIDELINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live",
 SIDELINE_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "manual_sideline.jsonl")
 SIDELINE_Q = "Are you trying to give back profits or increase losses?"
+# 🚨 THE HARD STOP (user, 2026-11-26: "Shut the whole thing down at -$150 on the day"). When the day's account P&L
+# (day_gain: NLV against the 09:25 read, open marks included) reaches -DAY_HARD_STOP_USD, the engine sidelines itself
+# with hard=True -- no question, no way back in until the next ET day -- disarms, cancels staged triggers and pending
+# entries, and (HARD_STOP_FLATTEN) sells every manual hold by the bid-following chase. Separate from the qualifying
+# test's -$80 daily limit, which stays a warning and a behaviour-fail mark (qual_test.py). A WITHDRAWAL MADE DURING THE
+# SESSION reads as a loss here (see day_gain) -- make withdrawals before 09:25.
+DAY_HARD_STOP_USD = float((os.getenv("MANUAL_DAY_HARD_STOP_USD") or "150").strip() or 150)
+HARD_STOP_FLATTEN = True
+HARD_STOP_EVERY_S = 5.0
+_HARD = {"at": 0.0}
 
 
 def _et_today():
@@ -619,6 +631,11 @@ def sidelined():
     return sideline_state() is not None
 
 
+def hard_stopped():
+    s = sideline_state()
+    return bool(s and s.get("hard"))
+
+
 def _sideline_log(kind, **extra):
     try:
         rec = dict(kind=kind, ts=int(time.time()), date=_et_today(), **extra)
@@ -649,6 +666,9 @@ def unsideline(eng, answer, note=""):
     s = sideline_state()
     if not s:
         return False, "not sidelined"
+    if s.get("hard"):
+        return False, (f"HARD STOP at -${DAY_HARD_STOP_USD:,.0f} on the day — it cannot be lifted; "
+                       f"trading resumes tomorrow")
     answer = str(answer or "").lower()
     if answer not in ("yes", "no"):
         return False, "answer must be yes or no"
@@ -667,6 +687,42 @@ def unsideline(eng, answer, note=""):
         return False, f"could not lift the sideline ({e})"
     _event(True, "sideline LIFTED (answered YES) — arm to trade")
     return True, "sideline lifted — arm to trade"
+
+
+def _check_hard_stop(eng):
+    """The -$150 day hard stop (see DAY_HARD_STOP_USD). Every HARD_STOP_EVERY_S; never raises into poll()."""
+    now = time.time()
+    if now - _HARD["at"] < HARD_STOP_EVERY_S:
+        return
+    _HARD["at"] = now
+    if DAY_HARD_STOP_USD <= 0 or hard_stopped() or not _is_trading_day_et():
+        return
+    g = day_gain(eng)
+    if not g or g.get("pnl") is None or float(g["pnl"]) > -DAY_HARD_STOP_USD:
+        return
+    pnl = float(g["pnl"])
+    try:
+        _write_atomic(SIDELINE, dict(date=_et_today(), at=int(now), hard=True, pnl=round(pnl, 2),
+                                     limit=DAY_HARD_STOP_USD))
+    except OSError as e:
+        print(f"  ⚠️ hard stop: could not write the sideline: {type(e).__name__}: {e}")
+        return
+    eng.manual_armed_until = 0.0
+    held = sorted(load_positions(eng))
+    _sideline_log("hard_stop", pnl=round(pnl, 2), limit=DAY_HARD_STOP_USD, holds=held)
+    sold = []
+    if HARD_STOP_FLATTEN:
+        for tk in held:
+            # a pending entry is CANCELLED by flatten(), an exit in flight is left to its chase
+            if flatten(eng, tk, f"HARD STOP -${DAY_HARD_STOP_USD:,.0f}", EXIT_CHASE):
+                sold.append(tk)
+        ex = extra_oids(eng)
+        if ex:
+            eng.manual_panic_oids = set(ex)     # poll() sells extras one at a time as each slot frees
+            sold.append(f"{len(ex)} extra contract(s)")
+    _event(True, f"🛑 HARD STOP: the day is {pnl:+,.2f} (limit -${DAY_HARD_STOP_USD:,.0f}) — trading OFF until "
+                 f"tomorrow, cannot be lifted; triggers and pending entries cancelled"
+                 + (f"; selling {', '.join(sold)}" if sold else "; nothing held"))
 
 
 def extra_dtes(ticker, required):
@@ -2606,7 +2662,7 @@ def _shadow_tick(eng, now_mod=None):
 _EXIT_KEYS = ("exit_coid", "exit_at", "exit_px", "exit_mode", "exit_reason",
               "exit_qty", "exit_booked", "replacing", "cancel_at", "blind")
 # per-CLOSE counters that must outlive each re-price (popped when the close ends or a new one starts)
-_CHASE_KEYS = ("chase_n", "bk_resend")
+_CHASE_KEYS = ("chase_n", "bk_resend")    # bk_resend: only to clear holds saved before 11-26
 
 
 def _base_reason(reason):
@@ -2755,34 +2811,17 @@ def _check_exits(eng):
                         qty=min(rest, int(pos["qty"])))
             continue
         if st in ("CANCELLED", "FAILED"):
-            # 🚨 THE BROKER KILLED AN EXIT WE DID NOT CANCEL (2026-11-24: 17 of 26
-            # deep re-prices since September, ~2.6s after they were accepted).
-            # This used to restore the hold and wait for a click -- a live 0DTE
-            # with no working exit. Now it is re-sold at the live bid at once,
-            # up to BROKER_RESEND_MAX times, and only then handed back to you.
-            # (A cancel YOU make in the Webull app lands here too: the close you
-            # asked for in the viewer is re-sent, at most that many times.)
-            reason, mode0 = pos.get("exit_reason", "EXIT"), pos.get("exit_mode")
-            rest = max(0, want - int(round(float(pos.get("exit_booked") or 0))))
-            for k in _EXIT_KEYS:
+            # AN EXIT WE DID NOT CANCEL ENDED UNFILLED -- a cancel in the Webull
+            # app (the user, 2026-11-26: the 11-24/25 stalls were cancelled by
+            # hand) or a broker kill. The hold is restored and NOT re-sent: a
+            # cancel made on purpose must not be fought. From 11-24 to 11-26 it
+            # was re-sold at the live bid up to 3 times (BROKER_RESEND_MAX).
+            for k in _EXIT_KEYS + _CHASE_KEYS:
                 pos.pop(k, None)
             held = int(pos.get("qty") or 0)
-            k = int(pos.get("bk_resend") or 0) + 1
-            if rest > 0 and held > 0 and k <= BROKER_RESEND_MAX:
-                pos["bk_resend"] = k
-                pos["chase_n"] = int(pos.get("chase_n") or 0) + 1
-                save_positions(eng)
-                _event(False, f"{tk} exit {st} by the broker (not by us) — re-selling at the live bid "
-                              f"({k}/{BROKER_RESEND_MAX})")
-                flatten(eng, tk, f"{_base_reason(reason)} RE-SENT",
-                        EXIT_911 if mode0 == EXIT_911 else EXIT_CHASE, qty=min(rest, held))
-                continue
-            for k2 in _CHASE_KEYS:
-                pos.pop(k2, None)
             save_positions(eng)
-            _event(False, f"{tk} exit {st} — hold RESTORED, {held} still open"
-                          + (f" — the broker cancelled it {BROKER_RESEND_MAX}x: CLOSE IT IN THE BROKER APP"
-                             if k > BROKER_RESEND_MAX else ""))
+            _event(False, f"{tk} exit {st} (cancelled in the Webull app, or by the broker) — hold RESTORED, "
+                          f"{held} still open, NOT re-sent: close it again if you meant to")
             continue
         if pos.get("replacing"):
             # cancel sent, not yet confirmed: never place over it. Nudge the
@@ -2925,6 +2964,10 @@ def poll(eng, now_mod=None):
         # stops it re-firing on something already sold.
         _check_entries(eng)
         _check_exits(eng)
+        try:
+            _check_hard_stop(eng)               # before triggers, so a staged entry cannot fire past -$150
+        except Exception as e:                  # noqa: BLE001 -- deliberate
+            print(f"  ⚠️ hard stop check: {type(e).__name__}: {e}")
         _check_levels(eng)
         _check_triggers(eng, now_mod)
         _shadow_tick(eng, now_mod)

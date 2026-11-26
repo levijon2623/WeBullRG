@@ -2879,6 +2879,14 @@ function renderSide(){
   if(!LIVE){ b.disabled = true; b.className = ''; b.textContent = '⏸ SIDELINE';
     $('#sideInfo').textContent = ''; return; }
   b.disabled = false;
+  if(LIVE.sidelined && LIVE.sideline_hard){
+    b.className = 'out';
+    b.textContent = `🛑 HARD STOP −$${(LIVE.hard_stop_usd || 150).toFixed(0)} — done until tomorrow`;
+    const t = LIVE.sideline_at, p = LIVE.sideline_pnl;
+    $('#sideInfo').textContent = (t ? `at ${etClock(t)}` : '') + (p != null ? ` (day ${p >= 0 ? '+' : '−'}$${Math.abs(p).toFixed(0)})` : '') +
+      ' · cannot be lifted · exits still work';
+    return;
+  }
   if(LIVE.sidelined){
     b.className = 'out';
     b.textContent = '⏸ SIDELINED — until tomorrow';
@@ -2893,6 +2901,10 @@ function renderSide(){
 }
 
 function openSide(){
+  if(LIVE && LIVE.sideline_hard){      // the -$150 hard stop has no question: nothing to answer, nothing to lift
+    $('#sideInfo').textContent = 'HARD STOP — cannot be lifted today; trading resumes tomorrow';
+    return;
+  }
   SIDE_MODE = 'sideline';
   $('#sideH').textContent = 'You sidelined yourself';
   const t = LIVE && LIVE.sideline_at;

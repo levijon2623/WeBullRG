@@ -2183,6 +2183,9 @@ def snapshot(eng):
                                  "ARM_WINDOW_S", 900)),
         sidelined=bool(_side),            # done for the day (manual_orders)
         sideline_at=(_side or {}).get("at"),
+        sideline_hard=bool((_side or {}).get("hard")),     # the -$150 day hard stop: cannot be lifted today
+        sideline_pnl=(_side or {}).get("pnl"),
+        hard_stop_usd=getattr(__import__("manual_orders"), "DAY_HARD_STOP_USD", None),
         manual=dict(getattr(eng, "manual_holds", {}) or {}),
         manual_extras=dict(getattr(eng, "manual_extras", {}) or {}),  # 2nd+ contract per ticker
         manual_cap=_num(manual_cap, 2),
