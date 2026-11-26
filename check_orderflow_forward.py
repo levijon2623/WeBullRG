@@ -64,6 +64,15 @@ DECISION RULES
     After that  footprint inputs go into check_ic_screen.py / check_ic_tail.py (Lasso);
                 too little history before then.
 
+DATA GAP (recorded 2026-11-26, before any forward session was read; schedule only, no rule changed): Webull's
+FOOTPRINT subscription lapsed 2026-11-12 (the user let the data expire; re-subscribed 2026-11-26), so the collectors
+failed 11-12 .. 11-25. Webull keeps only the latest 1,200 bars per size: 1-minute bars for 11-23 / 11-24 / 11-25 were
+recovered, 5-second bars were not (the last 100 minutes of 11-25 were, and set aside in _footprint_cache/partial/ so a
+partial day is never scored). Sessions without both files are skipped by the code as before -- missing for an
+operational reason, not an outcome, so they are simply not in the sample. Forward sessions with data: 11-06 .. 11-11
+(4), then from 11-27. EARLY READ moves to the 18th session, about 2026-12-16; the FINAL (100 sessions) to about
+2027-04-16.
+
 KNOWN LIMITS
     Webull classifies about a fifth to a quarter of each bar's volume. No futures data.
     Multi-leg volume is left in the option sides.
@@ -90,7 +99,7 @@ NY = ZoneInfo("America/New_York")
 
 START = "2026-11-06"            # first scored session
 DISCOVERY = ("2026-10-07", "2026-11-05")
-EARLY_READ = "2026-12-02"
+EARLY_READ = "2026-12-16"           # moved from 2026-12-02 by the footprint data gap (see DATA GAP)
 FINAL_MIN_SESSIONS = 100
 TK = ("SPY", "QQQ", "IWM")
 INDEX_OF = {"SPY": "SPX", "QQQ": "NDX", "IWM": "RUT"}
