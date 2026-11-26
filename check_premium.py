@@ -35,6 +35,14 @@ SAMPLES  DISCOVERY = odd calendar months, HOLDOUT = even (as check_overnight). P
   touch rates behind the idea were seen on both halves (check_overnight); no option P&L was ever computed. --holdout writes
   _premium_cache/RESULT-holdout.txt and refuses a second run.
 
+RUN LOG (2026-11-25; discovery _premium_discovery.txt, holdout scored once _premium_cache/RESULT-holdout-full.txt)
+  Calibration (SPY): big no-fade short strike |delta| 0.13 / 0.12 vs finished beyond 9% / 10% (discovery / holdout);
+    ordinary same-odds 0.12 vs 8% / 9% -- the market prices the big-gap morning; no extra edge over any morning.
+  P1 vertical $1 toward the prior close: discovery +$1.09, HOLDOUT -$1.50 [-7.92, +3.64] -> FAIL (IWM holdout -$6.60).
+  P2 ATM calendar (short 0DTE / long next expiry): discovery +$10.47, HOLDOUT +$10.26 [-3.75, +24.52], q 0.33 -> FAIL.
+    SPY was the same size in both halves and beat ordinary mornings in both (+$3.69 / -$2.48), worst-case fills +$5.11 /
+    +$3.80; but QQQ (+$1.86 -> +$11.14, ordinary +$11.48 -> -$6.34) and IWM (+$4.58 -> -$3.88) disagree. A lead only.
+
     python check_premium.py --discovery
     python check_premium.py --holdout        (once)
 """
