@@ -1,0 +1,28 @@
+# /etc/systemd/system/cleanbot-replay.service
+#
+# The flow viewer's day archive (2026-11-25): replay_archiver.py keeps each session's minute series and the
+# minute-by-minute state of the pills, bands and gamma heat in live/replay/DATE/ so a past day can be replayed.
+# Read-only: reads the live/ files the engine and cue services write; never touches the bot, orders or Webull.
+#
+#   sudo cp deploy/replay.service /etc/systemd/system/cleanbot-replay.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cleanbot-replay
+
+[Unit]
+Description=Cleanbot replay archiver
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/bot_engine/Cleanbot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/bot_engine/venv/bin/python replay_archiver.py
+Restart=on-failure
+RestartSec=60
+Nice=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cleanbot-replay
+
+[Install]
+WantedBy=multi-user.target
