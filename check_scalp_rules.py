@@ -35,6 +35,11 @@ SCREEN (SPY, one per rule)  inputs (17, all known at t; signed = with the trade 
   CROSS   x_ret60, x_ret300 (the other two indexes' mean move over 60 s / 5 min, signed, bp)   [the Lasso kept the
           cross-index input in both earlier screens]
   NIGHT   o_gapz (check_overnight z), o_with_gap (1 if the trade's side is the gap's side)
+  BAR     (AMENDMENT 2026-11-25, the user, before anything was scored -- the build had not finished and no P&L was
+          read: "part of my choosing is activity within the 1m candle: pushing up and holding above its open, bullish")
+          b_vs_open  P(t) vs the open of the FORMING 1-minute candle (the first 5-s close of that minute), signed, bp
+          b_hold     share of that minute's 5-s closes so far on the trade's side of the open (0.5 with < 2 bars)
+  -> 19 inputs.
   ranks within ticker against the DISCOVERY distribution (mid-rank ECDF), missing -> 0.5. TARGET = trade P&L ($).
   S1 IC (discovery): Spearman(input, P&L), day-block p, BH across the 17, same sign in both halves. Reported.
   S2 LASSO: LassoCV (GroupKFold by ISO week, 5 folds) on the discovery ranks. PASS = keeps >= 1 input AND holdout
@@ -74,7 +79,7 @@ HOLD_A, HOLD_B = 30, 60
 MOVE5, PULL1, TICK10 = 1.4, 0.7, 0.3          # bp
 FIRST, LAST = "2024-08-20", "2026-11-13"
 INPUTS = ["m300", "m60", "m10", "c_open", "c_range", "c_tod", "q_spread", "f_dd5", "f_dd1", "f_vol", "c_gex", "c_rvol",
-          "c_tide", "x_ret60", "x_ret300", "o_gapz", "o_with_gap"]
+          "c_tide", "x_ret60", "x_ret300", "o_gapz", "o_with_gap", "b_vs_open", "b_hold"]
 SEED = 20261125
 
 
@@ -166,6 +171,15 @@ def build_day(d):
                 seen = cl[(kt <= t) & (kt >= OPEN)]
                 hi_, lo_ = (seen.max(), seen.min()) if len(seen) else (np.nan, np.nan)
                 row["c_range"] = ((p0 - lo_) / (hi_ - lo_) if side > 0 else (hi_ - p0) / (hi_ - lo_)) if hi_ > lo_ else None
+                # the FORMING 1-minute candle: 5-s closes known by t whose bar STARTED in this minute
+                m0 = (t // 60) * 60
+                bar = cl[(kt - 5.0 >= m0) & (kt <= t)]
+                if len(bar):
+                    o1 = float(bar[0])
+                    row["b_vs_open"] = side * bp(p0, o1)
+                    row["b_hold"] = float(np.mean(side * (bar - o1) > 0)) if len(bar) >= 2 else 0.5
+                else:
+                    row["b_vs_open"] = row["b_hold"] = None
                 row["q_spread"] = ((e[1] - e[0]) / ((e[0] + e[1]) / 2)) if e and (e[0] + e[1]) > 0 else None
                 row["f_dd5"] = side * sum(dd.get(m, 0.0) for m in range(mc - 4, mc + 1)) if dd else None
                 row["f_dd1"] = side * dd.get(mc, 0.0) if dd else None
