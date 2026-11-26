@@ -53,6 +53,21 @@ NULL      before the holdout, on discovery: each question with its predictor per
 TRADING USE  none until a PASS. Q1-Q3 are magnitude forecasts, which earlier tests (straddle, vol gauge) found priced
           in; Q4 is the one that would matter for a trade.
 
+RESULT (2026-11-26; discovery _absorb_discovery.log, holdout scored once _absorb_cache/RESULT-holdout.txt)
+  Nulls all centred on discovery (no re-basing). Holdout: 1,955 bases / 375 sessions; discovery 2,040 / 368.
+    Q1 volume dry-up   holdout -0.022 [-0.046, +0.002]  (disc -0.041)  FAIL -- the OPPOSITE way in both halves: volume
+                       RISING into the end of a quiet stretch comes before rips (unregistered; a lead only).
+    Q2 base length     holdout -0.029 [-0.058, +0.001]  (disc -0.030)  FAIL -- also opposite both halves: shorter rip more.
+    Q3 dealer gamma    holdout +0.032 [+0.010, +0.054] q 0.008 (disc +0.032)  PASS -- with dealers short gamma a quiet
+                       stretch becomes a rip 4.9% of the time vs 1.8% long gamma (discovery 4.2% vs 1.0%): ~2.5-4x.
+                       A size forecast (direction not implied); bigger moves in negative gamma are known and largely
+                       priced in options (straddle / vol-gauge tests), so it is context, not a trade.
+    Q4 0DTE delta      holdout +0.000 [-0.136, +0.132]  (disc +0.080)  FAIL -- options delta bought in the base says
+                       nothing about which way the rip goes.
+  Anatomy: rips are 3-5% of quiet stretches, 5-8% of sessions, median break ~13:00-14:00, and mostly DOWN (holdout up
+  19-33%, discovery 33-50%): the typical index rip out of a quiet base is a selloff; 11-25 was the exception. ES delta
+  in the base vs rip direction: discovery 8/10 agree, holdout 2/7 -- nothing.
+
     python check_absorption_rip.py --discovery
     python check_absorption_rip.py --holdout          (once)
 """
