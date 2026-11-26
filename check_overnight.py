@@ -73,6 +73,20 @@ SAMPLES  nights 2023-12-01 .. 2026-11-24 (the first 20 nights of the candle hist
 NULL CHECK (discovery, before scoring): relabel a random set of nights the size of the BIG NO-FADE group as "big no-fade"
   (200 draws); the Q1 estimand must centre on 0 (within +-0.05) or the comparison is redesigned BEFORE the holdout.
 
+RUN LOG (2026-11-25; discovery _overnight_discovery.txt, holdout scored once _overnight_cache/RESULT-holdout-full.txt)
+  Null check +0.036 (OK). REV in units of the 20-session median |10:30 - 09:39| move.
+  Q1 PRIMARY  SPY big no-fade minus not big: discovery +0.16 [-0.34, +0.68], HOLDOUT +0.26 [-0.31, +0.90] -> FAIL.
+              QQQ +0.02 / +0.29, IWM +0.14 / +0.10: positive in all six reads, never distinguishable from 0. The
+              shootout reverses ~48-57% of the time after big no-fade nights vs ~50-53% otherwise -- a coin flip.
+  H2          SPY AGAINST minus WITH: discovery +0.33, HOLDOUT -0.07 [-1.25, +1.03] -> FAIL (QQQ -0.29, IWM 0.00):
+              the discovery split did not repeat.
+  Descriptive  shootout goes WITH the overnight move 31-60% (coin flip everywhere). Gap fill: big no-fade 26-29% vs
+              61-77% faded / ordinary nights (both halves, all three). User's fade idea, big faded nights back to the
+              extreme by 10:30, weak vs strong by move volume: discovery SPY 0/12 vs 38%, QQQ 0/10 vs 45%; HOLDOUT SPY
+              19% vs 21%, QQQ 50% vs 17%, IWM 29% vs 24% -- no consistent direction (n 7-21 a cell); "weak" also means
+              the extreme was set the evening before (25-50% vs 0-4%). Shootout 0DTE delta: chased top third REV
+              discovery +0.05, holdout +0.41 -- inconsistent. ES extreme set 20:00-04:00 on 18% of 85 nights.
+
     python check_overnight.py --nights          (the night table, predictors only -- what was looked at before)
     python check_overnight.py --discovery
     python check_overnight.py --holdout         (once)
