@@ -31,6 +31,19 @@ POWER    honest: ~0.31 matched arrivals per session -> ~46 by the final read. If
          FAIL at 150 sessions therefore says "not big", not "zero".
 REPORTED, NOT TESTED  the same estimand for POSITIVE zones in the first 30 min (expected ~0) and for negative zones
          after 10:00 (holdout +0.003); raw zone THROUGH / STALL / REVERSE rates; arrivals per session.
+AMENDMENT 2026-11-26 -- THE BASELINE IS THE NULL, NOT 0 (user approved; made before any forward session was read --
+         the lake had none). check_peakzone_null.py ran F1's exact construction with the zone swapped for a random
+         visited window of the same width, on the same 552 historical sessions (1,000 draws): in F1's sessions it
+         centres at +0.0571 [-0.0043, +0.1288]; over all sessions +0.0616 [+0.0126, +0.1134]. The first-30-minute
+         matching itself favours the "zone" side, so a test against 0 would pass on machinery alone. Against the null,
+         the history that prompted this test is: pooled +0.0755 -> +0.018 excess; holdout +0.120 -> +0.063; discovery
+         +0.030 -> -0.027 (wrong side). The lead mostly evaporates; the test stays open, re-based:
+  PASS (amended)  F1 - NULL_F1 > 0 AND the lower bound of its day-block bootstrap 90% CI minus NULL_F1 > 0, with
+         NULL_F1 = +0.0571 frozen. Also printed every read (descriptive): the same null on the forward sessions
+         themselves (200 draws), in case the bias drifts.
+  POWER (amended)  against an excess of +0.018 (the pooled history), power at ~46 arrivals is near the 10% false-alarm
+         floor; only an excess like the holdout's +0.06 has a fair chance (~40%). Expect a FAIL unless the effect is
+         real AND large.
 TRADING USE  none until a FINAL PASS. Even then it is a direction-agnostic "this level tends to give way early", not a
          side to take.
 
@@ -50,6 +63,7 @@ INTERIM = (60, 120)
 FINAL = 150
 T_END = 10 * 3600
 CACHE = os.path.join(ROOT, "_peakzone_cache", "forward")
+NULL_F1 = 0.0571          # FROZEN 2026-11-26 (amendment): check_peakzone_null.py, F1's sessions, 1,000 draws
 
 
 def forward_days():
@@ -106,10 +120,19 @@ def main():
         P, nz = cell(S, sg, early)
         pt, lo, hi, nobs, nd = boot90(P)
         verdict = ""
-        if lab.startswith("F1") and n >= FINAL:
-            verdict = "PASS" if pt > 0 and lo > 0 else "FAIL"
+        if lab.startswith("F1"):
+            if n >= FINAL:
+                verdict = "PASS" if pt - NULL_F1 > 0 and lo - NULL_F1 > 0 else "FAIL"
+            verdict = f"| minus the null ({NULL_F1:+.4f}): {pt - NULL_F1:+.3f} [{lo - NULL_F1:+.3f}, {hi - NULL_F1:+.3f}]  " + verdict
         print(f"{lab}: through vs matched {pt:+.3f}  90% CI [{lo:+.3f}, {hi:+.3f}]  {nobs} matched of {nz} arrivals, "
               f"{nd} sessions  {verdict}")
+    import numpy as np
+    from check_peakzone_null import fake_cell
+    rng = np.random.default_rng(26)
+    a = np.array([m for m, k in (fake_cell(S, rng, -1) for _ in range(200)) if k])
+    if len(a):
+        print(f"    the null on these forward sessions (descriptive, 200 draws): {a.mean():+.4f} "
+              f"[{np.percentile(a, 2.5):+.4f}, {np.percentile(a, 97.5):+.4f}]  (frozen baseline {NULL_F1:+.4f})")
     print(f"stage: {stage} ({n} of {FINAL} sessions)")
 
 
