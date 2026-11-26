@@ -121,7 +121,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             act = str(req.get("action") or "buy").lower()
             if act not in ("buy", "close", "panic", "arm", "disarm", "levels",
                            "sideline", "unsideline", "swap", "trigger", "untrigger",
-                           "overnight", "sync", "chase"):
+                           "overnight", "sync", "chase", "exit_aggr"):
                 return self._json({"ok": False, "err": "action"}, 400)
             if act == "swap":
                 # the answer to the sideline question, required by the engine
@@ -162,8 +162,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._json({"ok": False, "err": "note"}, 400)
             # 911, arm/disarm, the sideline and SYNC are account-wide: no ticker
             # (sync was missing here until 2026-11-16: the button was refused with "ticker")
+            if act == "exit_aggr" and not isinstance(req.get("on"), bool):
+                return self._json({"ok": False, "err": "on must be true/false"}, 400)
             if act not in ("panic", "arm", "disarm", "sideline",
-                           "unsideline", "sync") and str(
+                           "unsideline", "sync", "exit_aggr") and str(
                     req.get("ticker", "")).upper() not in (
                     "IWM", "SPY", "QQQ"):
                 return self._json({"ok": False, "err": "ticker"}, 400)

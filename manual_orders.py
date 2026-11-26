@@ -385,6 +385,34 @@ ENTRY_CHASE_S = 20.0
 AGGR_CUSHION = 0.05
 
 
+# 🚨 EXIT AGGR (user, 2026-11-26: "1/4 of a second is all it takes"). The tape for the two stalled closes showed REAL
+# bids, not stale quotes: 11-24 09:35:00 SPY 713C at 4.92 = the NBBO bid at 09:34:59.67, gone (4.87) 0.25s later; 11-25
+# 10:00:15 SPY 700C at 6.73 = the bid 1.5s earlier, 6.48 by the time it landed. A close priced AT the bid (marketable =
+# bid - spread * FILL_COST, ~the bid on a 1c spread) cannot fill once the bid ticks down. With EXIT AGGR on, every
+# MARKETABLE close (viewer close, TP/SL, swap, EOD, X+B) goes out at no more than bid - EXIT_AGGR_CUSHION. A SELL limit
+# below the bid still fills at the resting bid on arrival; the cushion is only used when the bid just dropped. ONE
+# setting held by the engine (live/exit_aggr.json), not by the page, because most exits are fired by the engine itself.
+# Chase / 911 re-prices already sit further below the bid and are unchanged.
+EXIT_AGGR_CUSHION = 0.05
+EXIT_AGGR_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live", "exit_aggr.json")
+
+
+def exit_aggr_on():
+    s = _read(EXIT_AGGR_FILE)
+    return bool(isinstance(s, dict) and s.get("on"))
+
+
+def set_exit_aggr(on):
+    on = bool(on)
+    try:
+        _write_atomic(EXIT_AGGR_FILE, dict(on=on, at=int(time.time())))
+    except OSError as e:
+        return False, f"could not save EXIT AGGR ({e})"
+    _event(True, f"EXIT AGGR {'ON' if on else 'off'} — closes at "
+                 + (f"bid - {EXIT_AGGR_CUSHION:.2f}" if on else "the bid"))
+    return True, f"exit aggr {'on' if on else 'off'}"
+
+
 def _entry_limit(bid, ask, aggr=False):
     """the BUY limit for a new position: the bot's marketable limit, or ask + AGGR_CUSHION when aggr."""
     if aggr:
@@ -1700,6 +1728,9 @@ def _execute(eng, req, path, now_mod=None, armed_override=False):
         ok, msg = (arm(eng, req.get("seconds")) if act == "arm"
                    else disarm(eng, "viewer"))
         return _result(path, ok, msg)
+    if act == "exit_aggr":
+        # a pricing preference for exits: like CLOSE, not gated on ARMED or the sideline
+        return _result(path, *set_exit_aggr(req.get("on")))
     if act == "sideline":
         return _result(path, *sideline(eng))
     if act == "unsideline":
@@ -1995,7 +2026,10 @@ def _exit_price(bid, ask, mode):
         lo, frac = CHASE_CUSHION if mode == EXIT_CHASE else CUSHION_911
         return max(floor, round(b - max(lo, b * frac), 2))
     spread = max(0.0, float(ask or 0.0) - b)
-    return max(floor, round(b - spread * FILL_COST, 2))
+    px = b - spread * FILL_COST
+    if exit_aggr_on():
+        px = min(px, b - EXIT_AGGR_CUSHION)        # EXIT AGGR (see EXIT_AGGR_CUSHION)
+    return max(floor, round(px, 2))
 
 
 def flatten(eng, tk, reason="MANUAL EOD", mode=EXIT_MARKETABLE, qty=None):
@@ -2140,7 +2174,9 @@ def flatten(eng, tk, reason="MANUAL EOD", mode=EXIT_MARKETABLE, qty=None):
     save_positions(eng)
     _event(True, f"{tk} exit sent: SELL {qty}x"
                  + (f" of {held}" if qty < held else "")
-                 + f" @ limit {px:.2f} ({reason}, {mode})")
+                 + f" @ limit {px:.2f} ({reason}, {mode}"
+                 + (f", EXIT AGGR bid {float(bid or 0):.2f} - {EXIT_AGGR_CUSHION:.2f}"
+                    if mode == EXIT_MARKETABLE and exit_aggr_on() else "") + ")")
     return True
 
 

@@ -143,8 +143,8 @@
   #trgStaged{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0;color:var(--dim);font-size:11.5px}
   #trgStaged b{color:#79c0ff}
   #trgBtn{border-color:#79c0ff;color:#79c0ff;margin-top:4px}
-  #aggrBtn{margin-bottom:8px;font-size:11.5px}
-  #aggrBtn.on{border-color:#d29922;color:#d29922;font-weight:700;background:#2a2112}
+  #aggrBtn,#xaggrBtn{margin-bottom:8px;font-size:11.5px}
+  #aggrBtn.on,#xaggrBtn.on{border-color:#d29922;color:#d29922;font-weight:700;background:#2a2112}
   #hold .p.trg{color:#79c0ff;cursor:default}
   /* position age badge (ageBadge) */
   .age{font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:6px;
@@ -406,6 +406,7 @@
       </div>
       <button id="armBtn" style="margin-bottom:8px">ARM</button>
       <button id="aggrBtn" title="AGGR: entries (buy, trigger, swap re-entry) are sent at the ask + $0.05 instead of mid + 1c. A marketable limit still fills at the best ask on arrival — the cushion is only used when the ask just jumped.">AGGR +0.05: off</button>
+      <button id="xaggrBtn" title="EXIT AGGR: every close (viewer close, TP/SL, swap, EOD, X+B) is sent at the bid − $0.05 instead of at the bid. A sell limit below the bid still fills at the resting bid on arrival — the cushion is only used when the bid just dropped (11-24: the 4.92 bid was gone 0.25 s later). Held by the engine, so it applies to automatic exits too.">EXIT AGGR −0.05: off</button>
       <input id="ordNote" placeholder="note (optional, stored with the fill)">
       <button class="bigbtn call" id="buyC" disabled>BUY CALL</button>
       <button class="bigbtn put" id="buyP" disabled>BUY PUT</button>
@@ -1158,6 +1159,7 @@ async function livePoll(){
   if(!liveTk || !tks.includes(liveTk)) liveTk = tks[0];
   liveList(d);
   renderSide();
+  renderExitAggr();
   renderStage();
   renderHold();
   liveDraw(d, d.tickers[liveTk]);
@@ -2664,6 +2666,25 @@ function renderAggr(){
 }
 $('#aggrBtn').onclick = () => { AGGR = !AGGR; uiSet('aggr', AGGR ? '1' : null); disarmFire(); renderAggr(); };
 renderAggr();
+/* EXIT AGGR (user, 2026-11-26): every marketable close at the bid - $0.05 (manual_orders.EXIT_AGGR_CUSHION). Unlike
+   AGGR this is held by the ENGINE (live/exit_aggr.json) -- most closes (TP/SL, EOD, swap) are fired by the engine, not
+   by the page -- so the button shows the engine's setting (LIVE.exit_aggr) and a click asks the engine to flip it. */
+let xAggrBusy = false;
+function renderExitAggr(){
+  const b = $('#xaggrBtn'), on = !!(LIVE && LIVE.exit_aggr);
+  b.disabled = !LIVE || xAggrBusy;
+  b.classList.toggle('on', on);
+  b.textContent = xAggrBusy ? 'EXIT AGGR −0.05: …' : on ? 'EXIT AGGR −0.05: ON — closes at bid − 0.05' : 'EXIT AGGR −0.05: off';
+}
+$('#xaggrBtn').onclick = async () => {
+  if(!LIVE || xAggrBusy) return;
+  xAggrBusy = true; renderExitAggr();
+  const j = await postOrder({action:'exit_aggr', on: !LIVE.exit_aggr});
+  if(!j.ok) $('#ordMsg').textContent = 'EXIT AGGR REFUSED by the server: ' + (j.err || '?');
+  pollEvents(); await livePoll();
+  xAggrBusy = false; renderExitAggr();
+};
+renderExitAggr();
 
 /* ---- 3. guard telemetry ---- */
 async function pollEvents(){

@@ -2186,6 +2186,7 @@ def snapshot(eng):
         sideline_hard=bool((_side or {}).get("hard")),     # the -$150 day hard stop: cannot be lifted today
         sideline_pnl=(_side or {}).get("pnl"),
         hard_stop_usd=getattr(__import__("manual_orders"), "DAY_HARD_STOP_USD", None),
+        exit_aggr=bool(getattr(__import__("manual_orders"), "exit_aggr_on", lambda: False)()),   # closes at bid - 0.05
         manual=dict(getattr(eng, "manual_holds", {}) or {}),
         manual_extras=dict(getattr(eng, "manual_extras", {}) or {}),  # 2nd+ contract per ticker
         manual_cap=_num(manual_cap, 2),
