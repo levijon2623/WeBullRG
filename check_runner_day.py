@@ -40,6 +40,15 @@ SAMPLES DISCOVERY = ODD calendar months, HOLDOUT = EVEN (one morning = one row).
   the user's trades from 2026-09-25 (part of this sample period) -- none of them computed HP or ER. --holdout writes
   _runner_cache/RESULT-holdout.txt and refuses to run again.
 
+RUN LOG (2026-11-25; discovery _runner_discovery.txt, holdout scored once _runner_cache/RESULT-holdout-full.txt)
+  552 SPY mornings. On average holding 2 min vs 15 s on chase entries is worth ~$0 (SPY +$0.03 / +$0.15 a contract,
+  positive on ~50% of mornings; QQQ / IWM the same).
+  Discovery: or10 (first-10-minute range vs normal) IC +0.164 passed BH (halves +0.33 / +0.05); prev_er -0.14, o_F +0.12.
+  Lasso kept 5 (or10 +0.51, prev_er -0.39, o_F +0.33, gex, pm_rvol); discovery fifths -0.43 / -1.13 / -0.36 / +0.01 / +2.01.
+  HOLDOUT: score IC -0.004 [-0.124, +0.112] -> P2 FAIL; top fifth -$0.21 [-1.29, +0.91] -> P3 FAIL. OVERALL FAIL.
+  Descriptive, holdout single inputs: or10 +0.026, prev_er +0.031 (sign flipped), o_F +0.016 -- the discovery pattern
+  did not repeat. Runner vs chop mornings were not predictable by 09:40 from these inputs.
+
     python check_runner_day.py --build | --discovery | --holdout
 """
 from __future__ import annotations
