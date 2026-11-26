@@ -54,6 +54,16 @@ SAMPLES DISCOVERY = sessions in ODD calendar months, HOLDOUT = EVEN (each sessio
 REPORTED  exit at t + 61 s; QQQ / IWM plain rules; signals per session; the user's own 5 sessions scored by the frozen
   discovery score once the lake has them (does it rank the user's picks above the other signals?).
 
+RUN LOG (2026-11-25; _scalp_discovery.txt, holdout scored once _scalp_cache/RESULT-holdout.txt; 121,883 signals, 552 sessions)
+  R1 SPY CHASE 30 s: discovery -$0.28 [-0.48, -0.07], HOLDOUT -$0.29 [-0.53, -0.06] -> FAIL (loses about the fill cost)
+  R2 SPY FADE  30 s: discovery -$0.30 [-0.53, -0.07], HOLDOUT -$0.12 [-0.38, +0.14] -> FAIL
+  SCREENS: LassoCV kept 0 of 19 inputs for both rules -> S2 / S3 FAIL by construction (S3 'top fifth' = all signals).
+    No IC passes BH; strongest |IC| 0.03-0.04 (q_spread, m10, c_open, f_dd5). The user's 1-minute-candle inputs:
+    CHASE b_vs_open -0.009, b_hold -0.008; FADE -0.002 / -0.005 -- nothing.
+  Unregistered: IWM FADE positive in BOTH halves (+$0.22 [+0.05, +0.38] / +$0.32 [+0.15, +0.49]; ~1.5% unpriced) -- a
+    lead for fresh sessions only. READ: the user's 11-19..11-25 result (positive) is not the patterns (about -$0.30
+    as rules) and not anything these inputs see; exits were about half of it on those days.
+
     python check_scalp_rules.py --build | --discovery | --holdout
 """
 from __future__ import annotations
