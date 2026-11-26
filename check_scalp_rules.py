@@ -320,7 +320,8 @@ def screen(rule, rows, lines, final):
                      + ("  *" if qq < 0.10 and np.sign(h1) == np.sign(h2) == np.sign(ic) else ""))
     weeks = [dt.date.fromisoformat(r["d"]).isocalendar()[:2] for r in disc]
     groups = np.unique([f"{a}-{b}" for a, b in weeks], return_inverse=True)[1]
-    m = LassoCV(cv=GroupKFold(5), alphas=np.logspace(-4, 0, 40), max_iter=20000).fit(Xd, yd, groups=groups)
+    folds = list(GroupKFold(5).split(Xd, yd, groups))      # precomputed week folds (sklearn 1.7 refuses fit(groups=))
+    m = LassoCV(cv=folds, alphas=np.logspace(-4, 0, 40), max_iter=20000).fit(Xd, yd)
     kept = [(k, c) for k, c in zip(INPUTS, m.coef_) if abs(c) > 1e-9]
     lines.append(f"    LASSO keeps {len(kept)}: " + ", ".join(f"{k} {c:+.2f}" for k, c in sorted(kept, key=lambda z: -abs(z[1]))))
     sd = m.predict(Xd)
