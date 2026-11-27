@@ -153,21 +153,24 @@ def null(Ld, draws=200):
     dd = sorted(Ld["d"].unique().to_list())
     h1 = set(dd[: len(dd) // 2])
     gains = []
+    rows = Ld.to_dicts()
+    by = {}                                          # (tk, d) -> {m: (RNG5, IV0, VRm)} and the session's first row
+    for r in rows:
+        e = by.setdefault((r["tk"], r["d"]), {})
+        e[r["m"]] = (r["RNG5"], r["IV0"], r["VRm"])
+        e.setdefault("first", (r["RNG5"], r["IV0"], r["VRm"]))
+    sess_of = {}
+    for tk, d in by:
+        sess_of.setdefault(tk, []).append(d)
     for _ in range(draws):
-        parts = []
-        for z in Ld.partition_by("tk"):
-            sess = z["d"].unique().to_list()
-            perm = dict(zip(sess, rng.permutation(sess)))
-            src = {d: g for (d,), g in z.group_by(["d"])}
-            # shuffle each session's inputs onto another session (same ticker); checkpoints / targets stay
-            sh = []
-            for r in z.iter_rows(named=True):
-                o = src[perm[r["d"]]]
-                oo = o.filter(pl.col("m") == r["m"])
-                o1 = (oo if oo.height else o).row(0, named=True)
-                sh.append(dict(r, RNG5=o1["RNG5"], IV0=o1["IV0"], VRm=o1["VRm"]))
-            parts.append(pl.DataFrame(sh))
-        S = pl.concat(parts)
+        # shuffle each session's inputs onto another session (same ticker); checkpoints / targets stay
+        perm = {tk: dict(zip(ss, rng.permutation(ss))) for tk, ss in sess_of.items()}
+        sh = []
+        for r in rows:
+            o = by[(r["tk"], perm[r["tk"]][r["d"]])]
+            v = o.get(r["m"], o["first"])
+            sh.append(dict(r, RNG5=v[0], IV0=v[1], VRm=v[2]))
+        S = pl.DataFrame(sh)
         A, B = S.filter(pl.col("d").is_in(list(h1))), S.filter(~pl.col("d").is_in(list(h1)))
         rank = ranker(A)
         A, B = rank(A), rank(B)
