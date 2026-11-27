@@ -80,6 +80,23 @@ DEVIATION 2, 2026-11-26, BEFORE ANY HOLDOUT, after the first fresh discovery (_r
       (net of POS: nothing, max |IC| 0.066) were for the superseded target.
   (c) M2 is now out of sample: 20 target shuffles, Lasso fit on the first discovery half, |IC| on the second; mean
       |IC| < 0.03. (The single in-sample shuffle kept 1 input twice -- the best of 24-42 noise inputs, expected.)
+RESULT (2026-11-26, holdout scored once; _ripscreen_cache/RESULT-holdout.txt, _ripscreen_holdout.log; discovery 3 in
+  _ripscreen_discovery3.log, every M1 / M2 check OK)
+    A SIZE at confirmation   PASS  holdout IC +0.102 [+0.030, +0.167] q 0.004 -- 13 inputs, led by the ATM straddle
+                             rising in the base, a steeper |15-min slope|, LESS one-sided candle volume, distance from the
+                             peak zone, relative volume, base width, short dealer gamma.
+    A DIR at confirmation    FAIL  holdout IC -0.009 [-0.059, +0.047] -- nothing in the base says which way the next hour
+                             goes from the confirmation price (TIEBREAK -0.07 on discovery did not hold); POS's pull was
+                             geometry (it dropped out once the target came from the confirmation price).
+    B SIZE at the break      PASS  holdout IC +0.169 [+0.105, +0.232] q 0.000 -- 12 inputs: less one-sided base volume,
+                             closer to VWAP, a sharper slope into the break, further from the peak zone, shorter bases,
+                             relative volume, rising volume, the straddle rising.
+    B CONT at the break      FAIL  holdout IC -0.021 [-0.091, +0.052] -- NEXTLEG-against-the-break (discovery -0.21) did
+                             not hold.
+  READ: the screen forecasts SIZE (will a quiet stretch / a break turn into a big move), never DIRECTION -- the same
+  split as the 10-03 IC screen and the breach screen. A size forecast is worth money only if options under-price it
+  (earlier straddle / vol-gauge tests: priced in); that needs its own pre-registered straddle test. Direction is left
+  to screen 2 (futures aggressor flow).
 SCREEN 2 (LATER, after an ES trades purchase -- not bought yet): futures aggressor inputs (base delta, delta trend,
   delta at the band edges, delta vs price divergence) ADDED to the frozen screen-1 score, fit on the same discovery;
   PASS = the new score's holdout IC beats screen 1's (paired day-block bootstrap). Partly clean: the holdout will have
