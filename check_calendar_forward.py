@@ -7,7 +7,7 @@ in both halves (+$10.47 / +$10.26 a spread) and beat ordinary mornings both time
 sessions nobody has seen. If it ever passes, the user would add it to a premium-selling book with the butterflies (their
 own forward test), not trade it alone.
 
-RULES (imported, not copied -- check_overnight.py and check_premium.py as committed at 671d2f3)
+RULES (imported, not copied -- check_overnight.py and check_premium.py as committed at 5219404)
   night    check_overnight.night_rows: BIG = z >= 1.37, NO FADE = F < 1/3 (SPY extended-hours candles)
   trade    check_premium.calendar at the whole-dollar strike nearest the 09:35 price, calls; entry 09:35, exit 15:55;
            check_premium.spread_pnl at the user's fills (mid + $0.06 / - $0.08 a contract per leg, $0.10 fees per leg)

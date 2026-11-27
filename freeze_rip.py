@@ -52,7 +52,7 @@ def quintile(frz, s):
 def main():
     import check_rip_screen as R
     plan = (("conf", "RIP", R.SIZE_IN, "A SIZE at confirmation"), ("brk", "RIP_B", R.SIZE_IN, "B SIZE at the break"))
-    out = {"frozen": dt.datetime.now().isoformat(timespec="seconds"), "source": "check_rip_screen.py holdout 2026-11-26 (f8d2c85)",
+    out = {"frozen": dt.datetime.now().isoformat(timespec="seconds"), "source": "check_rip_screen.py holdout 2026-11-26 (e887a02)",
            "models": {}}
     for mode, tgt, cols, lab in plan:
         F = R.add_abs(R.build(mode))

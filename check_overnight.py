@@ -181,7 +181,7 @@ def night_rows(tk):
     return [r for r in rows if FIRST_NIGHT <= r["d"] <= LAST_NIGHT]
 
 
-# ================================================================ scoring (written after the pre-registration, e2bf8df)
+# ================================================================ scoring (written after the pre-registration, 0aa2371)
 REV_FROM, REV_TO, SHOOT_END = 9 * 60 + 39, 10 * 60 + 30, 9 * 60 + 39     # close(09:39), close(10:30)
 
 
