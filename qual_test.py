@@ -146,6 +146,11 @@ def status():
     except OSError:
         pass
     snaps = [s for s in snaps if s.get("flat")]
+    # VOIDED SAMPLES (cash.json "void": [{"from": ts, "to": ts, "note": why}]): windows whose "flat" balance was wrong --
+    # 2026-11-27 09:44-09:46 an ORPHANED contract (a late fill the bot was not tracking) sat in the account while the
+    # state said flat, so its cost read as a loss for the day (user: void it). Kept in snaps.jsonl, skipped here, reason kept.
+    voids = [(float(v["from"]), float(v["to"])) for v in C.get("void", [])]
+    snaps = [s for s in snaps if not any(a <= s["ts"] <= b for a, b in voids)]
     tr = sorted(C.get("transfers", []), key=lambda t: t["date"])
     dep = sum(t["amount"] for t in tr if t["kind"] == "deposit")
     days = sorted({s.get("day") or day_of(s["ts"]) for s in snaps if (s.get("day") or day_of(s["ts"])) >= R["start"]})
