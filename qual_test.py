@@ -169,6 +169,8 @@ def status():
         return w, dp
 
     daily_lim = R["daily_frac"] * dep
+    _S = R.get("simple") or {}
+    lim_of = lambda d: float(_S["daily_stop"]) if _S and d >= _S.get("from", "9999") else daily_lim    # noqa: E731
     hist, breaches, peak = [], [], None
     prev_eod = R.get("start_balance")
     for d in days:
@@ -191,7 +193,7 @@ def status():
                           and done_by(t, d, s["ts"]))
                 dpnl = s["cash"] - prev_eod + w_s - d_s
                 lo_day = dpnl if lo_day is None else min(lo_day, dpnl)
-                if dpnl <= -daily_lim:
+                if dpnl <= -lim_of(d):
                     breaches.append({"date": d, "kind": "daily", "pnl": round(dpnl, 2)})
         eod = S[-1]["cash"]
         day_pnl = None if prev_eod is None else eod - prev_eod + w_today - d_today
@@ -232,6 +234,14 @@ def status():
         "kept_of_peak_median": None if not kept else st.median(kept) >= B["kept_median"],
         "red_day_avg": None if not reds else -st.mean(reds) <= B["red_day_avg_max"],
     }
+    # SIMPLE RULES (user, 2026-11-27: "Daily Hard Stop at -$100, and -20% of peak once over $100, no other rules beyond
+    # the max drawdown -- it's simpler"): rules.json "simple" = {from, daily_stop, giveback_frac, giveback_min_peak}.
+    # The day rules are now ENGINE hard stops (manual_orders); the test itself keeps only the profit target and the max
+    # drawdown. The retired behaviour numbers stay in the status file for the record, not in the verdict.
+    S = R.get("simple")
+    if S:
+        checks = {k: checks[k] for k in ("profit", "no_breach")}
+        daily_lim = float(S.get("daily_stop") or daily_lim)
     doc = {"updated": time.time(), "start": R["start"], "end": R["end"], "deposits": dep,
            "score": score, "peak": None if peak is None else round(peak, 2), "target": target,
            "keep_line": None if peak is None else round(R["keep_frac"] * peak, 2),
@@ -242,7 +252,7 @@ def status():
            "rule_days": len(rule_days), "rule_kept": sum(v["rule"] == "kept" for v in rule_days),
            "kept_median": None if not kept else round(st.median(kept), 3),
            "red_avg": None if not reds else round(st.mean(reds), 2),
-           "income_pace": R.get("income_per_session"), "pending": C.get("pending"),
+           "income_pace": R.get("income_per_session"), "pending": C.get("pending"), "simple": R.get("simple"),
            "stop_rule": stop_rule_for(R, datetime.now(NY).date().isoformat()),
            "stop_rule_label": stop_rule_label(stop_rule_for(R, datetime.now(NY).date().isoformat()))}
     dump("status.json", doc)

@@ -3209,7 +3209,8 @@ function renderQT(){
   const room = t && t.day_pnl != null ? QT.daily_limit + t.day_pnl : QT.daily_limit;
   el.innerHTML = failed ? `<b style="color:var(--put)">TEST FAILED — max drawdown breached</b> · score ${qtUsd(QT.score)}`
     : `test <b>${qtUsd(QT.score)}</b> of ${qtUsd(QT.target)} · ${QT.sessions_left} sessions · need ${qtUsd(QT.need_per_session)}/day` +
-      (dayHit ? ` · <b style="color:var(--put)">daily limit hit — behaviour fail today</b>` : ` · today's room $${Math.max(0, room).toFixed(0)}`);
+      (dayHit ? (QT.simple ? ` · <b style="color:var(--put)">hard stop day</b>` : ` · <b style="color:var(--put)">daily limit hit — behaviour fail today</b>`)
+              : ` · today's room $${Math.max(0, room).toFixed(0)}`);
   el.title = `Qualifying test ${QT.start}..${QT.end} (your rules, written 2026-11-21).\n` +
     `score ${qtUsd(QT.score)} (balance + withdrawals − deposits) · peak ${qtUsd(QT.peak)}\n` +
     `pass at the end: ≥ ${qtUsd(QT.target)} AND ≥ ${qtUsd(QT.keep_line)} (75% of the peak so far)\n` +
@@ -3222,6 +3223,14 @@ function qtHtml(){
   const c = QT.checks || {};
   const ok = v => v == null ? '<span class="k">—</span>' : v ? '<b style="color:var(--up)">✓</b>' : '<b style="color:var(--put)">✗</b>';
   const t = qtToday();
+  if(QT.simple){                                   // user, 2026-11-27: the day rules are engine hard stops now
+    const S = QT.simple;
+    return `<br><b>Qualifying test</b> (to ${esc(QT.end)}): score <b>${qtUsd(QT.score)}</b> of ${qtUsd(QT.target)} ${ok(c.profit)}, ` +
+      `peak ${qtUsd(QT.peak)} · need ${qtUsd(QT.need_per_session)} a session for ${QT.sessions_left} sessions<br>` +
+      `rules (simplified ${esc(S.from)}): max drawdown — never below ${qtUsd(QT.drawdown_floor)} ${ok(c.no_breach)} · ` +
+      `engine HARD STOPS: −$${Number(S.daily_stop).toFixed(0)} on the day, or giving back ${Math.round(S.giveback_frac * 100)}% ` +
+      `of a peak over $${Number(S.giveback_min_peak).toFixed(0)} · today ${t && t.day_pnl != null ? qtUsd(t.day_pnl) : '—'}<br>`;
+  }
   return `<br><b>Qualifying test</b> (to ${esc(QT.end)}): score <b>${qtUsd(QT.score)}</b> of ${qtUsd(QT.target)}, peak ${qtUsd(QT.peak)} · ` +
     `need ${qtUsd(QT.need_per_session)} a session for ${QT.sessions_left} sessions<br>` +
     `limits: never below ${qtUsd(QT.drawdown_floor)} · today ${t && t.day_pnl != null ? qtUsd(t.day_pnl) : '—'} of −$${QT.daily_limit.toFixed(0)} allowed` +
