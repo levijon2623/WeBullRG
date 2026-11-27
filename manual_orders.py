@@ -504,10 +504,20 @@ SIDELINE_Q = "Are you trying to give back profits or increase losses?"
 # entries, and (HARD_STOP_FLATTEN) sells every manual hold by the bid-following chase. Separate from the qualifying
 # test's -$80 daily limit, which stays a warning and a behaviour-fail mark (qual_test.py). A WITHDRAWAL MADE DURING THE
 # SESSION reads as a loss here (see day_gain) -- make withdrawals before 09:25.
-DAY_HARD_STOP_USD = float((os.getenv("MANUAL_DAY_HARD_STOP_USD") or "150").strip() or 150)
+# 2026-11-27 (user: "Daily Hard Stop at -$100, and a daily hard stop of -20% of peak once over $100, no other rules
+# beyond the max drawdown -- it's simpler"): the loss stop moves -$150 -> -$100, and a GIVE-BACK stop joins it: once the
+# day's peak P&L (the same NLV measure, open marks included) has been above $100, giving back 20% of that peak is a hard
+# stop too. Both cannot be lifted. A TRANSFER is not P&L: while the account is truly flat (no holds, extras, pending
+# entries or late-fill watches for 90 s, and Webull showing no option position), a change in NLV can only be money in
+# or out, so it moves the day's base instead (DAY_FILE "transfers"); otherwise a mid-session withdrawal of the day's
+# profit would read as giving it all back. Trades placed in the Webull app are still outside these stops.
+DAY_HARD_STOP_USD = float((os.getenv("MANUAL_DAY_HARD_STOP_USD") or "100").strip() or 100)
+HARD_GIVEBACK_FRAC = 0.20
+HARD_GIVEBACK_MIN_PEAK = 100.0
 HARD_STOP_FLATTEN = True
 HARD_STOP_EVERY_S = 5.0
-_HARD = {"at": 0.0}
+FLAT_SETTLE_S = 90.0
+_HARD = {"at": 0.0, "nonflat_at": 0.0, "flat_nlv": None}
 
 
 def _et_today():
@@ -695,8 +705,7 @@ def unsideline(eng, answer, note=""):
     if not s:
         return False, "not sidelined"
     if s.get("hard"):
-        return False, (f"HARD STOP at -${DAY_HARD_STOP_USD:,.0f} on the day — it cannot be lifted; "
-                       f"trading resumes tomorrow")
+        return False, (f"HARD STOP ({s.get('why') or 'day limit'}) — it cannot be lifted; trading resumes tomorrow")
     answer = str(answer or "").lower()
     if answer not in ("yes", "no"):
         return False, "answer must be yes or no"
@@ -717,40 +726,104 @@ def unsideline(eng, answer, note=""):
     return True, "sideline lifted — arm to trade"
 
 
+def _flat_now(eng):
+    """no manual holds, extras, pending entries or late-fill watches (the engine's own view)."""
+    return not load_positions(eng) and not extra_oids(eng) and not _rest_load()
+
+
+def _transfer_guard(eng, now):
+    """while truly flat, an NLV change is money in / out: move the day's base by it (see HARD_GIVEBACK_FRAC)."""
+    if not _flat_now(eng):
+        _HARD["nonflat_at"], _HARD["flat_nlv"] = now, None
+        return
+    if now - _HARD["nonflat_at"] < FLAT_SETTLE_S:
+        return                                   # just went flat: let the last fill reach the NLV first
+    account_cash(eng)
+    nlv = _CASH.get("nlv")
+    if not nlv:
+        return
+    prev = _HARD["flat_nlv"]
+    _HARD["flat_nlv"] = nlv
+    if prev is None or abs(nlv - prev) < 1.0:
+        return
+    if _position_gone_all(eng) is not True:      # Webull shows a position (an app trade) or cannot tell: not a transfer
+        _HARD["flat_nlv"] = None
+        return
+    st = _read(DAY_FILE) or {}
+    if st.get("date") != _et_today() or not st.get("start"):
+        return
+    delta = nlv - prev
+    start = float(st["start"])
+    peak_usd = float(st.get("peak_pct") or 0.0) * start
+    st["start"] = round(start + delta, 2)
+    st["peak_pct"] = round(peak_usd / st["start"], 4) if st["start"] else 0.0
+    st.setdefault("transfers", []).append(dict(at=int(now), amount=round(delta, 2)))
+    try:
+        _write_atomic(DAY_FILE, st)
+    except OSError as e:
+        print(f"  ⚠️ transfer guard: {type(e).__name__}: {e}")
+        return
+    _event(True, f"balance {'+' if delta > 0 else '−'}${abs(delta):,.2f} while flat — treated as a "
+                 f"{'deposit' if delta > 0 else 'withdrawal'}, not P&L: the day's base moved, the hard stops measure from it")
+
+
+def _position_gone_all(eng):
+    """True if Webull shows NO option position, False if it shows one, None if we cannot tell."""
+    try:
+        pos = eng.webull.get_open_option_positions(raise_errors=True) or []
+    except Exception:                           # noqa: BLE001
+        return None
+    return not any(p.get("quantity") for p in pos)
+
+
 def _check_hard_stop(eng):
-    """The -$150 day hard stop (see DAY_HARD_STOP_USD). Every HARD_STOP_EVERY_S; never raises into poll()."""
+    """The day's hard stops (see DAY_HARD_STOP_USD / HARD_GIVEBACK_FRAC). Every HARD_STOP_EVERY_S; never raises."""
     now = time.time()
     if now - _HARD["at"] < HARD_STOP_EVERY_S:
         return
     _HARD["at"] = now
-    if DAY_HARD_STOP_USD <= 0 or hard_stopped() or not _is_trading_day_et():
+    if hard_stopped() or not _is_trading_day_et():
         return
+    try:
+        _transfer_guard(eng, now)
+    except Exception as e:                      # noqa: BLE001 -- never block the stops themselves
+        print(f"  ⚠️ transfer guard: {type(e).__name__}: {e}")
     g = day_gain(eng)
-    if not g or g.get("pnl") is None or float(g["pnl"]) > -DAY_HARD_STOP_USD:
+    if not g or g.get("pnl") is None:
         return
     pnl = float(g["pnl"])
+    peak_usd = float(g.get("peak_pct") or 0.0) * float(g.get("start") or 0.0)
+    why = None
+    if DAY_HARD_STOP_USD > 0 and pnl <= -DAY_HARD_STOP_USD:
+        why = f"the day is {pnl:+,.2f} (limit -${DAY_HARD_STOP_USD:,.0f})"
+        tag = f"HARD STOP -${DAY_HARD_STOP_USD:,.0f}"
+    elif peak_usd > HARD_GIVEBACK_MIN_PEAK and pnl <= (1 - HARD_GIVEBACK_FRAC) * peak_usd:
+        why = (f"gave back {(peak_usd - pnl) / peak_usd:.0%} of a +${peak_usd:,.2f} peak (now {pnl:+,.2f}; limit "
+               f"{HARD_GIVEBACK_FRAC:.0%} once the peak is over ${HARD_GIVEBACK_MIN_PEAK:,.0f})")
+        tag = f"HARD STOP give-back {HARD_GIVEBACK_FRAC:.0%}"
+    if not why:
+        return
     try:
-        _write_atomic(SIDELINE, dict(date=_et_today(), at=int(now), hard=True, pnl=round(pnl, 2),
-                                     limit=DAY_HARD_STOP_USD))
+        _write_atomic(SIDELINE, dict(date=_et_today(), at=int(now), hard=True, pnl=round(pnl, 2), peak=round(peak_usd, 2),
+                                     limit=DAY_HARD_STOP_USD, why=why))
     except OSError as e:
         print(f"  ⚠️ hard stop: could not write the sideline: {type(e).__name__}: {e}")
         return
     eng.manual_armed_until = 0.0
     held = sorted(load_positions(eng))
-    _sideline_log("hard_stop", pnl=round(pnl, 2), limit=DAY_HARD_STOP_USD, holds=held)
+    _sideline_log("hard_stop", pnl=round(pnl, 2), peak=round(peak_usd, 2), why=why, holds=held)
     sold = []
     if HARD_STOP_FLATTEN:
         for tk in held:
             # a pending entry is CANCELLED by flatten(), an exit in flight is left to its chase
-            if flatten(eng, tk, f"HARD STOP -${DAY_HARD_STOP_USD:,.0f}", EXIT_CHASE):
+            if flatten(eng, tk, tag, EXIT_CHASE):
                 sold.append(tk)
         ex = extra_oids(eng)
         if ex:
             eng.manual_panic_oids = set(ex)     # poll() sells extras one at a time as each slot frees
             sold.append(f"{len(ex)} extra contract(s)")
-    _event(True, f"🛑 HARD STOP: the day is {pnl:+,.2f} (limit -${DAY_HARD_STOP_USD:,.0f}) — trading OFF until "
-                 f"tomorrow, cannot be lifted; triggers and pending entries cancelled"
-                 + (f"; selling {', '.join(sold)}" if sold else "; nothing held"))
+    _event(True, f"🛑 {tag}: {why} — trading OFF until tomorrow, cannot be lifted; triggers and pending entries "
+                 f"cancelled" + (f"; selling {', '.join(sold)}" if sold else "; nothing held"))
 
 
 def extra_dtes(ticker, required):

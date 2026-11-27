@@ -3119,7 +3119,8 @@ function renderSide(){
   b.disabled = false;
   if(LIVE.sidelined && LIVE.sideline_hard){
     b.className = 'out';
-    b.textContent = `🛑 HARD STOP −$${(LIVE.hard_stop_usd || 150).toFixed(0)} — done until tomorrow`;
+    b.textContent = `🛑 HARD STOP — done until tomorrow`;
+    b.title = LIVE.sideline_why ? `Why: ${LIVE.sideline_why}` : '';
     const t = LIVE.sideline_at, p = LIVE.sideline_pnl;
     $('#sideInfo').textContent = (t ? `at ${etClock(t)}` : '') + (p != null ? ` (day ${p >= 0 ? '+' : '−'}$${Math.abs(p).toFixed(0)})` : '') +
       ' · cannot be lifted · exits still work';

@@ -2185,6 +2185,7 @@ def snapshot(eng):
         sideline_at=(_side or {}).get("at"),
         sideline_hard=bool((_side or {}).get("hard")),     # the -$150 day hard stop: cannot be lifted today
         sideline_pnl=(_side or {}).get("pnl"),
+        sideline_why=(_side or {}).get("why"),        # which hard stop fired (loss / give-back), 2026-11-27
         hard_stop_usd=getattr(__import__("manual_orders"), "DAY_HARD_STOP_USD", None),
         exit_aggr=bool(getattr(__import__("manual_orders"), "exit_aggr_on", lambda: False)()),   # closes at bid - 0.05
         manual=dict(getattr(eng, "manual_holds", {}) or {}),
