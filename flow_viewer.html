@@ -337,7 +337,17 @@
     <h1>Flow Viewer <a href="weekly_gex.html" style="float:right;color:var(--accent);text-decoration:none;text-transform:none;letter-spacing:0">weekly GEX →</a>
       <a href="brief.html" style="float:right;margin-right:12px;color:var(--accent);text-decoration:none;text-transform:none;letter-spacing:0">pre-open brief</a><a href="uoa.html" style="float:right;margin-right:12px;color:var(--accent);text-decoration:none;text-transform:none;letter-spacing:0">UOA flags</a></h1>
     <div id="livebar"><button id="liveBtn">● GO LIVE</button>
+      <button id="rpBtn" title="SESSION REPLAY: play a past session minute by minute -- the chart, pills, bands and gamma as they stood then (replay_archiver.py). Orders are off while replaying.">⏪ REPLAY</button>
       <span id="liveInfo" class="d"></span>
+      <div id="rpBar" style="display:none;margin-top:6px;font-size:12px;align-items:center;gap:6px;flex-wrap:wrap">
+        <select id="rpDay" title="archived sessions (live/replay/index.json)"></select>
+        <button id="rpPrev" title="one minute back (←)" style="width:auto;padding:2px 8px">◀</button>
+        <button id="rpPlay" title="play / pause (space)" style="width:auto;padding:2px 10px">▶</button>
+        <button id="rpNext" title="one minute on (→)" style="width:auto;padding:2px 8px">▶|</button>
+        <select id="rpSpeed" title="replay minutes per real minute"><option value="1">1×</option><option value="5">5×</option><option value="15">15×</option><option value="30">30×</option><option value="60" selected>60×</option></select>
+        <b id="rpTime" style="min-width:42px">—</b>
+        <input id="rpSlider" type="range" min="570" max="960" step="1" value="570" style="flex:1;min-width:160px">
+      </div>
       <div id="botStall" role="alert"></div>
       <button id="sideBtn" disabled>⏸ SIDELINE</button>
       <span id="sideInfo" class="d"></span>
@@ -1464,7 +1474,7 @@ function liveDraw(d, s){
 
   const p = s.position, r = s.regime || {};
   $('#bar').innerHTML = `
-    <b style="color:var(--dn)">● LIVE</b> <b>${liveTk}</b>
+    ${RP ? `<b style="color:#e3b341">⏪ REPLAY ${esc(RP.d)} ${rpHHMM(RP.m)}</b>` : '<b style="color:var(--dn)">● LIVE</b>'} <b>${liveTk}</b>
     <details class="dd" ${DD_OPEN ? 'open' : ''} ontoggle="DD_OPEN=this.open">
       <summary class="tag" title="the bot's rule, its prior-close regime, the flow gate and the data source"
         >⚙ <b style="color:${d.dry_run ? 'var(--dim)' : 'var(--dn)'}">${d.dry_run ? 'PAPER' : 'LIVE MONEY'}</b> ▾</summary>
@@ -1835,6 +1845,7 @@ $('#news').onclick = () => { $('#newsList').classList.toggle('open'); renderNews
 
 $('#liveBtn').onclick = () => {
   if(liveTimer) return liveStop();
+  if(RP || $('#rpBar').style.display === 'flex') rpExit();      // live and replay never run together
   uiSet('fv_live', '1');
   $('#liveBtn').classList.add('on');
   $('#liveBtn').textContent = '■ STOP LIVE';
@@ -1846,6 +1857,125 @@ $('#liveBtn').onclick = () => {
   liveTimer = setInterval(() => { pollStrikes(); pollTide(); pollFut(); livePoll(); pollEvents(); pollBeat(); if(++newsTick % 12 === 0) pollNews(); if(newsTick % 24 === 1) pollQT(); if(newsTick % 2 === 0) pollTrades(); }, 2500);
   pollNews();
 };
+
+/* ===================== SESSION REPLAY (user, 2026-11-25/26) =====================================
+   A past session, minute by minute, drawn by the SAME renderers as live: replay_archiver.py (cleanbot-replay) keeps
+   live/replay/DATE/{series.json, frames.jsonl, gex.jsonl} (gzipped after the close; index.json lists the days). At
+   minute m: every series cut at m's ET stamp, the frame of minute <= m (spot, state, regime, vol gauge, implied move,
+   the strike-cue object with its pills), the gamma heat of the last 5-minute snapshot <= m, Market Tide and futures
+   rows cut at m, your trades for that day (/trades). LIVE / STRK / TIDE / FUT are rebuilt from those and the live
+   renderers draw them. ORDERS ARE OFF: entering replay stops live, the order desk is hidden and postOrder refuses. */
+let RP = null;
+async function rpText(path){
+  const r = await fetch(path + '?t=' + Date.now(), {cache: 'no-store'});
+  if(!r.ok) return null;
+  const buf = new Uint8Array(await r.arrayBuffer());
+  if(buf.length > 1 && buf[0] === 0x1f && buf[1] === 0x8b)        // gzip: unpack in the browser
+    return await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  return new TextDecoder().decode(buf);
+}
+async function rpFile(d, name){ return (await rpText(`live/replay/${d}/${name}.gz`)) ?? (await rpText(`live/replay/${d}/${name}`)); }
+const rpLines = t => (t || '').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+async function rpDays(){
+  let days = [];
+  try { const t = await rpText('live/replay/index.json'); days = t ? (JSON.parse(t).days || []) : []; } catch { days = []; }
+  const today = etYMD(new Date());
+  if(!days.includes(today) && await rpText(`live/replay/${today}/series.json`)) days.push(today);   // today, still being written
+  return days.sort().reverse();
+}
+async function rpLoad(d){
+  $('#rpTime').textContent = 'loading…';
+  const [s, f, g] = await Promise.all([rpFile(d, 'series.json'), rpFile(d, 'frames.jsonl'), rpFile(d, 'gex.jsonl')]);
+  if(!s){ $('#rpTime').textContent = 'no data'; return; }
+  const frames = rpLines(f).sort((a, b) => a.m - b.m), gex = rpLines(g).sort((a, b) => a.m - b.m);
+  const series = JSON.parse(s);
+  const lo = frames.length ? frames[0].m : 570, hi = frames.length ? frames[frames.length - 1].m : 960;
+  RP = {d, series, frames, gex, m: Math.max(lo, Math.min(hi, RP && RP.d === d ? RP.m : 570)), lo, hi, timer: null, acc: 0};
+  $('#rpSlider').min = lo; $('#rpSlider').max = hi;
+  TRADES = null; TR_SIG = '';
+  try { const r = await fetch('/trades?date=' + d + '&t=' + Date.now()); const j = r.ok ? await r.json() : null; if(j && j.ok) TRADES = j; } catch {}
+  liveSeries = null;
+  rpShow();
+}
+const rpHHMM = m => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+function rpStamp(d, m){ const [y, mo, da] = d.split('-').map(Number); return Date.UTC(y, mo - 1, da) / 1000 + m * 60; }
+function rpLast(arr, m){ let x = null; for(const a of arr){ if(a.m <= m) x = a; else break; } return x; }
+function rpCut(v, st){ return Array.isArray(v) ? v.filter(p => !Array.isArray(p) || p[0] <= st) : v; }
+function rpShow(){
+  if(!RP) return;
+  const {d, series, m} = RP, st = rpStamp(d, m), fr = rpLast(RP.frames, m) || {tk: {}}, gx = rpLast(RP.gex, m);
+  const tk = {};
+  for(const [t, ser] of Object.entries(series.tk || {})){
+    const o = {};
+    for(const [k, v] of Object.entries(ser || {})) o[k] = rpCut(v, st);
+    const f = (fr.tk || {})[t] || {};
+    for(const k of ['spot', 'state', 'regime', 'vgauge', 'imove', 'position']) if(f[k] !== undefined) o[k] = f[k];
+    if(gx && gx.tk && gx.tk[t]) o.gex = gx.tk[t];
+    o.flow = o.flow || []; o.ema = o.ema || []; o.px = o.px || [];
+    tk[t] = o;
+  }
+  LIVE = {ts: Date.now() / 1000, replay: true, session: `REPLAY ${d}`, n_open: 0, tickers: tk, chains: {}, manual: {},
+          manual_extras: {}, armed: false, arm_capable: false, arm_secs_left: 0, sidelined: false, day: fr.day || null,
+          exit_aggr: false};
+  STRK = {live: true, ts: Date.now() / 1000, at: rpHHMM(m) + ':00', day: d, R_bp: 5, zone: 0.10, T_min: 10,
+          source: `replay ${d}`, tickers: Object.fromEntries(Object.entries(fr.tk || {}).map(([t, f]) => [t, f.cue || null]))};
+  TIDE = series.tide ? {...series.tide, rows: rpCut(series.tide.rows || [], st)} : null;
+  FUT = series.futures ? {...series.futures, ts: Date.now() / 1000, products: Object.fromEntries(Object.entries(series.futures.products || {})
+          .map(([p, F]) => [p, {...F, rows: rpCut(F.rows || [], st)}]))} : null;
+  const tks = Object.keys(tk).sort();
+  if(!liveTk || !tks.includes(liveTk)) liveTk = tks[0];
+  $('#rpSlider').value = m; $('#rpTime').textContent = rpHHMM(m);
+  $('#liveInfo').textContent = `⏪ REPLAY ${d} ${rpHHMM(m)} ET · orders off`;
+  for(const fn of [() => liveList(LIVE), () => liveDraw(LIVE, LIVE.tickers[liveTk]), drawTrades])
+    try { fn(); } catch(e) { console.warn('replay render', e); }
+}
+function rpStep(k){ if(!RP) return; RP.m = Math.max(RP.lo, Math.min(RP.hi, RP.m + k)); rpShow(); }
+function rpPlay(){
+  if(!RP) return;
+  if(RP.timer){ clearInterval(RP.timer); RP.timer = null; $('#rpPlay').textContent = '▶'; return; }
+  $('#rpPlay').textContent = '⏸'; RP.acc = 0;
+  RP.timer = setInterval(() => {                    // speed = replay minutes per real minute
+    RP.acc += Number($('#rpSpeed').value) / 60 * 0.5;
+    if(RP.acc >= 1){ const k = Math.floor(RP.acc); RP.acc -= k; rpStep(k); }
+    if(RP.m >= RP.hi){ clearInterval(RP.timer); RP.timer = null; $('#rpPlay').textContent = '▶'; }
+  }, 500);
+}
+async function rpEnter(){
+  if(liveTimer) liveStop();                          // never both: the order desk needs the live engine
+  $('#stage').style.display = 'none'; $('#telem').style.display = 'none'; $('#side').classList.remove('live');
+  const days = await rpDays();
+  $('#rpDay').innerHTML = days.length ? days.map(x => `<option>${esc(x)}</option>`).join('') : '<option value="">no archived sessions yet</option>';
+  $('#rpBar').style.display = 'flex'; $('#rpBtn').classList.add('on'); $('#rpBtn').textContent = '■ END REPLAY';
+  if(days.length) await rpLoad(days[0]);
+}
+function rpExit(){
+  if(RP && RP.timer) clearInterval(RP.timer);
+  RP = null; LIVE = null; STRK = null; liveSeries = null; TRADES = null; TR_SIG = '';
+  $('#rpBar').style.display = 'none'; $('#rpBtn').classList.remove('on'); $('#rpBtn').textContent = '⏪ REPLAY';
+  $('#liveInfo').textContent = '';
+}
+$('#rpBtn').onclick = () => (RP || $('#rpBar').style.display === 'flex') ? rpExit() : rpEnter();
+$('#rpDay').onchange = () => { if($('#rpDay').value) rpLoad($('#rpDay').value); };
+$('#rpPrev').onclick = () => rpStep(-1);
+$('#rpNext').onclick = () => rpStep(1);
+$('#rpPlay').onclick = rpPlay;
+$('#rpSlider').oninput = () => { if(RP){ RP.m = Number($('#rpSlider').value); rpShow(); } };
+{ // ?replay=YYYY-MM-DD&m=minute-of-day opens straight into a replay (links to a moment)
+  const q = new URLSearchParams(location.search), d = q.get('replay');
+  if(d && /^\d{4}-\d{2}-\d{2}$/.test(d)) setTimeout(async () => {
+    await rpEnter();
+    if($('#rpDay').querySelector(`option[value="${d}"],option:not([value])`)) { $('#rpDay').value = d; }
+    await rpLoad(d);
+    const m = Number(q.get('m'));
+    if(RP && m) { RP.m = Math.max(RP.lo, Math.min(RP.hi, m)); rpShow(); }
+  }, 300);
+}
+document.addEventListener('keydown', e => {
+  if(!RP || /INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName || '') && e.target.id !== 'rpSlider') return;
+  if(e.key === 'ArrowLeft'){ rpStep(e.shiftKey ? -15 : -1); e.preventDefault(); }
+  else if(e.key === 'ArrowRight'){ rpStep(e.shiftKey ? 15 : 1); e.preventDefault(); }
+  else if(e.key === ' '){ rpPlay(); e.preventDefault(); }
+});
 
 /* ===================== ORDER DESK ====================================
    Three pieces, all reading the SAME live/state.json the chart reads:
@@ -3110,6 +3240,7 @@ $('#sideNo').onclick = () => answerSide('no');
 $('#sideYes').onclick = () => answerSide('yes');
 
 async function postOrder(body){
+  if(RP || (LIVE && LIVE.replay)) return {ok: false, err: 'replay mode -- orders are off; end the replay and go live'};
   try {
     const r = await fetch('/order', {method:'POST', headers:{
       'Content-Type':'application/json', 'X-Order-Key': ORDER.key || ''},
