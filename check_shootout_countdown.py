@@ -29,6 +29,18 @@ NULL      on discovery before the holdout: the three inputs shuffled across sess
 REPORTED, NOT TESTED  MAE by checkpoint and ticker; the gain from each input alone; how often the prediction lands
           within 5 / 10 minutes.
 
+RESULT (2026-11-27, holdout scored once; _shootout_cache/RESULT-countdown.txt)
+  DISCOVERY (fit first half / score second): MAE 26.0 -> 23.6 min, gain +2.48 [+1.81, +3.11], Spearman +0.462; null
+    (inputs shuffled) gain -3.19 -- at/below 0 as required.
+  HOLDOUT (fit all discovery, 343 even-month sessions, 3,667 checkpoint rows):
+    P1 MAE 20.7 -> 16.7 min, gain +3.94 [+2.85, +5.08]  PASS
+    P2 Spearman(predicted, actual remaining) +0.499 [+0.452, +0.545]  PASS          OVERALL PASS
+    By checkpoint (MAE base / model, within 10 min base / model): 09:35 23.4 / 20.2 (21% / 33%), 09:40 23.0 / 18.4
+    (20 / 36%), 09:45 22.9 / 18.4, 09:50 22.4 / 17.3, 10:00 19.9 / 14.7, 10:15 13.2 / 11.2, 10:30 6.5 / 6.6.
+  READ: the countdown tells a long Shootout from a short one, mostly in its first 20 minutes; errors stay ~15-20 min
+  early -- a lean, not a timer. Per the pre-registration the pill adds the model's line, updated at the checkpoints
+  only (as validated), labelled with its holdout error.
+
     python check_shootout_countdown.py --discovery
     python check_shootout_countdown.py --holdout          (once)
 """
