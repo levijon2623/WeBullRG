@@ -961,14 +961,19 @@ function shootPill(){
     body = `<b style="color:${col}">SHOOTOUT</b><span class="k">${s.mins}m in · ${ty ? 'ends ~' + ty.median : ''}</span>`;
     tip = `The opening Shootout, minute ${s.mins}. It is scored from 09:35. ${liveTk} ${typ}.`;
   } else if(s.state === 'on'){
-    const so = s.still_on;
+    const so = s.still_on, fc = s.forecast;
     body = `<b style="color:${col}">SHOOTOUT ON</b><span>${s.vr}×</span>` +
       (s.cool ? `<span class="k">cooling ${s.cool}/5</span>` : '') +
-      `<span class="k">${so ? 'usually to ~' + so.median : ty ? '~' + ty.median : ''}</span>`;
+      (fc ? `<span>likely to ~<b>${esc(fc.end)}</b></span><span class="k">±${fc.mae}m</span>`
+          : `<span class="k">${so ? 'usually to ~' + so.median : ty ? '~' + ty.median : ''}</span>`);
     tip = `SHOOTOUT ON (${s.mins} min since the open): over the last 15 minutes the tape's 5-minute moves ran ${s.vr}× what the ` +
       `ATM 0DTE options priced. It ends once that stays under 1× for 5 straight minutes` + (s.cool ? ` (${s.cool} so far)` : '') + '.' +
       `\n${liveTk} ${typ}.` +
-      (so ? `\nSessions still on at ${so.at}: usually over by ${so.median} (middle half ${so.q25}–${so.q75}, n=${so.n}` +
+      (fc ? `\nCOUNTDOWN (as of ${fc.as_of}, refreshed at 9:35 / 9:40 / 9:45 / 9:50 / 10:00 / 10:15 / 10:30): likely over by ` +
+            `~${fc.end}, ±${fc.mae} min typical error at this checkpoint on the holdout. From the first-5-minute range, ` +
+            `the ATM IV at 9:31 and the tape vs priced at ${fc.as_of} (check_shootout_countdown: error 20.7 -> 16.7 min, ` +
+            `about 1 in 3 within 10 min early on — a lean, not a timer).` : '') +
+      (so ? `\nPlain history — sessions still on at ${so.at}: usually over by ${so.median} (middle half ${so.q25}–${so.q75}, n=${so.n}` +
             `${so.past_cap ? `; ${Math.round(so.past_cap * 100)}% ran past 11:00` : ''}).` : '');
   } else if(s.state === 'over'){
     col = 'var(--dim)';
@@ -979,7 +984,7 @@ function shootPill(){
     body = `<span class="k">SHOOTOUT —</span>`; tip = 'No ATM 0DTE quote or candle yet for this minute.';
   }
   tip += `\n\nHistory (explore_shootout_end.py, 2023-11..2026-11): SPY usually ends ~9:41, QQQ ~10:01, IWM ~10:21. A hot first ` +
-    `5 minutes ran longer; high IV ran shorter; the overnight gap made no difference. Descriptive — no forecast of today's length yet.`;
+    `5 minutes ran longer; high IV ran shorter; the overnight gap made no difference.`;
   return `<span class="tag" title="${esc(tip)}" style="${st};border-color:${col}">${body}</span>`;
 }
 

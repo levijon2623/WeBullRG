@@ -9,8 +9,10 @@ definition A, computed the same way:
           3 minutes old), DAILY units (live UW implied_volatility is annualised: / sqrt(365)).
   OVER    at the first minute m >= 09:35 from which VR stays < 1 for 5 straight minutes -- known 4 minutes later.
 The pill shows the live VR, minutes below 1 so far ("cooling 2/5"), and the HISTORY (shootout_typical.json): the
-ticker's median end, and what sessions still on at this point usually did. No factor forecast here -- that waits for
-check_shootout_countdown.py.
+ticker's median end, and what sessions still on at this point usually did. COUNTDOWN (holdout PASS 2026-11-27,
+check_shootout_countdown.py -> shootout_countdown_frozen.json): "likely to ~HH:MM" with that checkpoint's holdout error,
+refreshed only at 09:35 / 09:40 / 09:45 / 09:50 / 10:00 / 10:15 / 10:30 as validated; live == scored on 219/219
+replayed holdout checkpoint rows (within 0.1 min).
 """
 from __future__ import annotations
 
@@ -72,7 +74,43 @@ def end_of(vr, upto, thr=1.0, sustain=5):
     return None
 
 
-def state(tk, bars, quotes, M, table):
+FROZEN = os.path.join(HERE, "shootout_countdown_frozen.json")
+
+
+def load_countdown():
+    try:
+        return json.load(open(FROZEN))
+    except (OSError, ValueError):
+        return None
+
+
+def forecast(cd, tk, bars, ivd, vr, t30, M):
+    """check_shootout_countdown's frozen model (holdout PASS 2026-11-27) at the latest checkpoint <= M: the predicted
+    end and that checkpoint's holdout error. Updated ONLY at the checkpoints, as validated. None when not computable."""
+    if not cd or tk not in cd.get("coef", {}) or bars is None or not t30:
+        return None
+    cks = [c for c in cd["checks"] if c <= M]
+    if not cks:
+        return None
+    c0 = cks[-1]
+    m = bars[:, 0].astype(int)
+    f5 = bars[(m >= M0) & (m < M0 + 5)]
+    o = bars[m == M0]
+    if not len(f5) or not len(o) or ivd.get(M0 + 1) is None or vr.get(c0) is None:
+        return None
+    x = dict(RNG5=(f5[:, 2].max() - f5[:, 3].min()) / (t30 * o[0, 1]), IV0=ivd[M0 + 1], VRm=vr[c0])
+    row = []
+    for f in cd["inputs"]:
+        a = cd["refs"][tk][f]
+        row.append((np.searchsorted(a, x[f], "left") + np.searchsorted(a, x[f], "right")) / (2 * len(a)) if a else 0.5)
+    row += [1.0 if c == c0 else 0.0 for c in cd["checks"]]
+    rem = float(np.clip(np.expm1(np.dot(row, cd["coef"][tk])), 0, cd["cap"] - c0))
+    end = int(round(c0 + rem))
+    return dict(end_m=end, end=f"{end // 60}:{end % 60:02d}", as_of=f"{c0 // 60}:{c0 % 60:02d}", rem=round(rem, 1),
+                mae=cd["holdout_mae"].get(str(c0)), inputs={k: round(float(v), 4) for k, v in x.items()})
+
+
+def state(tk, bars, quotes, M, table, cd=None, t30=None):
     """the pill's object for ticker tk at the last closed minute M, or None outside 09:30 .. 11:00."""
     if M < M0 or M > SHOW_UNTIL:
         return None
@@ -81,7 +119,8 @@ def state(tk, bars, quotes, M, table):
     typ = dict(median=hm(T["median"]), q25=hm(T["q25"]), q75=hm(T["q75"])) if T else None
     if M < M_END:
         return dict(state="opening", mins=M - M0 + 1, typical=typ)
-    vr = vr_series(bars, iv_by_minute(bars, quotes), M)
+    ivd = iv_by_minute(bars, quotes)
+    vr = vr_series(bars, ivd, M)
     if M not in vr:
         return dict(state="no data", typical=typ)
     end = end_of(vr, M)
@@ -97,4 +136,5 @@ def state(tk, bars, quotes, M, table):
     so = T.get("still_on", {}).get(cp) if T else None
     return dict(state="on", vr=round(vr[M], 2), cool=cool, mins=M - M0 + 1, typical=typ,
                 still_on=dict(at=hm(int(cp)), median=hm(so["median"]), q25=hm(so["q25"]), q75=hm(so["q75"]),
-                              n=so["n"], past_cap=so["past_cap"]) if so else None)
+                              n=so["n"], past_cap=so["past_cap"]) if so else None,
+                forecast=forecast(cd, tk, bars, ivd, vr, t30, M))

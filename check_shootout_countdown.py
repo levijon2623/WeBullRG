@@ -193,14 +193,42 @@ def null(Ld, draws=200):
           f"[{np.percentile(g, 2.5):+.2f}, {np.percentile(g, 97.5):+.2f}]  {'OK' if g.mean() <= 0 else 'NOT AT/BELOW 0'}")
 
 
+FROZEN = os.path.join(ROOT, "shootout_countdown_frozen.json")
+
+
+def freeze(Ld, Lh):
+    """the model exactly as the holdout scored it (fit on all discovery) -> shootout_countdown_frozen.json, for the
+    live pill (shootout_live.forecast): coefficients, the discovery reference values each rank was taken against, and
+    the holdout's error per checkpoint (the pill's label)."""
+    import datetime as dt
+    import json
+    rank = ranker(Ld)
+    models = fit(rank(Ld))
+    refs = {tk: {f: [float(x) for x in np.sort(Ld.filter(pl.col("tk") == tk)[f].drop_nans().drop_nulls().to_numpy())]
+                 for f in INPUTS} for tk in models}
+    Lr = rank(Lh)
+    pm, y = predict(models, Lr), Lr["rem"].to_numpy()
+    mae = {str(m): round(float(np.mean(np.abs(y[(Lr["m"] == m).to_numpy()] - pm[(Lr["m"] == m).to_numpy()]))), 1) for m in CHECKS}
+    out = dict(frozen=dt.datetime.now().isoformat(timespec="seconds"), source="check_shootout_countdown.py holdout PASS 2026-11-27",
+               inputs=list(INPUTS), checks=list(CHECKS), cap=CAP, coef={tk: [float(b) for b in beta] for tk, beta in models.items()},
+               refs=refs, holdout_mae=mae)
+    with open(FROZEN + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(out, f, separators=(",", ":"))
+    os.replace(FROZEN + ".tmp", FROZEN)
+    print("wrote", FROZEN, "| holdout MAE by checkpoint", mae)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--discovery", action="store_true")
     ap.add_argument("--holdout", action="store_true")
+    ap.add_argument("--freeze", action="store_true")
     a = ap.parse_args()
     L = long_rows(pl.read_parquet(SRC))
     odd = L["d"].str.slice(5, 2).cast(pl.Int32) % 2 == 1
     Ld, Lh = L.filter(odd), L.filter(~odd)
+    if a.freeze:
+        freeze(Ld, Lh)
     if a.discovery:
         dd = sorted(Ld["d"].unique().to_list())
         h1 = set(dd[: len(dd) // 2])

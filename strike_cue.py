@@ -863,8 +863,9 @@ def run():
         try:
             import shootout_live as SL
             SHOOT_T = SL.load_table()                    # the SHOOTOUT pill's history (shootout_typical.json)
+            SHOOT_CD = SL.load_countdown()               # its countdown (check_shootout_countdown holdout PASS 11-27)
         except Exception:
-            SHOOT_T = None
+            SHOOT_T = SHOOT_CD = None
         print(f"session {d}: volume bases ready, polling" + ("" if RIP else " (RIP pill off)"), flush=True)
         last_poll = last_slow = last_write = 0.0; last_mark = None; calls0 = uw.calls; stale_px = {tk: 0.0 for tk in TK}
         while True:
@@ -924,7 +925,8 @@ def run():
                 for tk in TK:                    # SHOOTOUT pill (shootout_live.py): the opening tape vs what 0DTE priced
                     try:
                         import shootout_live as SL
-                        T[tk].shoot = SL.state(tk, T[tk].bars_today, T[tk].atm_snap, m - 1, SHOOT_T)
+                        t30s = (RIP or {}).get("ctx", {}).get(tk, {}).get("t30s") if RIP else None
+                        T[tk].shoot = SL.state(tk, T[tk].bars_today, T[tk].atm_snap, m - 1, SHOOT_T, SHOOT_CD, t30s)
                     except Exception as e:
                         T[tk].shoot = None; print(f"  SHOOTOUT {tk}: {type(e).__name__}: {e}", flush=True)
                 if RIP and m >= 601:
