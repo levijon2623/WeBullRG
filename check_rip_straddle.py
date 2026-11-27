@@ -29,6 +29,16 @@ REPORTED, NOT TESTED  all breaks; TOP minus the other quintiles; quintiles 4+5; 
           R by ticker; the share of TOP breaks that ripped (the screen's RIP_B) next to the straddle's R -- the gap between
           the two is what options already priced.
 
+RESULT (2026-11-26, holdout scored once; _ripstraddle_cache/RESULT-holdout.txt, _ripstraddle_holdout.log; discovery
+  _ripstraddle_discovery.log)
+    S1 H1 TOP breaks  n 181  R60 -0.4% [-4.9%, +4.5%]   FAIL   (Q1-Q4 -5.0% [-7.7%, -1.9%]; all -4.0%)
+    S2 H2 TOP breaks  n  72  R60 -4.3% [-11.1%, +3.3%]  FAIL   (Q1-Q4 -0.9%; all -1.3%)
+  READ: on H1 the score does what the screen said -- top breaks rip more (9% vs 4%) and the straddle LOSES LESS there
+  (about 4.6 points better than the rest) -- but it does not make money: 0DTE options already price most of the move.
+  On H2 (no THRU / peak-zone inputs) the top quintile did not even rip more (3%, base 3%), so the size forecast leans on
+  those inputs. Every exit loses (30 / 120 min, 15:55: -18 to -23% to the close). Discovery TOP +6.5% [-2.9, +18.0] was
+  in-sample (24 of its 29 rips sat in the top quintile -- the fit, not the market). The pill stays display-only context.
+
     python check_rip_straddle.py --discovery        (D only: machinery + descriptive)
     python check_rip_straddle.py --holdout          (H1 + H2, once; writes _ripstraddle_cache/RESULT-holdout.txt)
 """
