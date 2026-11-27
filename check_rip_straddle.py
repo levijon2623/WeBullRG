@@ -136,7 +136,7 @@ def events_for(days):
                 t30[tk] = float(np.median([v for v in rr if v])) if rr else None
                 cs = []
                 for x in pr:
-                    cc = np.full(1000, np.nan); cc[x[:, 0].astype(int)] = np.cumsum(x[:, 5]); cs.append(cc)
+                    cc = np.full(1440, np.nan); cc[x[:, 0].astype(int) % 1440] = np.cumsum(x[:, 5]); cs.append(cc)   # 1440: one H2 day (2024-03-05) has r bars past 16:40
                 bvol[tk] = np.array(cs) if cs else None
             bn = defaultdict(list)
             for r in rows:
