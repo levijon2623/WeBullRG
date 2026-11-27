@@ -934,6 +934,47 @@ function contraPill(){
   return `<span class="tag" title="${esc(tip)}" style="${st};border-color:${COL}">${body}</span>`;
 }
 
+/* RIP (user, 2026-11-26; rip_cue.py inside strike_cue -> live/strikes.json tickers[tk].rip). A QUIET STRETCH =
+   60+ minutes of 1-minute closes inside 2.5 typical 30-min ranges (check_absorption_rip's base). From its 60th minute:
+   the frozen "A" score's quintile and its holdout rate of ending in a RIP (>= 3 typical ranges past the band within
+   60 min of the end). For 15 minutes after the first close outside the band: the frozen "B" score's quintile and its
+   holdout rate of carrying on >= 3 typical ranges from the break price within 60 min. SIZE ONLY -- both direction
+   models failed (check_rip_screen, holdout 2026-11-26). Display only. */
+const RIP_COL = '#e3b341';
+function ripPill(){
+  const o = STRK && STRK.tickers && STRK.tickers[liveTk];
+  const age = STRK ? Date.now()/1000 - (STRK.ts || 0) : 1e9;
+  if(!o || !o.rip || !STRK.live || age > 30) return '';
+  const r = o.rip, st = 'width:auto;flex:none;margin:0;font-size:11px;display:inline-flex;align-items:center;gap:6px';
+  const has = r.q != null;
+  const col = !has ? 'var(--dim)' : r.word === 'high' ? RIP_COL : r.word === 'low' ? 'var(--dim)' : 'var(--fg)';
+  const odds = has ? `<b style="color:${col}">${esc(r.word)} ${r.rate}%</b><span class="k">Q${r.q}</span>` : '<span class="k">scoring…</span>';
+  let body, tip;
+  if(r.kind === 'quiet'){
+    body = `<span style="color:${RIP_COL}">QUIET</span><span class="k">${r.mins}m from ${esc(r.since)}</span>${odds}`;
+    tip = `QUIET STRETCH since ${r.since} (${r.mins} min): 1-minute closes inside 2.5 typical 30-minute ranges for 60+ minutes.` +
+      (has ? `\nRip odds at its 60th minute: score quintile ${r.q} of 5 — on the holdout, stretches in this quintile ended in a ` +
+             `RIP (3+ typical ranges past the band within an hour of the end) ${r.rate}% of the time (n=${r.n}; all stretches ${r.base}%).` : '') +
+      `\nBy quintile: 2.3 / 2.3 / 3.6 / 4.4 / 7.7%. Holdout IC +0.10 [+0.03, +0.17].` +
+      `\nLeading inputs: the ATM straddle rising through the stretch, a steeper 15-min slope, LESS one-sided candle volume, ` +
+      `distance from the peak-gamma zone, relative volume, a wider band, dealers short gamma.`;
+  } else {
+    const ar = r.side > 0 ? '↑' : '↓';
+    body = `<span style="color:${RIP_COL}">BREAK ${ar}</span><span class="k">${r.age_min}m · from ${Math.floor(r.s/60)}:${String(r.s%60).padStart(2,'0')}</span>${odds}`;
+    tip = `BREAK ${r.side > 0 ? 'UP' : 'DOWN'} out of a quiet stretch at ${r.at} (stretch ${Math.floor(r.s/60)}:${String(r.s%60).padStart(2,'0')}–` +
+      `${Math.floor(r.e/60)}:${String(r.e%60).padStart(2,'0')}).` +
+      (has ? `\nCarry-on odds: score quintile ${r.q} of 5 — on the holdout, breaks in this quintile went on 3+ typical ranges ` +
+             `FROM THE BREAK PRICE within 60 min ${r.rate}% of the time (n=${r.n}; all breaks ${r.base}%).` : '') +
+      `\nBy quintile: 0.0 / 4.1 / 2.1 / 8.4 / 9.3%. Holdout IC +0.17 [+0.10, +0.23].` +
+      `\nLeading inputs: less one-sided candle volume in the stretch, close to VWAP, a sharper slope into the break, far ` +
+      `from the peak-gamma zone, a shorter stretch, relative volume, volume rising, the straddle rising.` +
+      (r.conf && r.conf.q ? `\nAt its 60th minute the stretch read ${r.conf.word} (Q${r.conf.q}, ${r.conf.rate}%).` : '');
+  }
+  tip += `\n\nSIZE ONLY: the same screen found nothing that says which way — both direction models failed the holdout. ` +
+    `Quintiles hold 165–280 stretches, so read low / mid / high, not the decimals. Display only (check_rip_screen.py).`;
+  return `<span class="tag" title="${esc(tip)}" style="${st};border-color:${RIP_COL}">${body}</span>`;
+}
+
 function strikePill(){
   const o = STRK && STRK.tickers && STRK.tickers[liveTk];
   const st = 'width:auto;flex:none;margin:0;font-size:11px;display:inline-flex;align-items:center;gap:6px';
@@ -1449,6 +1490,7 @@ function liveDraw(d, s){
     ${imBtn(s)}
     ${vgPill(s)}
     ${strikePill()}
+    ${ripPill()}
     ${pullPill()}
     ${contraPill()}
     ${waitLights(d)}

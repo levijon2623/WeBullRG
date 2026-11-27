@@ -39,6 +39,11 @@ Between setups the pill shows the live context it scores on: dealer gamma, the b
 two indices' 15-min move. The bot's RULE regime stays the prior close (it gates on that); this is the live view.
 Logged as "pullback" / "pullback_res". DISPLAY ONLY: ranks out of sample (IC +0.032, partly clean), did not pay.
 
+RIP (user, 2026-11-26): rip_cue.py, run from here once a minute -- QUIET (a quiet stretch from its 60th minute) and
+BREAK (15 min after it breaks) with the frozen check_rip_screen size scores (rip_model_frozen.json): how likely a big
+move is, never which way. Inputs from rip_features.py, the screen's own code; a lake replay through the live tracker
+matched all 103 stamps exactly. Logged as rip_conf / rip_brk / rip_res. Display only.
+
     python strike_cue.py                 (service loop)
     python strike_cue.py --build-tables  (once, on the PC: freezes strike_cue_tables.json from _sixpack_cache)
     python strike_cue.py --build-thru    (once, on the PC: strike_cue_thru.json from _breach_cache)
@@ -286,6 +291,9 @@ class Ticker:
         self.mclose = {}; self.medhist = []; self.pb_m = None; self.piv = {1: [], -1: []}; self.pb_done = set()
         self.pb_arm = []; self.pullback = None; self.chain = None; self.chain_tried = False
         self.contra_logged = set()
+        # RIP pill (rip_cue.py): THRU breaches as the screen scored them, today's closed 1-min candles, dealer exposures
+        # per minute, and the 0DTE ATM quotes per minute (NBBO mid + IV, near the money)
+        self.rip_thru = []; self.bars_today = None; self.expo_min = {}; self.atm_snap = {}
 
     # flow ---------------------------------------------------------------
     def add_snap(self, ts, rows):
@@ -301,7 +309,7 @@ class Ticker:
                 if e <= ts + 5 and (newest is None or e > newest): newest = e
         asof = min(ts, newest) if newest is not None else ts
         self.lag = round(ts - asof, 1)
-        cum = {}
+        cum, near = {}, {}
         for x in rows:
             o = P.parse_occ(x.get("option_symbol"))
             if not o: continue
@@ -310,7 +318,14 @@ class Ticker:
             cum[(int(round(k)), o[2])] = (P.num(x.get("ask_volume")) or 0.0, P.num(x.get("bid_volume")) or 0.0, P.num(x.get("volume")) or 0.0)
             dl = P.num(x.get("delta"))
             if dl is not None: self.delta[(int(round(k)), o[2])] = dl
+            if self.price and abs(k - self.price) <= 3.5:
+                b_, a_, iv_ = P.num(x.get("nbbo_bid")), P.num(x.get("nbbo_ask")), P.num(x.get("implied_volatility"))
+                if b_ is not None and a_ is not None and a_ >= b_ > 0:
+                    near[(int(round(k)), o[2])] = ((b_ + a_) / 2, iv_)
         if cum: self.snaps.append((asof, cum, dict(self.delta)))     # deltas as of this snapshot, for the THRU delta flow
+        if near:
+            t_ = datetime.fromtimestamp(asof, P.NY)
+            self.atm_snap.setdefault(t_.hour * 60 + t_.minute, {}).update(near)   # the minute's LAST quotes win
 
     def at(self, boundary_ts, open_ts):
         """cumulative snapshot at a minute boundary: the first whose tape has reached it (within 25 s past it); before the open nothing
@@ -463,6 +478,7 @@ class Ticker:
                      "rates": THRU["quintiles"][q], "drivers": drv, "with": others, "res": None,
                      "inputs": {k: (None if v is None else round(float(v), 4)) for k, v in x.items()}}
         if logf: logf({"ev": "breach", "tk": self.tk, **{k: v for k, v in self.thru.items() if k not in ("t0", "rates")}})
+        self.rip_thru.append({"t": self.tk, "t_in": now - day0, "side": side, "score": float(q) - 2.0})
 
     # PULLBACK: lower low -> lower high (and the mirror) --------------------------------------------
     def _pull_step(self, med, cb, t, now, logf):
@@ -750,6 +766,60 @@ def bot_price(tk):
         return None
 
 
+def rip_session(uw, d):
+    """once per session: the frozen models, each ticker's prior-session context, the calendar inputs."""
+    try:
+        import rip_cue as RC
+        import macro_calendar as MCAL
+        import market_calendar as MC
+        F = RC.load_frozen()
+        if not F:
+            return None
+        ctx = {tk: RC.session_context(uw, tk, d, LOGDIR) for tk in TK}
+        tdays = list(MC.trading_days(d.replace(day=1), (d.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)))
+        tf = date(d.year, d.month, 15); tf += timedelta(days=(4 - tf.weekday()) % 7)
+        cal = dict(DOW=d.weekday(), OPEX=float(d == (tf if MC.is_trading_day(tf) else tf - timedelta(days=1))),
+                   MONTHEND=float(d in tdays[-2:]), FOMC=float(bool(MCAL.is_fomc_day(d))), MACRO_AM=float(bool(MCAL.is_macro_am_day(d))))
+        return {"trk": RC.RipTracker(F, d, cal), "ctx": ctx, "peak": {}, "peak_tried": False}
+    except Exception as e:
+        print(f"  RIP pill off: {type(e).__name__}: {e}", flush=True)
+        return None
+
+
+def rip_step(R, uw, d, T, M, logf):
+    import rip_cue as RC
+    if not R["peak_tried"] and M >= 9 * 60 + 31:     # the zone as of 09:31, like check_peak_zone (once)
+        R["peak_tried"] = True
+        try:
+            st = json.load(open(os.path.join(HERE, "live", "state.json")))
+        except (OSError, ValueError):
+            st = {}
+        for tk in TK:
+            try:
+                ratio = (((st.get("tickers") or {}).get(tk) or {}).get("gex") or {}).get("blend", {}).get("ratio")
+                z = RC.peak_zone_live(uw, tk, d, T[tk].price, ratio)
+                if z: R["peak"][tk] = z
+            except Exception as e:
+                print(f"  RIP peak zone {tk}: {type(e).__name__}", flush=True)
+    a, atm = {}, {}
+    for tk in TK:
+        b = T[tk].bars_today
+        a[tk] = b
+        q = {}
+        if b is not None:
+            for mm, cl in zip(b[:, 0].astype(int), b[:, 4]):
+                sn = T[tk].atm_snap.get(int(mm)) or {}
+                K = int(round(cl)); c_, p_ = sn.get((K, "C")), sn.get((K, "P"))
+                if c_ and p_:
+                    q[int(mm)] = (c_[0] + p_[0], (c_[1] + p_[1]) / 2 if c_[1] and p_[1] else None)
+        atm[tk] = ({}, q)
+    C = R["ctx"]
+    ctx = dict(a=a, pa={tk: C[tk]["pa"] for tk in TK}, t30={tk: C[tk]["t30s"] for tk in TK},
+               base_vol={tk: C[tk]["base_vol"] for tk in TK}, expo={tk: T[tk].expo_min for tk in TK}, opt=atm,
+               B=[x for tk in TK for x in T[tk].rip_thru], S=[], pairs={}, hrel=None, peak=R["peak"])
+    R["trk"].step(M, ctx, {tk: C[tk]["t30e"] for tk in TK}, logf)
+
+
 def run():
     import market_calendar as MC
     import positioning_map as P
@@ -785,7 +855,8 @@ def run():
         for tk in TK:
             try: T[tk].vol_base = load_vol_base(uw, tk, d)
             except Exception as e: T[tk].err = f"volume base: {type(e).__name__}"
-        print(f"session {d}: volume bases ready, polling", flush=True)
+        RIP = rip_session(uw, d)                         # the RIP pill (rip_cue.py); None if it cannot start -- never fatal
+        print(f"session {d}: volume bases ready, polling" + ("" if RIP else " (RIP pill off)"), flush=True)
         last_poll = last_slow = last_write = 0.0; last_mark = None; calls0 = uw.calls; stale_px = {tk: 0.0 for tk in TK}
         while True:
             t = now_et(); m = mod_of(t)
@@ -817,6 +888,14 @@ def run():
                 for tk in TK:
                     try:
                         rows = uw.get(f"/stock/{tk}/spot-exposures").get("data") or []
+                        for r_ in rows:                  # per minute, for the RIP inputs (gamma / charm / vanna, OI)
+                            try:
+                                rt_ = datetime.fromisoformat(str(r_.get("start_time") or r_.get("time")).replace("Z", "+00:00")).astimezone(P.NY)
+                                T[tk].expo_min[mod_of(rt_)] = (P.num(r_.get("gamma_per_one_percent_move_oi")),
+                                                               P.num(r_.get("charm_per_one_percent_move_oi")),
+                                                               P.num(r_.get("vanna_per_one_percent_move_oi")))
+                            except (TypeError, ValueError):
+                                pass
                         if rows:
                             g = P.num(rows[-1].get("gamma_per_one_percent_move_oi"))
                             if g is not None: T[tk].gex, T[tk].gex_at = g, str(rows[-1].get("start_time") or "")[11:16]
@@ -828,9 +907,15 @@ def run():
                                 if 570 <= mod_of(rt) < m: cum += P.num(r.get("volume")) or 0.0
                             b = T[tk].vol_base[min(m - 570 - 1, 389)]
                             T[tk].rvol = cum / b if b else None
+                            if RIP:
+                                import rip_cue as RC
+                                T[tk].bars_today = RC.bars_from_uw(rows, upto=m - 1)       # closed minutes only
                     except Exception as e:
                         T[tk].err = f"regime: {type(e).__name__}"
                 write_market_tide(uw, d)
+                if RIP and m >= 601:
+                    try: rip_step(RIP, uw, d, T, m - 1, logf)
+                    except Exception as e: print(f"  RIP step: {type(e).__name__}: {e}", flush=True)
                 if PB and m >= 600:
                     for tk in TK:
                         if not T[tk].chain_tried:
@@ -859,6 +944,7 @@ def run():
                     o["thru"] = X.thru_cue()
                     o["pullback"] = X.pull_cue()
                     o["contra"] = X.contra_cue()
+                    o["rip"] = RIP["trk"].cue(tk) if RIP else None
                     if o["contra"]:                  # logged once per pair: the forward read joins breach_res / pullback_res
                         ck = (o["contra"]["thru_at"], o["contra"]["pull_at"])
                         if ck not in X.contra_logged:
