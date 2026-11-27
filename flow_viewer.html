@@ -944,6 +944,45 @@ function contraPill(){
   return `<span class="tag" title="${esc(tip)}" style="${st};border-color:${COL}">${body}</span>`;
 }
 
+/* SHOOTOUT (user, 2026-11-27; shootout_live.py inside strike_cue -> live/strikes.json tickers[tk].shootout). From the
+   open to 11:00: ON while the tape's 5-minute moves outrun what the ATM 0DTE options priced (realized / priced variance,
+   VR >= 1), OVER once VR stays below 1 for 5 straight minutes (explore_shootout_end.py, definition A). History: this
+   ticker's typical end, and what sessions still on at this point usually did. Descriptive -- no "today runs long"
+   forecast until check_shootout_countdown.py's holdout. */
+const SHOOT_COL = '#f0883e';
+function shootPill(){
+  const o = STRK && STRK.tickers && STRK.tickers[liveTk];
+  const age = STRK ? Date.now()/1000 - (STRK.ts || 0) : 1e9;
+  if(!o || !o.shootout || !STRK.live || age > 30) return '';
+  const s = o.shootout, st = 'width:auto;flex:none;margin:0;font-size:11px;display:inline-flex;align-items:center;gap:6px';
+  const ty = s.typical, typ = ty ? `typical end ${ty.median} (middle half ${ty.q25}–${ty.q75})` : 'no history table';
+  let body, tip, col = SHOOT_COL;
+  if(s.state === 'opening'){
+    body = `<b style="color:${col}">SHOOTOUT</b><span class="k">${s.mins}m in · ${ty ? 'ends ~' + ty.median : ''}</span>`;
+    tip = `The opening Shootout, minute ${s.mins}. It is scored from 09:35. ${liveTk} ${typ}.`;
+  } else if(s.state === 'on'){
+    const so = s.still_on;
+    body = `<b style="color:${col}">SHOOTOUT ON</b><span>${s.vr}×</span>` +
+      (s.cool ? `<span class="k">cooling ${s.cool}/5</span>` : '') +
+      `<span class="k">${so ? 'usually to ~' + so.median : ty ? '~' + ty.median : ''}</span>`;
+    tip = `SHOOTOUT ON (${s.mins} min since the open): over the last 15 minutes the tape's 5-minute moves ran ${s.vr}× what the ` +
+      `ATM 0DTE options priced. It ends once that stays under 1× for 5 straight minutes` + (s.cool ? ` (${s.cool} so far)` : '') + '.' +
+      `\n${liveTk} ${typ}.` +
+      (so ? `\nSessions still on at ${so.at}: usually over by ${so.median} (middle half ${so.q25}–${so.q75}, n=${so.n}` +
+            `${so.past_cap ? `; ${Math.round(so.past_cap * 100)}% ran past 11:00` : ''}).` : '');
+  } else if(s.state === 'over'){
+    col = 'var(--dim)';
+    body = `<span style="color:${col}">SHOOTOUT OVER ${esc(s.end)}</span><span class="k">${s.vr}×</span>`;
+    tip = `The Shootout ended at ${s.end}: from then the tape's moves stayed under what the 0DTE options priced for 5 straight ` +
+      `minutes (now ${s.vr}×). ${liveTk} ${typ}.`;
+  } else {
+    body = `<span class="k">SHOOTOUT —</span>`; tip = 'No ATM 0DTE quote or candle yet for this minute.';
+  }
+  tip += `\n\nHistory (explore_shootout_end.py, 2023-11..2026-11): SPY usually ends ~9:41, QQQ ~10:01, IWM ~10:21. A hot first ` +
+    `5 minutes ran longer; high IV ran shorter; the overnight gap made no difference. Descriptive — no forecast of today's length yet.`;
+  return `<span class="tag" title="${esc(tip)}" style="${st};border-color:${col}">${body}</span>`;
+}
+
 /* RIP (user, 2026-11-26; rip_cue.py inside strike_cue -> live/strikes.json tickers[tk].rip). A QUIET STRETCH =
    60+ minutes of 1-minute closes inside 2.5 typical 30-min ranges (check_absorption_rip's base). From its 60th minute:
    the frozen "A" score's quintile and its holdout rate of ending in a RIP (>= 3 typical ranges past the band within
@@ -1499,6 +1538,7 @@ function liveDraw(d, s){
     ${gxBtn(s)}
     ${imBtn(s)}
     ${vgPill(s)}
+    ${shootPill()}
     ${strikePill()}
     ${ripPill()}
     ${pullPill()}

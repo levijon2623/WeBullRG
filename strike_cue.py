@@ -39,6 +39,10 @@ Between setups the pill shows the live context it scores on: dealer gamma, the b
 two indices' 15-min move. The bot's RULE regime stays the prior close (it gates on that); this is the live view.
 Logged as "pullback" / "pullback_res". DISPLAY ONLY: ranks out of sample (IC +0.032, partly clean), did not pay.
 
+SHOOTOUT (user, 2026-11-27): shootout_live.py, once a minute from 09:30 to 11:00 -- ON while the tape's 5-min moves
+outrun what the ATM 0DTE IV priced (explore_shootout_end.py's definition A; live == study on 83/83 replayed
+session-tickers), OVER once below 1x for 5 straight minutes, with each ticker's typical end (shootout_typical.json).
+
 RIP (user, 2026-11-26): rip_cue.py, run from here once a minute -- QUIET (a quiet stretch from its 60th minute) and
 BREAK (15 min after it breaks) with the frozen check_rip_screen size scores (rip_model_frozen.json): how likely a big
 move is, never which way. Inputs from rip_features.py, the screen's own code; a lake replay through the live tracker
@@ -293,7 +297,7 @@ class Ticker:
         self.contra_logged = set()
         # RIP pill (rip_cue.py): THRU breaches as the screen scored them, today's closed 1-min candles, dealer exposures
         # per minute, and the 0DTE ATM quotes per minute (NBBO mid + IV, near the money)
-        self.rip_thru = []; self.bars_today = None; self.expo_min = {}; self.atm_snap = {}
+        self.rip_thru = []; self.bars_today = None; self.expo_min = {}; self.atm_snap = {}; self.shoot = None
 
     # flow ---------------------------------------------------------------
     def add_snap(self, ts, rows):
@@ -856,6 +860,11 @@ def run():
             try: T[tk].vol_base = load_vol_base(uw, tk, d)
             except Exception as e: T[tk].err = f"volume base: {type(e).__name__}"
         RIP = rip_session(uw, d)                         # the RIP pill (rip_cue.py); None if it cannot start -- never fatal
+        try:
+            import shootout_live as SL
+            SHOOT_T = SL.load_table()                    # the SHOOTOUT pill's history (shootout_typical.json)
+        except Exception:
+            SHOOT_T = None
         print(f"session {d}: volume bases ready, polling" + ("" if RIP else " (RIP pill off)"), flush=True)
         last_poll = last_slow = last_write = 0.0; last_mark = None; calls0 = uw.calls; stale_px = {tk: 0.0 for tk in TK}
         while True:
@@ -907,12 +916,17 @@ def run():
                                 if 570 <= mod_of(rt) < m: cum += P.num(r.get("volume")) or 0.0
                             b = T[tk].vol_base[min(m - 570 - 1, 389)]
                             T[tk].rvol = cum / b if b else None
-                            if RIP:
-                                import rip_cue as RC
-                                T[tk].bars_today = RC.bars_from_uw(rows, upto=m - 1)       # closed minutes only
+                            import rip_cue as RC
+                            T[tk].bars_today = RC.bars_from_uw(rows, upto=m - 1)           # closed minutes only (RIP + SHOOTOUT)
                     except Exception as e:
                         T[tk].err = f"regime: {type(e).__name__}"
                 write_market_tide(uw, d)
+                for tk in TK:                    # SHOOTOUT pill (shootout_live.py): the opening tape vs what 0DTE priced
+                    try:
+                        import shootout_live as SL
+                        T[tk].shoot = SL.state(tk, T[tk].bars_today, T[tk].atm_snap, m - 1, SHOOT_T)
+                    except Exception as e:
+                        T[tk].shoot = None; print(f"  SHOOTOUT {tk}: {type(e).__name__}: {e}", flush=True)
                 if RIP and m >= 601:
                     try: rip_step(RIP, uw, d, T, m - 1, logf)
                     except Exception as e: print(f"  RIP step: {type(e).__name__}: {e}", flush=True)
@@ -945,6 +959,7 @@ def run():
                     o["pullback"] = X.pull_cue()
                     o["contra"] = X.contra_cue()
                     o["rip"] = RIP["trk"].cue(tk) if RIP else None
+                    o["shootout"] = getattr(X, "shoot", None)
                     if o["contra"]:                  # logged once per pair: the forward read joins breach_res / pullback_res
                         ck = (o["contra"]["thru_at"], o["contra"]["pull_at"])
                         if ck not in X.contra_logged:
