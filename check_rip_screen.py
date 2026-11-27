@@ -73,6 +73,11 @@ DEVIATION 2, 2026-11-26, BEFORE ANY HOLDOUT, after the first fresh discovery (_r
       detection gives Spearman(POS, break) +0.23 (59% go the way of POS; real 65%) -- price near an edge leaves by it
       even on a random walk. A DIR now asks what adds to that: target = its discovery-ECDF rank minus a frozen linear
       fit on POS's rank; POS is removed from the inputs.
+  (b') SUPERSEDED by DEVIATION 3 (user, 2026-11-26, before any holdout): rather than subtracting the geometry, A DIR's
+      target is the signed 60-min move from the CONFIRMATION price, FWD_A = (close(t + 60) - close(t)) / unit, with POS
+      back among the inputs -- the same fix as B's, and a random walk scores 0 on it whatever POS is, so anything POS
+      (or any input) predicts is information. The geometry-residual code stays, unused. Discovery 2's A-DIR numbers
+      (net of POS: nothing, max |IC| 0.066) were for the superseded target.
   (c) M2 is now out of sample: 20 target shuffles, Lasso fit on the first discovery half, |IC| on the second; mean
       |IC| < 0.03. (The single in-sample shuffle kept 1 input twice -- the best of 24-42 noise inputs, expected.)
 SCREEN 2 (LATER, after an ES trades purchase -- not bought yet): futures aggressor inputs (base delta, delta trend,
@@ -339,6 +344,11 @@ def day_features(args):
                  PULL_N=float(len(ss)), PULL_NET=float(sum(q["side"] for q in ss)),
                  PULL_LAST=float(ss[-1]["side"] * ss[-1]["score"]) if ss else 0.0,
                  TIE_N=float(len(pp)), TIE_LAST=float(pp[-1][1]) if pp else 0.0)
+        if mode == "conf":
+            # A DIR FROM THE CONFIRMATION PRICE (deviation 3, before any holdout): a random walk scores 0 here whatever
+            # the band position, so POS can stay in -- anything it predicts is information, not geometry
+            j60 = int(np.searchsorted(m, t + 60, side="right")) - 1
+            f["FWD_A"] = float((c[j60] - c[it]) / unit) if j60 > it else np.nan
         if mode == "brk":
             # B OUTCOMES FROM THE BREAK PRICE (deviation 2, before any holdout): the excursion past the band edge
             # includes the break minute itself, already known at t -- so measure from close(t) forward instead
@@ -532,7 +542,7 @@ def main():
     # DEVIATION 2026-11-26 (before any holdout): two stamp points instead of the base's last minute (a look-ahead).
     # deviation 2: B targets from the break price; A DIR net of the band geometry (POS out, target residualised on it)
     PLAN = (("conf", "RIP", SIZE_IN, "A SIZE at confirmation", None),
-            ("conf", "YDIR", [k for k in DIR_IN if k != "POS"], "A DIR at confirmation, net of POS geometry", "POS"),
+            ("conf", "FWD_A", DIR_IN, "A DIR at confirmation (60-min move from the confirmation price)", None),
             ("brk", "RIP_B", SIZE_IN, "B SIZE at the break (from the break price)", None),
             ("brk", "CONT_B", DIR_IN, "B CONT at the break (60-min move from the break price)", None))
     FS = {}
