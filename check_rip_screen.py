@@ -65,6 +65,16 @@ DEVIATION 2026-11-26, BEFORE ANY HOLDOUT (user approved: "yes on both"). The fir
        (does the break carry on, + , or fail, -); every directional input is multiplied by the break side
        ("+ = with the break"), as in check_breach_ic.
   Four P2 verdicts, BH across the four. Discovery is computed fresh for both; nothing from the void run is reused.
+DEVIATION 2, 2026-11-26, BEFORE ANY HOLDOUT, after the first fresh discovery (_ripscreen_discovery.log):
+  (a) B's outcome still overlapped its stamp: the excursion past the band edge includes the break minute's own close.
+      B targets are now measured from close(t): RIP_B = a continuation of >= 3 typical ranges from the break price
+      within 60 min; CONT_B = break side x (close(t + 60) - close(t)), in typical ranges.
+  (b) A DIR's top input POS (+0.31) is mostly band GEOMETRY: on sessions with SHUFFLED 1-min returns the same base
+      detection gives Spearman(POS, break) +0.23 (59% go the way of POS; real 65%) -- price near an edge leaves by it
+      even on a random walk. A DIR now asks what adds to that: target = its discovery-ECDF rank minus a frozen linear
+      fit on POS's rank; POS is removed from the inputs.
+  (c) M2 is now out of sample: 20 target shuffles, Lasso fit on the first discovery half, |IC| on the second; mean
+      |IC| < 0.03. (The single in-sample shuffle kept 1 input twice -- the best of 24-42 noise inputs, expected.)
 SCREEN 2 (LATER, after an ES trades purchase -- not bought yet): futures aggressor inputs (base delta, delta trend,
   delta at the band edges, delta vs price divergence) ADDED to the frozen screen-1 score, fit on the same discovery;
   PASS = the new score's holdout IC beats screen 1's (paired day-block bootstrap). Partly clean: the holdout will have
@@ -329,8 +339,14 @@ def day_features(args):
                  PULL_N=float(len(ss)), PULL_NET=float(sum(q["side"] for q in ss)),
                  PULL_LAST=float(ss[-1]["side"] * ss[-1]["score"]) if ss else 0.0,
                  TIE_N=float(len(pp)), TIE_LAST=float(pp[-1][1]) if pp else 0.0)
-        if mode == "brk":                                # "+" = WITH the break for every directional input
-            for k in DIRECTIONAL:
+        if mode == "brk":
+            # B OUTCOMES FROM THE BREAK PRICE (deviation 2, before any holdout): the excursion past the band edge
+            # includes the break minute itself, already known at t -- so measure from close(t) forward instead
+            j60 = int(np.searchsorted(m, t + 60, side="right")) - 1
+            fut = c[it + 1: j60 + 1]
+            f["RIP_B"] = float(np.max(bs * (fut - c[it])) >= 3 * unit) if len(fut) else np.nan
+            f["CONT_B"] = float(bs * (c[j60] - c[it]) / unit) if j60 > it else np.nan
+            for k in DIRECTIONAL:                        # "+" = WITH the break for every directional input
                 if f.get(k) is not None and f[k] == f[k]:
                     f[k] = float(f[k]) * bs
         f.update(cal)
@@ -433,9 +449,26 @@ def iso_week(d):
     return y * 100 + w
 
 
-def screen(Fd, Fh, target, cols, label):
+def screen(Fd, Fh, target, cols, label, resid=None):
+    from scipy.stats import rankdata
+    ok = lambda F: F.filter(pl.col(target).cast(pl.Float64).is_finite())          # noqa: E731
+    Fd = ok(Fd)
+    Fh = ok(Fh) if Fh is not None else None
     rank = ranker(Fd, cols)
     Xd, yd = rank(Fd), Fd[target].cast(pl.Float64).to_numpy()
+    geo = None
+    if resid:
+        # GEOMETRY REMOVED (deviation 2): target -> its discovery-ECDF rank minus a linear fit on the resid input's rank,
+        # fit on discovery and frozen; the holdout uses the same ECDF, the same fit
+        yref = np.sort(yd)
+        ecdf = lambda v: (np.searchsorted(yref, v, "left") + np.searchsorted(yref, v, "right")) / (2 * len(yref))  # noqa: E731
+        rr = ranker(Fd, [resid])
+        pdv = rr(Fd)[:, 0]
+        b1, b0 = np.polyfit(pdv, ecdf(yd), 1)
+        geo = (ecdf, rr, b0, b1)
+        print(f"  [{label}] geometry fit on discovery: rank(target) = {b0:.3f} + {b1:+.3f} x rank({resid}); "
+              f"Spearman({resid}, target) {spearman(pdv, yd):+.3f}")
+        yd = ecdf(yd) - (b0 + b1 * pdv)
     dd = Fd["d"].to_list()
     med = sorted(set(dd))[len(set(dd)) // 2]
     h1 = np.array([d < med for d in dd])
@@ -466,14 +499,20 @@ def screen(Fd, Fh, target, cols, label):
     las = fit_lasso(Xd, yd, weeks)
     kept = [(cols[j], float(las.coef_[j])) for j in np.argsort(-np.abs(las.coef_)) if las.coef_[j] != 0]
     print(f"  P2 Lasso keeps {len(kept)}: " + ", ".join(f"{k} {c:+.3f}" for k, c in kept[:15]))
-    # M2 null: shuffled target
-    ys = rng.permutation(yd)
-    l0 = fit_lasso(Xd, ys, weeks)
-    sc0 = Xd @ l0.coef_
-    print(f"  M2 shuffled target: Lasso keeps {(l0.coef_ != 0).sum()}, in-sample IC {spearman(sc0, ys) if np.any(l0.coef_) else 0:+.3f}")
+    # M2 null (deviation 2: out of sample): 20 shuffles of the target; fit on the first discovery half, IC on the second
+    m2 = []
+    for _ in range(20):
+        ys = rng.permutation(yd)
+        l0 = fit_lasso(Xd[h1], ys[h1], weeks[h1])
+        m2.append(spearman(Xd[~h1] @ l0.coef_, ys[~h1]) if np.any(l0.coef_) else 0.0)
+    m2 = np.abs(np.array(m2))
+    print(f"  M2 shuffled target, out of sample (20): mean |IC| {m2.mean():.3f}, max {m2.max():.3f}  {'OK' if m2.mean() < 0.03 else 'FAIL'}")
     res = dict(target=target, kept=kept, model=las, rank=rank)
     if Fh is not None:
         Xh, yh = rank(Fh), Fh[target].cast(pl.Float64).to_numpy()
+        if geo:
+            ecdf, rr, b0, b1 = geo
+            yh = ecdf(yh) - (b0 + b1 * rr(Fh)[:, 0])
         sh = Xh @ las.coef_
         dh = Fh["d"].to_list()
         ic = spearman(sh, yh) if np.any(las.coef_) else 0.0
@@ -491,8 +530,11 @@ def main():
     ap.add_argument("--holdout", action="store_true")
     a = ap.parse_args()
     # DEVIATION 2026-11-26 (before any holdout): two stamp points instead of the base's last minute (a look-ahead).
-    PLAN = (("conf", "RIP", SIZE_IN, "A SIZE at confirmation"), ("conf", "YDIR", DIR_IN, "A DIR at confirmation"),
-            ("brk", "RIP", SIZE_IN, "B SIZE at the break"), ("brk", "CONT", DIR_IN, "B CONT at the break"))
+    # deviation 2: B targets from the break price; A DIR net of the band geometry (POS out, target residualised on it)
+    PLAN = (("conf", "RIP", SIZE_IN, "A SIZE at confirmation", None),
+            ("conf", "YDIR", [k for k in DIR_IN if k != "POS"], "A DIR at confirmation, net of POS geometry", "POS"),
+            ("brk", "RIP_B", SIZE_IN, "B SIZE at the break (from the break price)", None),
+            ("brk", "CONT_B", DIR_IN, "B CONT at the break (60-min move from the break price)", None))
     FS = {}
     for mode in ("conf", "brk"):
         F = add_abs(build(mode))
@@ -501,16 +543,16 @@ def main():
               (", ".join(f"{k} {F[k].cast(pl.Float64).is_nan().fill_null(True).mean():.0%}" for k in DIRECTIONAL + NONDIR
                          if F[k].cast(pl.Float64).is_nan().fill_null(True).mean() > 0.05) or "none"))
     if a.discovery:
-        for mode, tgt, cols, lab in PLAN:
-            screen(FS[mode][0], None, tgt, cols, lab)
+        for mode, tgt, cols, lab, rs_ in PLAN:
+            screen(FS[mode][0], None, tgt, cols, lab, rs_)
     if a.holdout:
         rp = os.path.join(CACHE, "RESULT-holdout.txt")
         if os.path.exists(rp):
             sys.exit(f"holdout already scored: {rp}")
-        rs = [screen(FS[mode][0], FS[mode][1], tgt, cols, lab) for mode, tgt, cols, lab in PLAN]
+        rs = [screen(FS[mode][0], FS[mode][1], tgt, cols, lab, rs_) for mode, tgt, cols, lab, rs_ in PLAN]
         qv = bh([r["h_p"] for r in rs])
         lines = []
-        for r, qq, (mode, tgt, cols, lab) in zip(rs, qv, PLAN):
+        for r, qq, (mode, tgt, cols, lab, _) in zip(rs, qv, PLAN):
             ok = bool(r["kept"]) and r["h_ic"] > 0 and r["h_lo"] > 0 and qq <= 0.10
             lines.append(f"  P2 {lab}: keeps {len(r['kept'])} ({', '.join(k for k, _ in r['kept'][:10])}) | holdout IC "
                          f"{r['h_ic']:+.4f} [{r['h_lo']:+.4f}, {r['h_hi']:+.4f}] q {qq:.3f}  {'PASS' if ok else 'FAIL'}")
