@@ -1,0 +1,112 @@
+{
+ "date": "2026-11-09",
+ "slug": "flow-russell",
+ "kicker": "Options flow · Russell 2000 (IWM + RUT) · Mon Nov 9, 2026 · at the close",
+ "h1": "Russell: the hedge stepped up three times",
+ "sub": "IWM +3.22% to 282.48, high 283.79 at 14:41. The November puts were rolled up with the price, $260 → $266 → $269 → $270, staying about 4.5% below it each time, for ~$2.4M in total. The same pattern as last week.",
+ "tiles": [
+  [
+   "282.48",
+   "IWM +3.22% · high 283.79 at 14:41"
+  ],
+  [
+   "$260 → $270",
+   "Nov-20 puts, rolled up in three steps"
+  ],
+  [
+   "84k",
+   "contracts rolled (36k + 20k + 28k)"
+  ],
+  [
+   "30k",
+   "Dec-18 $300 calls traded, no side recorded"
+  ]
+ ],
+ "bars_title": "The ratchet, step by step",
+ "bars_sub": "Contracts rolled (thousands) · new strike vs IWM at that minute (278.94, 282.42, 282.5) · net cost per contract",
+ "bars_max": 62,
+ "bars_x0": 170,
+ "bars": [
+  {
+   "label": "09:52 $260 → $266",
+   "v": 36.0,
+   "text": "36k · 4.6% below · $0.45"
+  },
+  {
+   "label": "13:51 $266 → $269",
+   "v": 20.0,
+   "text": "20k · 4.7% below · $0.23"
+  },
+  {
+   "label": "16:06 $269 → $270",
+   "v": 28.0,
+   "text": "28k · 4.4% below · $0.11"
+  }
+ ],
+ "table_sub": "TUE = settled by Tuesday's open interest · $ = premium, $ million (rolls: net cost)",
+ "trades": [
+  {
+   "d": "IWM",
+   "k": "Nov-20 $260 put  →  $266 put",
+   "side": "x",
+   "chip": "ROLL",
+   "n": "36k each",
+   "prem": 1.6,
+   "note": "09:52: 260s sold $0.60, 266s bought $1.05",
+   "pend": "TUE"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-20 $266 put  →  $269 put",
+   "side": "x",
+   "chip": "ROLL",
+   "n": "20k each",
+   "prem": 0.5,
+   "note": "13:51: 266s sold $0.60, 269s bought $0.83",
+   "pend": "TUE"
+  },
+  {
+   "d": "IWM",
+   "k": "Nov-20 $269 put  →  $270 put",
+   "side": "x",
+   "chip": "ROLL",
+   "n": "28k each",
+   "prem": 0.3,
+   "note": "16:06, after the bell: 269s sold $0.79, 270s bought $0.90",
+   "pend": "TUE"
+  },
+  {
+   "d": "IWM",
+   "k": "Dec-18 $300 call",
+   "side": "x",
+   "chip": "NO SIDE",
+   "n": "30k",
+   "prem": 2.9,
+   "note": "10:42 + 10:48 at ~$0.95, 6% above; 57.7k open before",
+   "pend": "TUE"
+  },
+  {
+   "d": "IWM",
+   "k": "Dec-18 $275 put",
+   "side": "x",
+   "chip": "NO SIDE",
+   "n": "15k",
+   "prem": 6.5,
+   "note": "two 7.5k prints, 15:46 and 15:49, ~$4.30",
+   "pend": "TUE"
+  },
+  {
+   "d": "IWM",
+   "k": "Dec-18 $267 put",
+   "side": "b",
+   "chip": "BOUGHT",
+   "n": "9.75k",
+   "prem": 3.0,
+   "note": "12:58 at $3.03, multi-leg",
+   "pend": "TUE"
+  }
+ ],
+ "confirm": "settled by Tuesday's open interest",
+ "read": "<b>Read:</b> Russell protection keeps following the price up: $265 → $266–268 on Nov 2, → $270–272 on Nov 4, and today the remaining $260s went to $266, then $269, then $270 after the bell, each step about 4.5% below the price and paid for cheaply. The hedge is being kept near the money, not taken off. Positioning, not a signal: our tests of copying these prints failed.",
+ "mon": "Side inferred from ask/bid · open interest is start-of-day · a roll = same size, same minute, opposite sides"
+}

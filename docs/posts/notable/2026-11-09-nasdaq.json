@@ -1,0 +1,107 @@
+{
+ "date": "2026-11-09",
+ "slug": "flow-nasdaq",
+ "kicker": "Options flow · Nasdaq 100 (QQQ + NDX) · Mon Nov 9, 2026 · at the close",
+ "h1": "Nasdaq: December $705 calls drew 21k",
+ "sub": "QQQ +3.45% to 678.77, high 681.70 at 15:28. December $705 calls traded 21.4k against 10.2k open, 10k of them at the ask at 16:00. In-the-money December $655 calls were sold.",
+ "tiles": [
+  [
+   "678.77",
+   "QQQ +3.45% · high 681.70 at 15:28"
+  ],
+  [
+   "21.4k",
+   "Dec-18 $705 calls traded (10.2k open before)"
+  ],
+  [
+   "6.0k",
+   "Dec-18 $655 calls sold at 10:26, in the money"
+  ],
+  [
+   "+$0.36B",
+   "same-day delta, QQQ + NDX"
+  ]
+ ],
+ "bars_title": "Where Nasdaq delta went today, by expiry",
+ "bars_sub": "Delta bought (+) or sold (−), $ billion · QQQ Nov-20 left out: its +$1.79B is deep in-the-money puts sold",
+ "bars_max": 1,
+ "bars_x0": 150,
+ "bars": [
+  {
+   "label": "QQQ same-day",
+   "v": 0.95,
+   "text": "+$0.95B"
+  },
+  {
+   "label": "NDX same-day",
+   "v": 0.59,
+   "text": "−$0.59B"
+  },
+  {
+   "label": "QQQ Nov-10",
+   "v": 0.3,
+   "text": "−$0.30B"
+  },
+  {
+   "label": "NDX Nov-10",
+   "v": 0.36,
+   "text": "−$0.36B"
+  },
+  {
+   "label": "QQQ Nov-13",
+   "v": 0.08,
+   "text": "+$0.08B"
+  },
+  {
+   "label": "QQQ Dec-18",
+   "v": 0.3,
+   "text": "−$0.30B"
+  }
+ ],
+ "table_sub": "TUE = settled by Tuesday's open interest · $ = premium, $ million",
+ "trades": [
+  {
+   "d": "QQQ",
+   "k": "Dec-18 $705 call",
+   "side": "b",
+   "chip": "BOUGHT",
+   "n": "10k + 11k",
+   "prem": 22.7,
+   "note": "10k at the ask at 16:00 ($10.82); 11k with no side recorded",
+   "pend": "TUE"
+  },
+  {
+   "d": "QQQ",
+   "k": "Dec-18 $655 call",
+   "side": "s",
+   "chip": "SOLD",
+   "n": "6.0k",
+   "prem": 22.3,
+   "note": "10:26 at $37.09, multi-leg: likely closed or rolled up",
+   "pend": "TUE"
+  },
+  {
+   "d": "QQQ",
+   "k": "Nov-13 $660 put",
+   "side": "x",
+   "chip": "NO SIDE",
+   "n": "15.0k",
+   "prem": 4.2,
+   "note": "15:56 at $2.78, about 3% below the price",
+   "pend": "TUE"
+  },
+  {
+   "d": "QQQ",
+   "k": "same-day $677 / $678 calls",
+   "side": "x",
+   "chip": "BOTH WAYS",
+   "n": "652k",
+   "prem": 81.3,
+   "note": "the close strikes; split about evenly ask / bid",
+   "pend": "TUE"
+  }
+ ],
+ "confirm": "settled by Tuesday's open interest",
+ "read": "<b>Read:</b> the Nasdaq led the rally, and the interest that stands out is December: $705 calls, about 4% above the close, drew 21k against 10k open, including 10k bought at the bell, while in-the-money $655 calls were sold. Same-day flow chased the close strikes. The big November number is deep in-the-money puts, not direction. Positioning, not a signal.",
+ "mon": "Side inferred from ask/bid · open interest is start-of-day · left out: QQQ Nov-20 deep in-the-money puts (735–770, ~$570M, mostly at the bid)"
+}

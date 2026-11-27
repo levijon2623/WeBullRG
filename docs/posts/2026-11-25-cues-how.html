@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1080">
+<title>Three cues: how they work</title>
+<!-- Share card (README.md). Rules as coded in strike_cue.py; studies check_breach_ic.py, check_structure.py,
+     check_structure_ic.py, check_contradiction.py. Identity colors #3987e5 / #199e70 / #c98500 validated on #0f1419.
+     NAMES: THRUSTRIKE = the viewer's THRU, NEXTLEG = PULL, TIEBREAK = the swap-arrow pill. -->
+<link rel="stylesheet" href="card.css">
+<style>
+  :root{--thru:#3987e5;--leg:#199e70;--tie:#c98500}
+  .kicker{color:var(--ink2)}
+  .sub{margin-bottom:16px}
+  .row{display:grid;grid-template-columns:392px 1fr;gap:20px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:14px 20px 14px 14px;margin-bottom:13px;height:364px;align-items:center}
+  .row svg{background:#0f1419;border-radius:8px;display:block}
+  .name{display:flex;align-items:center;gap:10px;font-size:25px;font-weight:800;letter-spacing:.02em}
+  .name i{width:16px;height:16px;border-radius:4px}
+  .q{font-size:20px;font-weight:600;margin:3px 0 9px;line-height:1.25}
+  dl{margin:0;display:grid;grid-template-columns:74px 1fr;gap:6px 10px;font-size:16.5px;line-height:1.34}
+  dt{color:var(--muted)} dd{margin:0;color:var(--ink2)} dd b{color:var(--ink)}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="kicker">SPY · QQQ · IWM · intraday cues · 1 of 2</div>
+  <h1>Three cues, one question each</h1>
+  <div class="sub">Two watch for an event and show how often it followed through before. The third speaks up when they disagree.</div>
+
+  <div class="row"><svg id="d1" width="378" height="318" role="img" aria-label="Price crosses a whole-dollar strike, then either reaches the next strike or falls back"></svg>
+    <div><div class="name"><i style="background:var(--thru)"></i>THRUSTRIKE</div>
+      <div class="q">Price just broke a whole-dollar strike. Does it reach the next one?</div>
+      <dl><dt>Fires</dt><dd>Price comes from at least 5 bp (0.05%) away and gets <b>10¢ past the strike</b>, up or down. 9:45–3:30 ET.</dd>
+        <dt>Shows</dt><dd>How often past breaks like this reached the <b>next strike</b> before falling 10¢ back through, within 15 minutes.</dd>
+        <dt>Reads</dt><dd>10 inputs. Helps: a fast approach, the other indexes breaking too, heavy volume. Hurts: same-day option flow <b>already chasing</b> the break.</dd></dl></div></div>
+
+  <div class="row"><svg id="d2" width="378" height="318" role="img" aria-label="A lower low, a bounce to a lower high, then entry with a tight stop and a target at twice the risk"></svg>
+    <div><div class="name"><i style="background:var(--leg)"></i>NEXTLEG</div>
+      <div class="q">A lower low, then a lower high. Does the next leg run?</div>
+      <dl><dt>Fires</dt><dd>After a lower low, the bounce turns down while still <b>under the prior high</b>. Flipped for longs. 9:35–3:30 ET.</dd>
+        <dt>Shows</dt><dd>How often past setups made <b>2× the risk</b> before the stop, within 30 minutes. The stop sits just above the bounce.</dd>
+        <dt>Reads</dt><dd>9 inputs. Helps: a tight stop, negative dealer gamma, the other indexes moving the same way. Hurts: a big gamma wall at price.</dd></dl></div></div>
+
+  <div class="row"><svg id="d3" width="378" height="318" role="img" aria-label="A break up through a strike, then a short setup within two minutes"></svg>
+    <div><div class="name"><i style="background:var(--tie)"></i>TIEBREAK</div>
+      <div class="q">The two point opposite ways. Which one still stands?</div>
+      <dl><dt>Fires</dt><dd>THRUSTRIKE and NEXTLEG give <b>opposite directions</b> on one ticker within 2 minutes.</dd>
+        <dt>Shows</dt><dd>Both cues’ past follow-through in that situation.</dd>
+        <dt>Reads</dt><dd><b>Which came first</b>, because the earlier one has often failed already. If the break came first, also <b>how far price sits from the strike</b>.</dd></dl></div></div>
+</div>
+<div class="foot"><span>Schematic, not real prices · display only · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span></div>
+<script src="card.js"></script>
+<script>
+const INK='#eef1f5', MUT='#8b95a3', GR='#2a3441', TH='#3987e5', LG='#199e70', TI='#c98500';
+const $=id=>document.getElementById(id);
+const pl=(s,pts,c,w,extra={})=>el('polyline',Object.assign({points:pts.map(p=>p.join(',')).join(' '),fill:'none',stroke:c,'stroke-width':w,'stroke-linejoin':'round','stroke-linecap':'round'},extra),s);
+const hl=(s,y,lab,c=GR,dash='')=>{el('line',{x1:14,x2:364,y1:y,y2:y,stroke:c,'stroke-width':1.5,'stroke-dasharray':dash},s); if(lab) txt(s,18,y-7,lab,{fill:MUT,'font-size':15});};
+const dot=(s,x,y,c)=>el('circle',{cx:x,cy:y,r:8,fill:c,stroke:'#0f1419','stroke-width':2},s);
+const head=(s,x,y,a,c)=>el('path',{d:'M0,0 L-12,-6 L-12,6 Z',fill:c,transform:`translate(${x},${y}) rotate(${a})`},s);
+{ const s=$('d1'); hl(s,60,'next strike'); hl(s,190,'strike');
+  pl(s,[[16,288],[52,262],[82,272],[118,232],[146,240],[176,172]],INK,3);
+  pl(s,[[176,172],[222,128],[252,140],[316,66]],TH,3,{'stroke-dasharray':'7 7'}); head(s,318,64,-49,TH);
+  pl(s,[[176,172],[220,182],[254,206],[304,238]],MUT,3,{'stroke-dasharray':'7 7'}); head(s,306,240,33,MUT);
+  dot(s,176,172,TH); txt(s,104,158,'fires',{fill:INK,'font-size':17,'font-weight':700});
+  txt(s,262,120,'',{}); txt(s,284,272,'falls back',{fill:MUT,'font-size':15,'text-anchor':'middle'}); }
+{ const s=$('d2');
+  pl(s,[[16,108],[58,58],[112,158],[154,104],[206,226],[258,132]],INK,3);
+  txt(s,154,90,'prior high',{fill:MUT,'font-size':15,'text-anchor':'middle'}); txt(s,200,252,'lower low',{fill:MUT,'font-size':15,'text-anchor':'middle'});
+  txt(s,258,106,'lower high',{fill:MUT,'font-size':15,'text-anchor':'middle'});
+  el('line',{x1:228,x2:364,y1:122,y2:122,stroke:'#e66767','stroke-width':2},s); txt(s,364,140,'stop',{fill:INK,'font-size':15,'text-anchor':'end'});
+  pl(s,[[258,132],[270,164]],INK,3);
+  pl(s,[[270,164],[300,214],[314,202],[342,268]],LG,3,{'stroke-dasharray':'7 7'}); head(s,344,272,66,LG);
+  el('line',{x1:262,x2:364,y1:276,y2:276,stroke:LG,'stroke-width':2},s); txt(s,262,298,'target: 2× the risk',{fill:INK,'font-size':15,'text-anchor':'middle'});
+  dot(s,270,164,LG); txt(s,284,172,'fires',{fill:INK,'font-size':17,'font-weight':700}); }
+{ const s=$('d3'); hl(s,196,'strike');
+  pl(s,[[16,290],[58,262],[88,272],[130,178]],INK,3);
+  pl(s,[[130,178],[168,110],[204,84],[236,112]],INK,3);
+  dot(s,130,178,TH); txt(s,118,160,'break ↑',{fill:INK,'font-size':17,'font-weight':700,'text-anchor':'end'});
+  dot(s,236,112,LG); txt(s,250,104,'setup ↓',{fill:INK,'font-size':17,'font-weight':700});
+  el('line',{x1:130,x2:236,y1:54,y2:54,stroke:TI,'stroke-width':2},s); el('line',{x1:130,x2:130,y1:48,y2:60,stroke:TI,'stroke-width':2},s); el('line',{x1:236,x2:236,y1:48,y2:60,stroke:TI,'stroke-width':2},s);
+  txt(s,183,40,'within 2 minutes',{fill:INK,'font-size':15,'text-anchor':'middle'});
+  el('line',{x1:300,x2:300,y1:122,y2:188,stroke:TI,'stroke-width':2},s); head(s,300,120,-90,TI); head(s,300,192,90,TI);
+  txt(s,300,228,'how far from',{fill:INK,'font-size':15,'text-anchor':'middle'}); txt(s,300,247,'the strike?',{fill:INK,'font-size':15,'text-anchor':'middle'}); }
+</script>
+</body></html>

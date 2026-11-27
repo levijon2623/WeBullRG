@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=1080">
+<title>Three cues: how they were tested</title>
+<!-- Share card (README.md). Numbers: _breach_cache/RESULT-holdout.txt + strike_cue_thru.json; _structure_ic_cache/RESULT-holdout.txt
+     + pullback_model_frozen.json; _structure_cache/events (matched random, ALL setups, 37.2%); _contradiction_cache + check_contradiction.pairs(HOLD):
+     bars = each cue's own hit rate yT / yP by P.k_entry (<2 n 571, 2-5 n 431, >=5 n 237), described after the score. -->
+<link rel="stylesheet" href="card.css">
+<style>
+  :root{--thru:#3987e5;--leg:#199e70;--tie:#c98500}
+  .kicker{color:var(--ink2)} .sub{margin-bottom:14px}
+  .steps{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:13px}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 13px 13px;font-size:16px;line-height:1.34;color:var(--ink2)}
+  .step b{display:block;color:var(--ink);font-size:18px;margin-bottom:3px}
+  .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:13px}
+  .col{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px 13px}
+  .name{display:flex;align-items:center;gap:8px;font-size:20px;font-weight:800}
+  .name i{width:14px;height:14px;border-radius:4px}
+  .ct{font-size:16px;color:var(--ink2);line-height:1.3;margin:5px 0 6px;height:84px}
+  .v{font-size:16.5px;line-height:1.34;color:var(--ink2);border-top:1px solid var(--line);padding-top:8px;margin-top:8px;min-height:76px}
+  .v:first-of-type{margin-top:4px} .v b{color:var(--ink)}
+  .lim{background:#0f141b;border:1px solid var(--line);border-radius:12px;padding:18px 22px 14px}
+  .lim h2{margin:0 0 10px;font-size:23px}
+  .lim ul{margin:0;padding-left:19px;font-size:18.5px;line-height:1.38;color:var(--ink2)} .lim li{margin-bottom:9px} .lim b{color:var(--ink)}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="kicker">SPY · QQQ · IWM · intraday cues · 2 of 2</div>
+  <h1>They rank outcomes. They haven’t paid.</h1>
+  <div class="sub">All three sorted outcomes on 2026 data they weren’t built on. Traded on their own through options, neither entry cue made money we can tell from zero.</div>
+
+  <div class="steps">
+    <div class="step"><b>1 · Write it down</b>Events, inputs and pass rules committed before scoring.</div>
+    <div class="step"><b>2 · Build</b>On Aug 2024 – Dec 2025 only, 336 sessions.</div>
+    <div class="step"><b>3 · Freeze</b>The computer keeps the inputs that help. No hand-tuning after.</div>
+    <div class="step"><b>4 · Score once</b>2026 sessions, one look. The script refuses a second run.</div>
+    <div class="step"><b>5 · Price it</b>Option quotes off the tape, measured fill costs and fees.</div>
+  </div>
+
+  <div class="cols">
+    <div class="col"><div class="name"><i style="background:var(--thru)"></i>THRUSTRIKE</div>
+      <div class="ct">Reached the next strike, by score fifth. 9,665 breaks, Jan 2 – Sep 25, 2026</div>
+      <svg id="c1" width="288" height="222" role="img" aria-label="Reached next strike by score fifth: 14, 19, 26, 28, 33 percent; all 24"></svg>
+      <div class="v"><b>✓ Ranks.</b> But 62–66% fell back first in <b>every</b> fifth.</div>
+      <div class="v"><b>✗ Didn’t pay.</b> Top fifth +$0.20 a contract, range −$1.73 to +$1.96.</div></div>
+    <div class="col"><div class="name"><i style="background:var(--leg)"></i>NEXTLEG</div>
+      <div class="ct">Made 2× risk before the stop, by score fifth. 6,059 setups, Jan 2 – Nov 13, 2026</div>
+      <svg id="c2" width="288" height="222" role="img" aria-label="Two times risk before stop by score fifth: 39, 42, 41, 39, 44 percent; random entries 37"></svg>
+      <div class="v"><b>✓ Ranks, barely.</b> Only the top fifth stands out.</div>
+      <div class="v"><b>✗ Didn’t pay.</b> Top fifth +$0.52 a contract, range −$0.47 to +$1.49.</div></div>
+    <div class="col"><div class="name"><i style="background:var(--tie)"></i>TIEBREAK</div>
+      <div class="ct">Break first, then an opposite setup: each cue’s hit rate by distance from the strike. 1,239 pairs, 2026</div>
+      <svg id="c3" width="288" height="222" role="img" aria-label="Break first: THRUSTRIKE 15, 26, 40 percent and NEXTLEG 42, 41, 44 percent at under 2, 2 to 5, and 5 or more basis points from the strike"></svg>
+      <div class="v"><b>✓ Ranks, mostly by order.</b> Setup first (428 pairs): NEXTLEG hit only 4%.</div>
+      <div class="v"><b>– Money not tested.</b> It says which cue to doubt.</div></div>
+  </div>
+
+  <div class="lim"><h2>What this does not show</h2><ul>
+    <li><b>Not a buy or sell signal.</b> Better odds of a move have not been enough to cover option costs.</li>
+    <li><b>TIEBREAK is partly hindsight.</b> By the time the second cue fires, the first has often already failed. Its distance split was found after scoring.</li>
+    <li><b>The 2026 data wasn’t spotless.</b> Six of THRUSTRIKE’s 28 candidate inputs had been looked at before, and NEXTLEG and TIEBREAK reused sessions already scored for related questions.</li>
+    <li><b>The odds on screen are those same 2026 rates,</b> so live results may be worse. Live cues have been logged since November 2026.</li>
+    <li><b>Still open:</b> a locked forward test of a wider-stop THRUSTRIKE trade. First read about February 2027, final about June.</li>
+  </ul></div>
+</div>
+<div class="foot"><span>Data: Unusual Whales API · $ ranges are 95% · not financial advice</span>
+  <span><span class="repo">github.com/levijon2623/WeBullRG</span> · analysis with Claude (Anthropic)</span></div>
+<script src="card.js"></script>
+<script>
+const INK='#eef1f5', MUT='#8b95a3', TH='#3987e5', LG='#199e70';
+const MAX=50, TOP=20, BOT=176, k=(BOT-TOP)/MAX, Y=v=>BOT-v*k;           // one 0-50% scale on all three charts
+function bar(s,x,w,v,c){ const y=Y(v), r=4; el('path',{d:`M${x},${BOT} V${y+r} Q${x},${y} ${x+r},${y} H${x+w-r} Q${x+w},${y} ${x+w},${y+r} V${BOT} Z`,fill:c},s);
+  txt(s,x+w/2,y-6,Math.round(v)+'%',{fill:INK,'font-size':15,'font-weight':700,'text-anchor':'middle'}); }
+const base=s=>el('line',{x1:0,x2:288,y1:BOT,y2:BOT,stroke:'#3a4554','stroke-width':1.5},s);
+function ref(s,v,lab,x,anchor){ el('line',{x1:0,x2:288,y1:Y(v),y2:Y(v),stroke:'#c9d1db','stroke-width':1.5,'stroke-dasharray':'5 5'},s); txt(s,x,Y(v)-6,lab,{fill:'#c9d1db','font-size':14,'text-anchor':anchor}); }
+function fifths(id,vals,c,r){ const s=document.getElementById(id); vals.forEach((v,i)=>bar(s,8+i*56,44,v,c)); base(s);
+  if(r) ref(s,...r); txt(s,30,194,'lowest',{fill:MUT,'font-size':14,'text-anchor':'middle'}); txt(s,254,194,'highest',{fill:MUT,'font-size':14,'text-anchor':'middle'}); txt(s,142,194,'score fifth',{fill:MUT,'font-size':14,'text-anchor':'middle'}); }
+fifths('c1',[14.0,19.3,25.9,28.4,33.3],TH);
+txt(document.getElementById('c1'),142,216,'all breaks: 24%',{fill:'#c9d1db','font-size':14.5,'text-anchor':'middle'});
+fifths('c2',[38.8,41.7,40.5,38.8,44.3],LG);
+txt(document.getElementById('c2'),142,216,'all setups: 42% · random entries: 37%',{fill:'#c9d1db','font-size':14.5,'text-anchor':'middle'});
+{ const s=document.getElementById('c3'); [[15.4,41.7],[26.45,40.8],[39.7,44.3]].forEach((p,i)=>{ const x=10+i*96; bar(s,x,36,p[0],TH); bar(s,x+38,36,p[1],LG); });
+  base(s); ['under 2 bp','2–5 bp','5+ bp'].forEach((t,i)=>txt(s,47+i*96,194,t,{fill:MUT,'font-size':14,'text-anchor':'middle'}));
+  el('rect',{x:34,y:206,width:12,height:12,rx:3,fill:TH},s); txt(s,51,217,'THRUSTRIKE',{fill:'#c9d1db','font-size':14});
+  el('rect',{x:160,y:206,width:12,height:12,rx:3,fill:LG},s); txt(s,177,217,'NEXTLEG',{fill:'#c9d1db','font-size':14}); }
+</script>
+</body></html>

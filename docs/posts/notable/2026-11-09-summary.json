@@ -1,0 +1,45 @@
+{
+ "date": "2026-11-09",
+ "slug": "flow-summary",
+ "kicker": "Options flow · Mon Nov 9, 2026 · at the close",
+ "h1": "Broad rally, and same-day calls got chased",
+ "sub": "S&amp;P +2.4%, Nasdaq +3.5%, Russell +3.2%: a gap up and a steady climb into the 15:15–15:30 highs. Same-day delta came out positive, which is rare even on up days. Hedges were adjusted, not dropped: S&amp;P puts were rolled lower for a credit, Russell puts stepped up three times.",
+ "tiles": [
+  ["752.59", "SPY +2.35% · high 755.42 at 15:15"],
+  ["678.77", "QQQ +3.45% · high 681.70 at 15:28"],
+  ["282.48", "IWM +3.22% · high 283.79 at 14:41"],
+  ["+$6.5B", "same-day delta, S&P + Nasdaq, bought"]
+ ],
+ "bars_title": "Same-day delta: bought this time",
+ "bars_sub": "Delta bought (+) or sold (−) in today's expiry, $ billion · on most days it is sold, up days included (Nov 4: −$16.8B)",
+ "bars_max": 5,
+ "bars_x0": 110,
+ "bars": [
+  {"label": "SPX", "v": 4.83, "text": "+$4.83B"},
+  {"label": "SPY", "v": 1.28, "text": "+$1.28B"},
+  {"label": "QQQ", "v": 0.95, "text": "+$0.95B"},
+  {"label": "NDX", "v": 0.59, "text": "−$0.59B"},
+  {"label": "IWM", "v": 0.004, "text": "+$0.00B"},
+  {"label": "RUT", "v": 0.07, "text": "−$0.07B"}
+ ],
+ "table_sub": "TUE = settled by Tuesday's open interest · $ = premium, $ million",
+ "trades": [
+  {"d": "SPY", "k": "Nov-20 $725 put  →  $710 put", "side": "x", "chip": "ROLL", "n": "111k each", "prem": 12.7,
+   "note": "12:15, one package: hedge moved lower, ~$12.7M collected", "pend": "TUE"},
+  {"d": "SPY", "k": "Dec-18 $775 call", "side": "s", "chip": "SOLD", "n": "27.8k", "prem": 16.5,
+   "note": "12:08 at $5.94; more than the 17.4k open, so ≥10k new", "pend": "TUE"},
+  {"d": "IWM", "k": "Nov-20 $260 → $266 → $269 → $270 puts", "side": "x", "chip": "ROLL", "n": "36k / 20k / 28k", "prem": 2.4,
+   "note": "three steps up, each ~4.5% below the price", "pend": "TUE"},
+  {"d": "QQQ", "k": "Dec-18 $705 call", "side": "b", "chip": "BOUGHT", "n": "10k + 11k", "prem": 22.7,
+   "note": "10k at the ask at 16:00; 11k more, no side recorded", "pend": "TUE"},
+  {"d": "QQQ", "k": "Dec-18 $655 call", "side": "s", "chip": "SOLD", "n": "6.0k", "prem": 22.3,
+   "note": "10:26 at $37.09, in the money: likely closed or rolled", "pend": "TUE"},
+  {"d": "SPY", "k": "Nov-13 $730 put", "side": "s", "chip": "SOLD", "n": "55.6k", "prem": 6.5,
+   "note": "12:19, against 70k open: likely a hedge taken off", "pend": "TUE"},
+  {"d": "SPX", "k": "Nov-11 $7,520 / $7,510 puts", "side": "x", "chip": "SPREAD", "n": "8k each", "prem": 2.6,
+   "note": "12:14, no side; ~8.2k open each: likely the whole spread closed", "pend": "TUE"}
+ ],
+ "confirm": "settled by Tuesday's open interest",
+ "read": "<b>Read:</b> a rally day where buyers chased same-day calls into the close strikes instead of selling them, so the day's delta was bought. Protection wasn't abandoned: the big S&amp;P put position was rolled 15 points lower for a credit, and Russell puts were kept about 4.5% below the price all day. December saw calls sold above (SPY $775) and bought (QQQ $705). Positioning, not a signal.",
+ "mon": "Side inferred from ask/bid · open interest is start-of-day · left out: SPX 7000/8000 and 2000 box legs, QQQ Nov-20 deep in-the-money puts (735–770, ~$570M)"
+}
