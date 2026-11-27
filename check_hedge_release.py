@@ -58,6 +58,16 @@ NULL      on discovery before the holdout: every event moved to a random minute 
           mean as a documented deviation before the holdout.
 TRADING USE  none until a PASS on H1 or H2 (H3 is not knowable live).
 
+DISCOVERY (2026-11-26, _hedge_discovery.log; 384 sessions, 7,803 fully sided events; large releases SPY 143 / QQQ 60 /
+  IWM 117, large adds 218 / 76 / 128; OI labels on releases: trims 58, writes 116):
+    H1 release  -1.05 bp [-6.08, +3.97]  null -0.65 OK        -- wrong side of 0: cannot pass
+    H2 add      -0.39 bp [-4.49, +4.33]  null +0.48 OK        -- wrong side of 0: cannot pass
+    H3 trims - writes  -8.1 bp [-29.3, +12.4] (two-sided)
+    H4 base rip-UP diff  +0.002 [-0.015, +0.022]  null +0.008 NOT CENTRED
+  DEVIATION (before any holdout session was built): H4 is re-based on its null mean, +0.0080 -- the holdout estimand
+  becomes (rip-UP rate with a release - without) - 0.0080; discovery re-based = -0.006, wrong side, so it cannot pass.
+  Descriptive R vs control: 30 min release -0.04 / add +0.02 bp; 120 min +1.88 / +1.17 bp. Nothing in discovery.
+
     python check_hedge_release.py --discovery
     python check_hedge_release.py --holdout          (once)
 """
@@ -79,6 +89,7 @@ CACHE = os.path.join(ROOT, "_hedge_cache")
 TKS = ("SPY", "QQQ", "IWM")
 EVENT_MIN, DEEP, CONF, SIDE_W, EQ_TOL, MERGE_MIN = 5000, 0.9, 0.5, 0.8, 0.10, 15
 H, CTRL_LO, CTRL_HI, M0, M1 = 60, 30, 90, 9 * 60 + 35, 15 * 60
+H4_NULL = 0.0080          # DEVIATION 2026-11-26: H4 re-based on its discovery null mean (see the docstring)
 
 
 def half_of(d):
@@ -222,7 +233,7 @@ def est(q, O, B4):
         return float(a.mean()) - float(b.mean()) if len(a) and len(b) else np.nan
     if q == "H4":
         a, b = B4.filter(pl.col("has"))["up"], B4.filter(~pl.col("has"))["up"]
-        return float(a.cast(pl.Float64).mean()) - float(b.cast(pl.Float64).mean()) if len(a) and len(b) else np.nan
+        return (float(a.cast(pl.Float64).mean()) - float(b.cast(pl.Float64).mean()) - H4_NULL) if len(a) and len(b) else np.nan
     raise ValueError(q)
 
 
