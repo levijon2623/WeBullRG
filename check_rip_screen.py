@@ -54,6 +54,17 @@ PASS RULES (each target separately; BH across the two P2 p-values)
      input AND holdout Spearman(score, target) > 0 with the day-block 95% CI above 0, BH q <= 0.10.
   Sanity, not a rule: SIZE should find G (it passed alone).
   No money test here: a DIR pass gets its own pre-registered trade test.
+DEVIATION 2026-11-26, BEFORE ANY HOLDOUT (user approved: "yes on both"). The first discovery run stamped every input at
+  the base's LAST minute e -- but e is only known once the next minute breaks the band, so the inputs knew a break was
+  coming (DIR: POS IC +0.72, SLOPE15 +0.65; the shuffled-target check M2 kept 4 inputs). That run is void. Now two
+  knowable stamp points, every input recomputed up to the stamp (L, VD, G and DD too):
+    A  CONFIRMATION  t = s + 59, the base's 60th minute (it exists; its end is unknown). Inputs over s .. t.
+       Targets RIP and YDIR (which way the eventual break goes, signed size) -- the absorption question.
+    B  THE BREAK     t = e + 1, the first minute whose close is outside the band (bases that stopped on the 15:00 cap
+       are dropped). Band and base inputs over s .. e, price inputs at t. Targets RIP and CONT = break side x dir x X
+       (does the break carry on, + , or fail, -); every directional input is multiplied by the break side
+       ("+ = with the break"), as in check_breach_ic.
+  Four P2 verdicts, BH across the four. Discovery is computed fresh for both; nothing from the void run is reused.
 SCREEN 2 (LATER, after an ES trades purchase -- not bought yet): futures aggressor inputs (base delta, delta trend,
   delta at the band edges, delta vs price divergence) ADDED to the frozen screen-1 score, fit on the same discovery;
   PASS = the new score's holdout IC beats screen 1's (paired day-block bootstrap). Partly clean: the holdout will have
@@ -118,15 +129,18 @@ def options_day(d):
         if not z.height:
             continue
         fl = (z.with_columns(npv=(pl.col("ask_volume") - pl.col("bid_volume")).cast(pl.Float64) * pl.col("vwap").fill_null(0.0) * 100,
+                             ddv=(pl.col("ask_volume") - pl.col("bid_volume")).cast(pl.Float64) * pl.col("delta_close").fill_null(0.0) * 100,
                              call=pl.col("option_type") == "call")
               .group_by("mm").agg(pl.when(pl.col("call")).then(pl.col("npv")).otherwise(-pl.col("npv")).sum().alias("np"),
                                   pl.when(pl.col("call")).then(pl.col("volume")).otherwise(0).sum().alias("cv"),
-                                  pl.when(~pl.col("call")).then(pl.col("volume")).otherwise(0).sum().alias("pv")))
+                                  pl.when(~pl.col("call")).then(pl.col("volume")).otherwise(0).sum().alias("pv"),
+                                  pl.col("ddv").sum().alias("dd")))
         atm = (z.with_columns(K=pl.col("underlying_close").round(0), mid=(pl.col("bid_close") + pl.col("ask_close")) / 2)
                .filter(pl.col("strike") == pl.col("K"))
                .group_by("mm").agg(pl.col("mid").sum().alias("strad"), pl.col("iv_close").mean().alias("iv"), pl.len().alias("n"))
                .filter(pl.col("n") == 2))
-        out[tk] = ({a: (b, c, e) for a, b, c, e in fl.iter_rows()}, {a: (b, c) for a, b, c, _ in atm.iter_rows()})
+        out[tk] = ({a: (b, c, e, g) for a, b, c, e, g in fl.select("mm", "np", "cv", "pv", "dd").iter_rows()},
+                   {a: (b, c) for a, b, c, _ in atm.iter_rows()})
     return out
 
 
@@ -175,8 +189,8 @@ def third_friday(y, m):
 
 
 def day_features(args):
-    d, ev_rows, prior_days, prev_day = args
-    cp = os.path.join(CACHE, f"feat-{d}.parquet")
+    d, ev_rows, prior_days, prev_day, mode = args
+    cp = os.path.join(CACHE, f"feat-{mode}-{d}.parquet")
     if os.path.exists(cp):
         return cp
     import check_absorption_rip as A
@@ -238,56 +252,75 @@ def day_features(args):
         if ie is None or is_ is None:
             continue
         c, o, h, lo_, v = x[:, 4], x[:, 1], x[:, 2], x[:, 3], x[:, 5]
-        unit = r["t30"] * c[ie]
-        w = slice(is_, ie + 1)
+        btop, bbot = c[is_: ie + 1].max(), c[is_: ie + 1].min()
+        if mode == "conf":
+            t = s + 59                                   # the base is CONFIRMED here; its end is not known yet
+            it = idx.get(t)
+            if it is None:
+                continue
+            iw, bs = it, 0                               # inputs see minutes s .. t
+        else:
+            t = e + 1                                    # the first minute after the base: the BREAK, known now
+            it = idx.get(t)
+            if it is None or not (c[it] > btop or c[it] < bbot):
+                continue                                 # ended on the 15:00 cap or a gap in bars, not a break
+            iw, bs = ie, (1 if c[it] > btop else -1)     # band from s .. e; price inputs at the break minute t
+        unit = r["t30"] * c[it]
+        w = slice(is_, iw + 1)
         top, bot = c[w].max(), c[w].min()
         rng = max(top - bot, 1e-9)
-        i15 = idx.get(e - 15, max(0, ie - 15))
+        i15 = idx.get(t - 15, max(0, it - 15))
         j0 = max(is_, 1)
-        dc, vv = c[j0: ie + 1] - c[j0 - 1: ie], v[j0: ie + 1]       # each base minute's close vs the minute before
-        vw = (c[: ie + 1] * v[: ie + 1]).sum() / max(v[: ie + 1].sum(), 1)
+        dc, vv = c[j0: iw + 1] - c[j0 - 1: iw], v[j0: iw + 1]       # each base minute's close vs the minute before
+        vw = (c[: it + 1] * v[: it + 1]).sum() / max(v[: it + 1].sum(), 1)
         pcl = pa.get(tk)[-1, 4] if pa.get(tk) is not None else np.nan
         pret = ((pa[tk][-1, 4] - pa[tk][0, 1]) / (r["t30"] * pa[tk][0, 1])) if pa.get(tk) is not None else np.nan
-        f = dict(d=d, tk=tk, s=s, e=e, RIP=float(r["rip"]), YDIR=float(r["dir"] * r["X"]), L=r["L"], VD=r["VD"], G=r["G"],
-                 DD=r["DD"],
-                 SLOPE15=(c[ie] - c[i15]) / unit, POS=2 * (c[ie] - bot) / rng - 1,
+        mw = m[w]
+        first30, last30 = v[w][mw < s + 30].sum(), v[w][mw > m[iw] - 30].sum()
+        ex = last_at(expo[tk], t)
+        fl, atm = opt.get(tk, ({}, {}))
+        npv = [fl[k] for k in range(s, m[iw] + 1) if k in fl]
+        f = dict(d=d, tk=tk, s=s, e=e, t=t, BS=bs, RIP=float(r["rip"]), YDIR=float(r["dir"] * r["X"]),
+                 CONT=float(bs * r["dir"] * r["X"]),
+                 L=float(m[iw] - s + 1), VD=float(last30 / first30) if first30 > 0 else np.nan,
+                 G=ex[0] if ex else np.nan, DD=float(sum(q[3] for q in npv)) if npv else np.nan,
+                 SLOPE15=(c[it] - c[i15]) / unit, POS=2 * (c[it] - bot) / rng - 1,
                  EDGE_NET=float((h[w] >= top - 0.1 * rng).sum() - (lo_[w] <= bot + 0.1 * rng).sum()),
                  UPVOL=float((np.sign(dc) * vv).sum() / max(vv.sum(), 1)) if len(dc) else np.nan,
                  HOLD=float((c[w] > o[w]).mean() - (c[w] < o[w]).mean()),
-                 DOPEN=(c[ie] - o[0]) / unit, DVWAP=(c[ie] - vw) / unit, DPREV=(c[ie] - pcl) / unit, PRE=(c[is_] - o[0]) / unit,
-                 GAP=(o[0] - pcl) / unit, PREVRET=pret, TIGHT=rng / unit, TOD=float(e))
+                 DOPEN=(c[it] - o[0]) / unit, DVWAP=(c[it] - vw) / unit, DPREV=(c[it] - pcl) / unit, PRE=(c[is_] - o[0]) / unit,
+                 GAP=(o[0] - pcl) / unit, PREVRET=pret, TIGHT=rng / unit, TOD=float(t))
         others = []
         for t2 in TKS:
             if t2 == tk or a[t2] is None or not t30.get(t2):
                 continue
             m2 = {mm: i for i, mm in enumerate(a[t2][:, 0].astype(int))}
-            j, j15 = m2.get(e), m2.get(e - 15)
+            j, j15 = m2.get(t), m2.get(t - 15)
             if j is not None and j15 is not None:
                 others.append((a[t2][j, 4] - a[t2][j15, 4]) / (t30[t2] * a[t2][j, 4]))
         f["XMOVE15"] = float(np.mean(others)) if others else np.nan
-        f["XQUIET"] = float(sum(any(s2 + 59 <= e <= e2 for s2, e2 in base_now[t2]) for t2 in TKS if t2 != tk))
+        # another ticker is "in a base" at t when its base is >= 60 min old and its closes are still inside the band
+        # at t -- the same as s2 + 59 <= t <= e2 (a base extends exactly while its closes stay inside)
+        f["XQUIET"] = float(sum(any(s2 + 59 <= t <= e2 for s2, e2 in base_now[t2]) for t2 in TKS if t2 != tk))
         bv = base_vol.get(tk)
-        f["RVOL"] = float(np.cumsum(v[: ie + 1])[-1] / np.nanmedian(bv[:, e])) if bv is not None and np.isfinite(np.nanmedian(bv[:, e])) else np.nan
-        ex = last_at(expo[tk], e)
+        f["RVOL"] = float(np.cumsum(v[: it + 1])[-1] / np.nanmedian(bv[:, t])) if bv is not None and np.isfinite(np.nanmedian(bv[:, t])) else np.nan
         f["CHARM"], f["VANNA"] = (ex[1], ex[2]) if ex else (np.nan, np.nan)
-        fl, atm = opt.get(tk, ({}, {}))
-        npv = [fl[k] for k in range(s, e + 1) if k in fl]
         f["NETPREM"] = float(sum(q[0] for q in npv)) if npv else np.nan
         cvs, pvs = sum(q[1] for q in npv), sum(q[2] for q in npv)
         f["CPTILT"] = (cvs - pvs) / (cvs + pvs) if cvs + pvs > 0 else np.nan
-        a0, a1 = last_at(atm, s, 5), last_at(atm, e, 5)
+        a0, a1 = last_at(atm, s, 5), last_at(atm, t, 5)
         f["IVCHG"] = (a1[1] - a0[1]) if a0 and a1 and a0[1] and a1[1] else np.nan
         f["STRADCHG"] = (a1[0] / a0[0] - 1) if a0 and a1 and a0[0] else np.nan
         if HE is not None and HE.height:
-            hz = HE.filter((pl.col("tk") == tk) & (pl.col("mod") >= s) & (pl.col("mod") <= e))
+            hz = HE.filter((pl.col("tk") == tk) & (pl.col("mod") >= s) & (pl.col("mod") <= t))
             f["HREL"] = float(hz["D"].sum()) if hz.height else 0.0
         else:
             f["HREL"] = np.nan
         if tk in peak:
-            f["PEAKD"], f["PEAKSIGN"] = (c[ie] - peak[tk][0]) / unit, float(peak[tk][1])
+            f["PEAKD"], f["PEAKSIGN"] = (c[it] - peak[tk][0]) / unit, float(peak[tk][1])
         else:
             f["PEAKD"], f["PEAKSIGN"] = np.nan, np.nan
-        t0, t1 = s * 60, (e + 1) * 60
+        t0, t1 = s * 60, (t + 1) * 60
         bb = sorted([b for b in B if b["t"] == tk and t0 <= b["t_in"] <= t1], key=lambda b: b["t_in"])
         ss = sorted([q for q in S if q["t"] == tk and t0 <= q["t_in"] <= t1], key=lambda q: q["t_in"])
         pp = sorted([q for q in pairs.get(tk, []) if t0 <= q[0] <= t1])
@@ -296,6 +329,10 @@ def day_features(args):
                  PULL_N=float(len(ss)), PULL_NET=float(sum(q["side"] for q in ss)),
                  PULL_LAST=float(ss[-1]["side"] * ss[-1]["score"]) if ss else 0.0,
                  TIE_N=float(len(pp)), TIE_LAST=float(pp[-1][1]) if pp else 0.0)
+        if mode == "brk":                                # "+" = WITH the break for every directional input
+            for k in DIRECTIONAL:
+                if f.get(k) is not None and f[k] == f[k]:
+                    f[k] = float(f[k]) * bs
         f.update(cal)
         out.append(f)
     os.makedirs(CACHE, exist_ok=True)
@@ -304,9 +341,9 @@ def day_features(args):
     return cp
 
 
-def build():
+def build(mode):
     import check_absorption_rip as A
-    fp = os.path.join(CACHE, "features.parquet")
+    fp = os.path.join(CACHE, f"features-{mode}.parquet")
     if os.path.exists(fp):
         return pl.read_parquet(fp)
     ev = A.build()
@@ -317,7 +354,7 @@ def build():
     jobs = []
     for (d,), g in sorted(ev.group_by(["d"]), key=lambda t: t[0][0]):
         i = days_all.index(d)
-        jobs.append((d, g.to_dicts(), days_all[max(0, i - 20): i], days_all[i - 1] if i else None))
+        jobs.append((d, g.to_dicts(), days_all[max(0, i - 20): i], days_all[i - 1] if i else None, mode))
     with ProcessPoolExecutor(6) as ex:
         paths = [p for p in ex.map(day_features, jobs) if p]
     F = pl.concat([pl.read_parquet(p) for p in paths if os.path.getsize(p) > 0], how="diagonal_relaxed")
@@ -453,25 +490,29 @@ def main():
     ap.add_argument("--discovery", action="store_true")
     ap.add_argument("--holdout", action="store_true")
     a = ap.parse_args()
-    F = add_abs(build())
-    Fd, Fh = split(F)
-    print(f"features: {F.height} bases, {F['d'].n_unique()} sessions; missing share per input: " +
-          ", ".join(f"{k} {F[k].cast(pl.Float64).is_nan().fill_null(True).mean():.0%}" for k in DIRECTIONAL + NONDIR
-                    if F[k].cast(pl.Float64).is_nan().fill_null(True).mean() > 0.05))
+    # DEVIATION 2026-11-26 (before any holdout): two stamp points instead of the base's last minute (a look-ahead).
+    PLAN = (("conf", "RIP", SIZE_IN, "A SIZE at confirmation"), ("conf", "YDIR", DIR_IN, "A DIR at confirmation"),
+            ("brk", "RIP", SIZE_IN, "B SIZE at the break"), ("brk", "CONT", DIR_IN, "B CONT at the break"))
+    FS = {}
+    for mode in ("conf", "brk"):
+        F = add_abs(build(mode))
+        FS[mode] = split(F)
+        print(f"[{mode}] features: {F.height} bases, {F['d'].n_unique()} sessions; inputs missing > 5%: " +
+              (", ".join(f"{k} {F[k].cast(pl.Float64).is_nan().fill_null(True).mean():.0%}" for k in DIRECTIONAL + NONDIR
+                         if F[k].cast(pl.Float64).is_nan().fill_null(True).mean() > 0.05) or "none"))
     if a.discovery:
-        screen(Fd, None, "RIP", SIZE_IN, "SIZE")
-        screen(Fd, None, "YDIR", DIR_IN, "DIR")
+        for mode, tgt, cols, lab in PLAN:
+            screen(FS[mode][0], None, tgt, cols, lab)
     if a.holdout:
         rp = os.path.join(CACHE, "RESULT-holdout.txt")
         if os.path.exists(rp):
             sys.exit(f"holdout already scored: {rp}")
-        r1 = screen(Fd, Fh, "RIP", SIZE_IN, "SIZE")
-        r2 = screen(Fd, Fh, "YDIR", DIR_IN, "DIR")
-        qv = bh([r1["h_p"], r2["h_p"]])
+        rs = [screen(FS[mode][0], FS[mode][1], tgt, cols, lab) for mode, tgt, cols, lab in PLAN]
+        qv = bh([r["h_p"] for r in rs])
         lines = []
-        for r, qq in zip((r1, r2), qv):
+        for r, qq, (mode, tgt, cols, lab) in zip(rs, qv, PLAN):
             ok = bool(r["kept"]) and r["h_ic"] > 0 and r["h_lo"] > 0 and qq <= 0.10
-            lines.append(f"  P2 {r['target']}: keeps {len(r['kept'])} ({', '.join(k for k, _ in r['kept'][:10])}) | holdout IC "
+            lines.append(f"  P2 {lab}: keeps {len(r['kept'])} ({', '.join(k for k, _ in r['kept'][:10])}) | holdout IC "
                          f"{r['h_ic']:+.4f} [{r['h_lo']:+.4f}, {r['h_hi']:+.4f}] q {qq:.3f}  {'PASS' if ok else 'FAIL'}")
         print("\n".join(lines))
         with open(rp, "w", encoding="utf-8") as f:
