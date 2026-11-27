@@ -2574,11 +2574,16 @@ def _check_entries(eng):
             fill = fpx or float(pos.get("limit") or 0)
             if st == "PARTIAL_FILLED" and got < want:
                 # own what filled, cancel the rest -- a hold whose qty does not
-                # match the account is a flatten that leaves a stub behind
+                # match the account is a flatten that leaves a stub behind.
+                # 🚨 AND KEEP WATCHING THE REST UNTIL THE BROKER SAYS IT IS DONE (2026-11-27): the cancel can be
+                # refused (417 "Order can not be canceled" while the rest is mid-fill); the 2nd of 2 SPY 722C then
+                # filled after we had dropped the order, and sat untracked until adopted.
+                # _check_rest polls the order to a final status and owns any late fill (see REST_FILE).
                 try:
                     eng.webull.cancel_option_order(coid)
                 except Exception:               # noqa: BLE001
                     pass
+                _rest_add(coid, tk, pos, want, got, fill)
             pos.update(pending=False, qty=got, entry=round(fill, 2),
                        entry_coid=None, filled_at=int(time.time()))
             spot, _age = _spot(eng, tk)
@@ -2621,6 +2626,126 @@ def _check_entries(eng):
             save_positions(eng)
             _event(False, f"{tk} entry unfilled after {ENTRY_CHASE_S:.0f}s — "
                           f"cancel sent, not chasing")
+
+
+# ---- the rest of a partly filled entry (2026-11-27) -------------------------
+# A partial entry fill becomes a hold at once (it must be closeable), but the
+# REST of that order is not finished until the broker says so: the cancel we
+# send can be refused while the rest is mid-fill. Until 11-27 the order was
+# forgotten at the partial fill, so a late fill left a contract nobody tracked
+# (no exit, no stop, no 15:55 flatten). Now each such order is kept here, in a
+# FILE (a restart must not forget it), and polled to a final status; a late
+# fill is owned the way the user's last instruction on that ticker says:
+#   still holding that contract    -> added to the hold (entry = size-weighted)
+#   the hold is closing right now  -> waits for that exit, then sold the same way
+#   the hold is gone (you closed)  -> a hold is made for it and SOLD at once (chase)
+#   holding a DIFFERENT contract   -> cannot merge: a loud event, close it in the app
+REST_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live", "manual_rest.json")
+REST_RECANCEL_S = 5.0
+REST_GIVE_UP_S = 15 * 60
+
+
+def _rest_load():
+    d = _read(REST_FILE)
+    return d if isinstance(d, dict) else {}
+
+
+def _rest_save(d):
+    try:
+        _write_atomic(REST_FILE, d)
+    except OSError as e:
+        print(f"  ⚠️ rest file write failed: {type(e).__name__}: {e}")
+
+
+def _rest_add(coid, tk, pos, want, got, fill):
+    d = _rest_load()
+    d[coid] = dict(tk=tk, option_id=pos.get("option_id"), want=int(want), counted=int(got), px0=float(fill or 0),
+                   strike=pos.get("strike"), expiry=pos.get("expiry"), right=pos.get("right"),
+                   trade_id=pos.get("trade_id") or coid, at=time.time(), cancel_at=time.time(), owe=0)
+    _rest_save(d)
+    _event(False, f"{tk} entry filled {got} of {want} — cancel sent for the rest; WATCHING that order until the broker "
+                  f"confirms it is done (a late fill gets added to the hold, or sold if you have closed)")
+
+
+def _rest_sell(eng, tk, r, n, px):
+    """make a hold for n late-filled contracts and sell them by the chase."""
+    holds = load_positions(eng)
+    t, exp, right, strike = _parse_occ(r["option_id"])
+    holds[tk] = dict(ticker=tk, option_id=r["option_id"], qty=int(n), limit=None, entry=round(px, 2) if px else None,
+                     coid=None, opened=int(time.time()), dry=False, trade_id=f"{r['trade_id']}-late",
+                     strike=strike, expiry=exp, right=right, note="late fill of a partly filled entry")
+    save_positions(eng)
+    _log_manual("open", holds[tk], _context(eng, tk), source="late_fill")
+    flatten(eng, tk, "LATE FILL of a partly filled entry (you had closed)", EXIT_CHASE)
+    _event(False, f"{tk} {n}x {r['option_id']} filled LATE after you closed — SELLING it now (chase)")
+
+
+def _check_rest(eng):
+    d = _rest_load()
+    if not d:
+        return
+    changed = False
+    for coid, r in list(d.items()):
+        tk = r["tk"]
+        holds = load_positions(eng)
+        cur = holds.get(tk)
+        if r.get("owe"):                             # late contracts waiting for an exit in flight to finish
+            if not cur or cur.get("option_id") != r["option_id"]:
+                if cur:
+                    _event(False, f"{tk} {r['owe']}x {r['option_id']} filled late, but you now hold {cur.get('option_id')} "
+                                  f"— CLOSE THE {r['option_id']} IN THE BROKER APP")
+                else:
+                    _rest_sell(eng, tk, r, r["owe"], r.get("px_late") or r["px0"])
+                r["owe"] = 0; changed = True
+            if r.get("final") and not r.get("owe"):
+                d.pop(coid, None); changed = True
+            continue
+        if time.time() - float(r.get("polled") or 0) < REPLACE_POLL_S:
+            continue                                 # one status call per order per 1.5 s (rate limits)
+        r["polled"] = time.time(); changed = True
+        st, fq, fpx, readable = _status(eng, coid)
+        if not readable:
+            continue
+        extra = int(fq) - int(r["counted"])
+        if extra > 0:
+            px = ((fpx * fq - r["px0"] * r["counted"]) / extra) if fpx and r["px0"] else (fpx or r["px0"])
+            r["counted"] = int(fq); r["px_late"] = round(px, 4); changed = True
+            if cur and cur.get("option_id") == r["option_id"] and not cur.get("pending") and not cur.get("exit_coid"):
+                q0 = int(cur.get("qty") or 0)
+                e0 = float(cur.get("entry") or px)
+                cur["qty"] = q0 + extra
+                cur["entry"] = round((e0 * q0 + px * extra) / (q0 + extra), 2)
+                _fit_ladder(cur)
+                save_positions(eng)
+                _cash_stale()
+                _event(True, f"{tk} the rest of the entry filled LATE: +{extra}x @ {px:.2f} — hold is now "
+                             f"{cur['qty']}x @ {cur['entry']:.2f}")
+            elif cur and cur.get("option_id") == r["option_id"]:
+                r["owe"] = extra                     # an exit is in flight on the old size: sell these after it
+                _event(False, f"{tk} +{extra}x filled LATE while the hold is closing — will sell them once that exit is done")
+            elif cur:
+                _event(False, f"{tk} {extra}x {r['option_id']} filled LATE, but you now hold {cur.get('option_id')} "
+                              f"— CLOSE THE {r['option_id']} IN THE BROKER APP")
+            else:
+                _rest_sell(eng, tk, r, extra, px)
+        if st in ("FILLED", "CANCELLED", "FAILED"):
+            if r.get("owe"):
+                r["final"] = True                     # keep it until the owed contracts are sold
+            else:
+                d.pop(coid, None)
+            changed = True
+        elif time.time() - float(r.get("at") or 0) > REST_GIVE_UP_S:
+            _event(False, f"{tk} entry order {coid[:8]} still {st} after {REST_GIVE_UP_S // 60:.0f} min — stopped watching; "
+                          f"CHECK THE BROKER for a working order")
+            d.pop(coid, None); changed = True
+        elif time.time() - float(r.get("cancel_at") or 0) > REST_RECANCEL_S:
+            try:
+                eng.webull.cancel_option_order(coid)       # the first cancel can be refused mid-fill
+            except Exception as e:                         # noqa: BLE001
+                print(f"  ⚠️ re-cancel rest {tk}: {type(e).__name__}: {e}")
+            r["cancel_at"] = time.time(); changed = True
+    if changed:
+        _rest_save(d)
 
 
 # ---- shadow tracking of manual exits (operator, 2026-10-16) ---------------
@@ -2999,6 +3124,10 @@ def poll(eng, now_mod=None):
         # sits over the weekend. Confirming exits before the sweep likewise
         # stops it re-firing on something already sold.
         _check_entries(eng)
+        try:
+            _check_rest(eng)                    # the rest of partly filled entries (late fills)
+        except Exception as e:                  # noqa: BLE001 -- deliberate
+            print(f"  ⚠️ rest check: {type(e).__name__}: {e}")
         _check_exits(eng)
         try:
             _check_hard_stop(eng)               # before triggers, so a staged entry cannot fire past -$150
