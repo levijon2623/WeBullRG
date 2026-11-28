@@ -12,6 +12,12 @@ sessions, 5s ~100 minutes), so history exists only if it is collected.
     --s5   intraday, every ~90 minutes: the last 1,200 5-second bars
            (100 minutes), merged into the day's file
 
+FUTURES (2026-11-27, user: explore Webull's new endpoints): the same pulls for the ES / NQ / RTY front month
+(get_futures_footprint, category US_FUTURES; works on the current plan -- per-minute aggressor buy / sell with volume
+at every price, the futures absorption picture). Same files, keyed by contract symbol (e.g. ESZ6). The front month
+rolls 8 days before the quarterly expiry (third Friday of Mar / Jun / Sep / Dec). A futures failure is reported but
+never fails the stock collection.
+
 Output: _footprint_cache/{M1|S5}-YYYY-MM-DD.json  {symbol: {bar time: bar}}
 (git-ignored). Bars are merged by time, so overlapping pulls are harmless and
 a re-run never loses anything. REST only, from the bot folder (the shared
@@ -53,6 +59,31 @@ def pull(timespan):
     r = WV._client().market_data.get_footprint(
         symbols=TICKERS, category="US_STOCK", timespan=timespan, count=1200,
         real_time_required=False, trading_sessions="RTH")
+    return r.json() if hasattr(r, "json") else r
+
+
+FUT_ROOTS = ("ES", "NQ", "RTY")
+MONTH_CODE = {3: "H", 6: "M", 9: "U", 12: "Z"}
+
+
+def front_month(today):
+    """the quarterly contract in front: the first expiry (third Friday) whose roll (expiry - 8 days) is still ahead."""
+    for y in (today.year, today.year + 1):
+        for m in (3, 6, 9, 12):
+            exp = dt.date(y, m, 15) + dt.timedelta(days=(4 - dt.date(y, m, 15).weekday()) % 7)
+            if today < exp - dt.timedelta(days=8):
+                return f"{MONTH_CODE[m]}{y % 10}"
+    return None
+
+
+def pull_futures(timespan, today):
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(ROOT, ".env"))
+    import webull_viewer_data as WV
+    code = front_month(today)
+    fm = getattr(WV._client(), "futures_market_data")
+    r = fm.get_futures_footprint(",".join(f"{root}{code}" for root in FUT_ROOTS), "US_FUTURES", timespan, count=1200,
+                                 real_time_required=False, trading_sessions="RTH")
     return r.json() if hasattr(r, "json") else r
 
 
@@ -98,10 +129,17 @@ def main():
     if not is_trading_day(today):
         print(f"  {today}: not a trading day -- nothing to collect")
         return
+    failed = False
     try:
         merge(ts, pull(ts))
     except Exception as e:                      # noqa: BLE001 -- report, never dump headers
         print(f"  {ts} pull failed: {type(e).__name__}: {str(e)[-200:]}")
+        failed = True
+    try:
+        merge(ts, pull_futures(ts, today))
+    except Exception as e:                      # noqa: BLE001 -- the futures are extra: report, never fail the run
+        print(f"  {ts} FUTURES pull failed: {type(e).__name__}: {str(e)[-200:]}")
+    if failed:
         sys.exit(1)
 
 

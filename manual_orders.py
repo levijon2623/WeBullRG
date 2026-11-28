@@ -776,6 +776,43 @@ def _position_gone_all(eng):
     return not any(p.get("quantity") for p in pos)
 
 
+# ---- Webull cash activities (2026-11-27) ------------------------------------
+# The account's own ledger of money in / out and every trade's cash (incl. trades placed in the Webull app), via the
+# SDK's /openapi/trade/activities/cash. Pulled every ACTIVITIES_EVERY_S into live/account_activities.json (last
+# ACTIVITIES_KEEP rows, newest first) for qual_test, which records withdrawals / deposits from it (wire + its fee = one
+# transfer; checked 11-27: every hand-recorded withdrawal since 11-23 matched to the cent). Read-only, one REST call.
+ACTIVITIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live", "account_activities.json")
+ACTIVITIES_EVERY_S = 300.0
+ACTIVITIES_KEEP = 300
+_ACT = {"at": 0.0}
+
+
+def _pull_activities(eng, force=False):
+    now = time.time()
+    if not force and now - _ACT["at"] < ACTIVITIES_EVERY_S:
+        return
+    _ACT["at"] = now
+    try:
+        tc = getattr(eng.webull, "trade_client", None)
+        acct = getattr(eng.webull, "account_id", None)
+        if tc is None or not acct:
+            return
+        r = tc.activity.get_activities(acct, page_size=100)
+        j = r.json() if hasattr(r, "json") else r
+        rows = j if isinstance(j, list) else (j or {}).get("data", [])
+    except Exception as e:                      # noqa: BLE001 -- a ledger read must never touch trading
+        print(f"  ⚠️ cash activities: {type(e).__name__}: {str(e)[:120]}")
+        return
+    old = (_read(ACTIVITIES_FILE) or {}).get("rows", [])
+    seen = {x.get("id") for x in rows}
+    merged = rows + [x for x in old if x.get("id") not in seen]
+    merged.sort(key=lambda x: str(x.get("biz_time") or ""), reverse=True)
+    try:
+        _write_atomic(ACTIVITIES_FILE, {"ts": now, "rows": merged[:ACTIVITIES_KEEP]})
+    except OSError as e:
+        print(f"  ⚠️ cash activities write: {type(e).__name__}: {e}")
+
+
 def _check_hard_stop(eng):
     """The day's hard stops (see DAY_HARD_STOP_USD / HARD_GIVEBACK_FRAC). Every HARD_STOP_EVERY_S; never raises."""
     now = time.time()
@@ -3203,7 +3240,11 @@ def poll(eng, now_mod=None):
             print(f"  ⚠️ rest check: {type(e).__name__}: {e}")
         _check_exits(eng)
         try:
-            _check_hard_stop(eng)               # before triggers, so a staged entry cannot fire past -$150
+            _pull_activities(eng)               # the account's cash ledger (transfers, app trades), every 5 min
+        except Exception as e:                  # noqa: BLE001 -- deliberate
+            print(f"  ⚠️ activities: {type(e).__name__}: {e}")
+        try:
+            _check_hard_stop(eng)               # before triggers, so a staged entry cannot fire past the day limit
         except Exception as e:                  # noqa: BLE001 -- deliberate
             print(f"  ⚠️ hard stop check: {type(e).__name__}: {e}")
         _check_levels(eng)

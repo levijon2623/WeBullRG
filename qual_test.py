@@ -51,6 +51,51 @@ def dump(name, obj):
     os.replace(p + ".tmp", p)
 
 
+ACTIVITIES = os.path.join(ROOT, "live", "account_activities.json")
+
+
+def merge_webull_transfers(C, start):
+    """Transfers from Webull's own cash ledger (manual_orders pulls it into live/account_activities.json; 2026-11-27).
+    A WITHDRAW / DEPOSIT and the FEES row with the same biz_time are ONE transfer (wire + its fee -- how the user counts
+    it; every hand-recorded withdrawal since 11-23 matched that to the cent). A hand-recorded transfer on the same date
+    within $0.02 just gains the Webull id; anything new is added with Webull's exact time. Returns True if C changed."""
+    rows = (jload(ACTIVITIES, {}) or {}).get("rows", [])
+    groups = defaultdict(list)
+    for x in rows:
+        if x.get("activity_type") in ("WITHDRAW", "DEPOSIT", "FEES"):
+            groups[x.get("biz_time")].append(x)
+    changed = False
+    tr = C.setdefault("transfers", [])
+    for bt, xs in groups.items():
+        main = [x for x in xs if x.get("activity_type") in ("WITHDRAW", "DEPOSIT")]
+        if len(main) != 1:
+            continue                                  # a fee on its own (no transfer) is not money moved by the user
+        m = main[0]
+        kind = "withdrawal" if m["activity_type"] == "WITHDRAW" else "deposit"
+        fee = sum(abs(float(x.get("net_amount") or 0)) for x in xs if x.get("activity_type") == "FEES")
+        amt = round(abs(float(m.get("net_amount") or 0)) + (fee if kind == "withdrawal" else -fee), 2)
+        try:
+            t = datetime.fromisoformat(str(bt).replace("Z", "+00:00")).astimezone(NY)
+        except ValueError:
+            continue
+        d = t.date().isoformat()
+        if d < start or any(x.get("webull_id") == m.get("id") for x in tr):
+            continue
+        same = [x for x in tr if x.get("kind") == kind and x.get("date") == d and abs(float(x["amount"]) - amt) <= 0.02
+                and not x.get("webull_id")]
+        if same:
+            same[0]["webull_id"] = m.get("id")
+            same[0].setdefault("ts", t.timestamp())
+        else:
+            tr.append(dict(date=d, kind=kind, amount=amt, ts=t.timestamp(), webull_id=m.get("id"),
+                           note=f"from Webull cash activities: {m.get('activity_sub_type')} {m.get('net_amount')}"
+                                + (f" + fee {fee:.2f}" if fee else "")))
+        changed = True
+    if changed:
+        tr.sort(key=lambda x: (x["date"], x.get("ts") or 0))
+    return changed
+
+
 def sample():
     """one balance sample if the account is flat and the bot's state is fresh."""
     s = jload(STATE, {})
@@ -140,6 +185,8 @@ def status():
     C = jload(os.path.join(DIR, "cash.json"), {"transfers": []})
     if not R:
         return None
+    if merge_webull_transfers(C, R["start"]):          # Webull's own ledger: withdrawals / deposits recorded exactly
+        dump("cash.json", C)
     snaps = []
     try:
         snaps = [json.loads(l) for l in open(os.path.join(DIR, "snaps.jsonl"), encoding="utf-8")]
