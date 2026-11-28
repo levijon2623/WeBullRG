@@ -1207,7 +1207,7 @@ async function pollTick(){
     applyTick(k);
     const s = LIVE.tickers && LIVE.tickers[liveTk];
     if(liveSeries && s && s.px_live && s.px_live[0] >= (PX_STAMP[liveTk] || 0)){
-      try { liveSeries.px.update({time: s.px_live[0], value: s.px_live[1]}); PX_STAMP[liveTk] = s.px_live[0]; }
+      try { liveSeries.px.update({time: pxSlot(s.px_live[0]), value: s.px_live[1]}); PX_STAMP[liveTk] = s.px_live[0]; }
       catch { /* an older point than the series' last: the next full draw fixes it */ }
     }
     liveList(LIVE); renderHold();
@@ -1215,6 +1215,14 @@ async function pollTick(){
   } catch { /* the 5-s state carries on */ }
   finally { tickBusy = false; }
 }
+/* THE FORMING POINT'S SLOT (user, 2026-11-27: "everything moves forward and back a space or two with every tick,
+   ratchets sideways twice and then resets"). Lightweight Charts gives every distinct time its own equal-width slot.
+   px_live is stamped at the current SECOND, so each 0.5-s tick in a new second appended a slot (the chart stepped
+   left), and the 2.5-s full draw then rebuilt closed minutes + ONE forming point (it stepped back). Drawn at its
+   minute's start, the forming point owns one slot for the whole minute and update() just moves its value. The x
+   position is unchanged -- slots are index-spaced, so "now" and "this minute" sit in the same place -- and the
+   price readout is still the live tick. live_state keeps the second stamp (other readers use it). */
+const pxSlot = t => Math.floor(t / 60) * 60;
 /* patch a tick into LIVE (also called by livePoll on a fresh 5-s state, so the slower file can never pull the
    price line back to an older value) */
 function applyTick(k){
@@ -1326,9 +1334,11 @@ function liveDraw(d, s){
   const pxData = (s.px || []).filter(([t]) => Math.floor(t / 86400) === pxDay)
     .map(([t,v]) => ({time:t, value:v}));
   if(s.px_live){
-    const [lt, lv] = s.px_live;
+    const lt = pxSlot(s.px_live[0]), lv = s.px_live[1];      // one slot per forming minute (pxSlot)
     if(!pxData.length || lt > pxData[pxData.length-1].time)
       pxData.push({time:lt, value:lv});
+    else if(lt === pxData[pxData.length-1].time)
+      pxData[pxData.length-1].value = lv;
   }
   liveSeries.px.setData(pxData);
   LIVE_PX_T = pxData.map(p => p.time);                       // the minute grid trades snap to (drawTrades)
