@@ -1,0 +1,127 @@
+{
+ "date": "2026-11-27",
+ "slug": "flow-summary",
+ "kicker": "Options flow · Fri Nov 27, 2026 · half day, at the close",
+ "h1": "Holiday rally: the hedges moved up with it",
+ "sub": "S&amp;P +1.7%, Nasdaq +2.6%, Russell +1.9% on the post-Thanksgiving half day: a gap up, a dip to 10:05, a climb into the 13:00 close. Same-day delta was sold again; Russell puts moved up a third time this week.",
+ "tiles": [
+  [
+   "728.73",
+   "SPY +1.67% · low 719.62 at 10:05"
+  ],
+  [
+   "650.73",
+   "QQQ +2.65% · high at the close"
+  ],
+  [
+   "273.75",
+   "IWM +1.86% · high at the close"
+  ],
+  [
+   "−$1.5B",
+   "same-day delta, S&P + Nasdaq, sold"
+  ]
+ ],
+ "bars_title": "Same-day delta: sold again on an up day",
+ "bars_sub": "Delta bought (+) or sold (−) in today's expiry, $ billion · sold on most days, up days included",
+ "bars_max": 1,
+ "bars_x0": 110,
+ "bars": [
+  {
+   "label": "SPY",
+   "v": 0.75,
+   "text": "−$0.75B"
+  },
+  {
+   "label": "QQQ",
+   "v": 0.55,
+   "text": "−$0.55B"
+  },
+  {
+   "label": "SPX",
+   "v": 0.39,
+   "text": "−$0.39B"
+  },
+  {
+   "label": "NDX",
+   "v": 0.19,
+   "text": "+$0.19B"
+  },
+  {
+   "label": "IWM",
+   "v": 0.1,
+   "text": "+$0.10B"
+  },
+  {
+   "label": "RUT",
+   "v": 0.05,
+   "text": "+$0.05B"
+  }
+ ],
+ "table_sub": "MON = settled by Monday's open interest · $ = premium, $ million",
+ "trades": [
+  {
+   "d": "IWM",
+   "k": "Dec-18 $256 put  →  $258 / $260 puts",
+   "side": "x",
+   "chip": "ROLL",
+   "n": "33k → 56k + 49k",
+   "prem": 17.7,
+   "note": "256s sold at the bid (opened Wed), 258s/260s paid at the ask: third step up this week",
+   "pend": "MON"
+  },
+  {
+   "d": "NDX",
+   "k": "Jan-15 $23,500 put",
+   "side": "b",
+   "chip": "BOUGHT",
+   "n": "1,525",
+   "prem": 49.3,
+   "note": "at the ask in a multi-leg trade; only 45 open before: likely new, ~12% below NDX",
+   "pend": "MON"
+  },
+  {
+   "d": "NDX",
+   "k": "Dec-4 $25,400 call",
+   "side": "s",
+   "chip": "SOLD",
+   "n": "370",
+   "prem": 44.0,
+   "note": "434 opened Wed at ~$602; today ~$1,189: roughly doubled, if the same holder",
+   "pend": "MON"
+  },
+  {
+   "d": "QQQ",
+   "k": "Nov-30 – Dec-4 $647 … $605 puts",
+   "side": "x",
+   "chip": "SPREAD",
+   "n": "~178k",
+   "prem": 101.8,
+   "note": "mostly paid at the ask, mostly multi-leg: short-dated put spreads",
+   "pend": "MON"
+  },
+  {
+   "d": "SPY",
+   "k": "Dec-18 $690 / $680 puts",
+   "side": "x",
+   "chip": "SPREAD",
+   "n": "20.8k / 13.9k",
+   "prem": 21.1,
+   "note": "690s at the ask, 680s at the bid: a put spread bought (sizes uneven)",
+   "pend": "MON"
+  },
+  {
+   "d": "IWM",
+   "k": "Jan-15 $270 put + $285 call",
+   "side": "x",
+   "chip": "SPREAD",
+   "n": "16.7k / 17.9k",
+   "prem": 18.9,
+   "note": "multi-leg, no side recorded: a collar or a risk reversal",
+   "pend": "MON"
+  }
+ ],
+ "confirm": "settled by Monday's open interest",
+ "read": "<b>Read:</b> hedgers followed the rally rather than fought it: Russell puts moved up with the price, Nasdaq's near-dated puts outdrew its calls. Wednesday's trades, per today's open interest: the S&amp;P desk rolled its December put spreads 15 points lower. Positioning, not a signal.",
+ "mon": "Side inferred from ask/bid · open interest is start-of-day · left out: SPX box / synthetic legs (Dec-18 8000P/7000C/7000P, Jan-15 4000/4050C, Dec-31 6000C/8000P) and deep in-the-money SPY / QQQ / NDX legs"
+}
