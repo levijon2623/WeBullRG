@@ -16,7 +16,8 @@ FUTURES (2026-11-27, user: explore Webull's new endpoints): the same pulls for t
 (get_futures_footprint, category US_FUTURES; works on the current plan -- per-minute aggressor buy / sell with volume
 at every price, the futures absorption picture). Same files, keyed by contract symbol (e.g. ESZ6). The front month
 rolls 8 days before the quarterly expiry (third Friday of Mar / Jun / Sep / Dec). A futures failure is reported but
-never fails the stock collection.
+never fails the stock collection. OWN FILES (FUT-{M1|S5}-DATE.json): the stock files stay stock-only -- the order-flow
+forward test reads every M1 file as a stock session (futures trade on stock holidays, e.g. Thanksgiving 11-26).
 
 Output: _footprint_cache/{M1|S5}-YYYY-MM-DD.json  {symbol: {bar time: bar}}
 (git-ignored). Bars are merged by time, so overlapping pulls are harmless and
@@ -87,7 +88,7 @@ def pull_futures(timespan, today):
     return r.json() if hasattr(r, "json") else r
 
 
-def merge(timespan, body):
+def merge(timespan, body, prefix=""):
     """Split the pull by ET session date and merge into the per-day files."""
     by_day = {}
     for x in body or []:
@@ -99,7 +100,7 @@ def merge(timespan, body):
             by_day.setdefault(t.date().isoformat(), {}).setdefault(sym, {})[t.isoformat()] = b
     os.makedirs(OUT, exist_ok=True)
     for day, syms in sorted(by_day.items()):
-        p = os.path.join(OUT, f"{timespan}-{day}.json")
+        p = os.path.join(OUT, f"{prefix}{timespan}-{day}.json")
         have = {}
         if os.path.exists(p):
             with open(p, encoding="utf-8") as f:
@@ -136,7 +137,7 @@ def main():
         print(f"  {ts} pull failed: {type(e).__name__}: {str(e)[-200:]}")
         failed = True
     try:
-        merge(ts, pull_futures(ts, today))
+        merge(ts, pull_futures(ts, today), prefix="FUT-")
     except Exception as e:                      # noqa: BLE001 -- the futures are extra: report, never fail the run
         print(f"  {ts} FUTURES pull failed: {type(e).__name__}: {str(e)[-200:]}")
     if failed:
